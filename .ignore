@@ -1,0 +1,12 @@
+build/bin/
+build/_toolchains/
+dist/
+tmp/
+logs/
+data/
+certs/
+mobile/android/.gradle/
+mobile/android/.kotlin/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/local.properties

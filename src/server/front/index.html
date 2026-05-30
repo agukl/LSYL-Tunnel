@@ -1,0 +1,355 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>LSYL Tunnel Server</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body oncontextmenu="return false">
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">L</div>
+        <div>
+          <div class="brand-title">LSYL Tunnel</div>
+          <div class="brand-subtitle">Server Ops</div>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-tab="overview">运行总览</button>
+        <button class="nav-item" data-tab="users">用户认证</button>
+        <button class="nav-item" data-tab="forwards">转发端口</button>
+        <button class="nav-item" data-tab="security">服务安全</button>
+        <button class="nav-item" data-tab="blocks">封禁查看</button>
+        <button class="nav-item" data-tab="business">业务流水</button>
+        <button class="nav-item" data-tab="requests">请求流水</button>
+        <button class="nav-item" data-tab="analysis">日志分析</button>
+      </nav>
+      <div class="sidebar-note">
+        <div>配置文件</div>
+        <strong id="pathConfig">-</strong>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div id="toast" class="toast hidden"></div>
+
+      <section class="status-strip">
+        <div class="status-pill" id="servicePill"><span></span><strong>读取中</strong></div>
+        <div class="status-text" id="summaryText">正在读取服务端状态...</div>
+      </section>
+      <div id="configLockBanner" class="hint-card error hidden"></div>
+
+      <section id="overview" class="panel tab-panel active">
+        <div class="panel-head">
+          <div>
+            <h2>运行总览</h2>
+            <p>这里展示服务入口、监控接口以及当前服务运行指标。</p>
+          </div>
+        </div>
+        <div class="cards">
+          <div class="card"><small>隧道入口</small><strong id="listenAddrView">-</strong></div>
+          <div class="card"><small>监控地址</small><strong id="monitorAddrView">-</strong></div>
+          <div class="card"><small>活跃连接</small><strong id="activeStreamsView">0</strong></div>
+          <div class="card"><small>认证成功</small><strong id="authOKView">0</strong></div>
+          <div class="card warn"><small>认证失败</small><strong id="authFailedView">0</strong></div>
+          <div class="card warn"><small>策略拒绝</small><strong id="policyRejectedView">0</strong></div>
+          <div class="card warn"><small>目标失败</small><strong id="dialFailedView">0</strong></div>
+          <div class="card"><small>累计流量</small><strong id="trafficView">0 B</strong></div>
+        </div>
+        <div class="hint-card" id="validationBox"></div>
+        <div class="panel-actions">
+          <button class="btn muted" data-action="refresh">刷新</button>
+          <button class="btn success" data-action="restart">重启服务</button>
+        </div>
+      </section>
+
+      <section id="business" class="panel tab-panel log-panel business-panel">
+        <div class="panel-head">
+          <div>
+            <h2>业务流水</h2>
+            <p>这里从底层日志提炼业务视图，合并连接生命周期，并补齐失败请求和转发检查。</p>
+          </div>
+          <div class="panel-head-tools">
+            <button class="btn small muted" data-action="refresh">刷新</button>
+          </div>
+        </div>
+        <div class="detail-grid business-summary">
+          <div class="detail-card warn"><small>业务失败</small><strong id="businessFailedCountView">0</strong></div>
+          <div class="detail-card"><small>业务记录</small><strong id="businessCountView">0</strong></div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-title">
+            <h3>最近业务事件</h3>
+            <span>来自 business/request 日志，按时间倒序展示抽象后的业务记录。</span>
+          </div>
+          <div class="table-wrap detail-table-wrap">
+            <table class="data-table detail-table readable-table business-log-table" id="businessTable">
+              <thead>
+                <tr>
+                  <th>时间段</th>
+                  <th>动作</th>
+                  <th>结果</th>
+                  <th>用户 / 来源</th>
+                  <th>端口 / 目标</th>
+                  <th>流量 / 耗时</th>
+                  <th>原因</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="requests" class="panel tab-panel log-panel request-panel">
+        <div class="panel-head">
+          <div>
+            <h2>请求流水</h2>
+          </div>
+          <div class="panel-head-tools">
+            <button class="btn small muted" data-action="refresh">刷新</button>
+          </div>
+        </div>
+        <div class="detail-section">
+          <div class="table-wrap detail-table-wrap">
+            <table class="data-table detail-table readable-table request-log-table" id="requestTable">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>来源</th>
+                  <th>请求</th>
+                  <th>结果</th>
+                  <th>用户 / 客户端</th>
+                  <th>端口 / 目标</th>
+                  <th>响应</th>
+                  <th>原始内容</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="blocks" class="panel tab-panel">
+        <div class="panel-head">
+          <div>
+            <h2>封禁查看</h2>
+            <p>临时封禁来自运行状态，永久封禁来自永久封禁文件；两类封禁分开查看。</p>
+          </div>
+          <div class="panel-head-tools">
+            <button class="btn small muted" data-action="refresh">刷新</button>
+          </div>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-card warn"><small>临时封禁</small><strong id="temporaryBlockedCountView">0</strong></div>
+          <div class="detail-card warn"><small>永久封禁</small><strong id="permanentBlockedCountView">0</strong></div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-title">
+            <h3>临时封禁</h3>
+            <span>认证失败触发的限时封禁，可在这里手动解封。</span>
+          </div>
+          <div class="table-wrap detail-table-wrap">
+            <table class="data-table detail-table" id="temporaryBlockedTable">
+              <thead>
+                <tr>
+                  <th>来源 IP</th>
+                  <th>剩余时间</th>
+                  <th>自动解封时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-title">
+            <h3>永久封禁</h3>
+            <span>无效请求过多后写入永久封禁文件，服务重启后仍然生效。</span>
+          </div>
+          <div class="table-wrap detail-table-wrap">
+            <table class="data-table detail-table" id="permanentBlockedTable">
+              <thead>
+                <tr>
+                  <th>来源 IP</th>
+                  <th>封禁类型</th>
+                  <th>来源文件</th>
+                  <th>说明</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="analysis" class="panel tab-panel">
+        <div class="panel-head">
+          <div>
+            <h2>日志分析</h2>
+            <p>选择一段时间的日志，分析成功来源和封禁来源，并查询 IP 归属地与网络类型。</p>
+          </div>
+        </div>
+        <div class="analysis-controls">
+          <label>开始时间<input id="analysisStart" type="datetime-local"></label>
+          <label>结束时间<input id="analysisEnd" type="datetime-local"></label>
+          <button id="analysisRunBtn" class="btn primary" type="button">分析日志</button>
+        </div>
+        <div id="analysisMessage" class="hint-card hidden"></div>
+        <div class="detail-grid">
+          <div class="detail-card"><small>成功来源 IP</small><strong id="analysisSuccessIPCount">0</strong></div>
+          <div class="detail-card warn"><small>封禁来源 IP</small><strong id="analysisBlockedIPCount">0</strong></div>
+          <div class="detail-card"><small>业务日志</small><strong id="analysisBusinessEventCount">0</strong></div>
+          <div class="detail-card"><small>请求日志</small><strong id="analysisRequestEventCount">0</strong></div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-title">
+            <h3>成功来源</h3>
+            <span id="analysisPathsView">按所选时间读取 business/request 日志。</span>
+          </div>
+          <div class="table-wrap detail-table-wrap">
+            <table class="data-table detail-table" id="analysisSuccessTable">
+              <thead>
+                <tr>
+                  <th>来源 IP</th>
+                  <th>归属地 / 网络</th>
+                  <th>成功 / 请求</th>
+                  <th>用户 / 客户端</th>
+                  <th>目标 / 流量</th>
+                  <th>首次 / 末次</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-title">
+            <h3>封禁来源</h3>
+            <span>来自封禁业务事件和被封禁的请求事件。</span>
+          </div>
+          <div class="table-wrap detail-table-wrap">
+            <table class="data-table detail-table" id="analysisBlockedTable">
+              <thead>
+                <tr>
+                  <th>来源 IP</th>
+                  <th>归属地 / 网络</th>
+                  <th>封禁 / 失败</th>
+                  <th>封禁类型</th>
+                  <th>原因</th>
+                  <th>首次 / 末次</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="users" class="panel tab-panel">
+        <div class="panel-head">
+          <div>
+            <h2>用户认证</h2>
+            <p>这里只维护账号、密码哈希和禁用状态；端口放通在“转发端口”页按用户分配。</p>
+          </div>
+          <button id="addUserBtn" class="btn small muted">新增用户</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="usersTable">
+            <thead>
+              <tr>
+                <th>用户名</th>
+                <th>绑定端口</th>
+                <th>禁用</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="help">删除或禁用用户前，请先检查“转发端口”页是否仍有端口分配给该用户。</p>
+        <div class="panel-actions">
+          <button class="btn muted" data-action="refresh">刷新</button>
+          <button class="btn primary" data-action="save">保存配置</button>
+        </div>
+      </section>
+
+      <section id="forwards" class="panel tab-panel">
+        <div class="panel-head">
+          <div>
+            <h2>转发端口</h2>
+            <p>只配置代理方向、允许用户和代理端口；端口规则后续统一重构。</p>
+          </div>
+          <button id="addForwardBtn" class="btn small muted">新增转发</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="forwardsTable">
+            <thead>
+              <tr>
+                <th>方向</th>
+                <th>放通用户</th>
+                <th>服务端端口</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="panel-actions">
+          <button class="btn muted" data-action="refresh">刷新</button>
+          <button class="btn primary" data-action="save">保存配置</button>
+        </div>
+      </section>
+
+      <section id="security" class="panel tab-panel">
+        <div class="panel-head">
+          <div>
+            <h2>服务安全</h2>
+            <p>服务入口、TLS 身份、本地密码密封密钥和认证失败封禁参数。</p>
+          </div>
+        </div>
+        <div class="form-grid">
+          <label>监听地址<input id="listenAddr" type="text" readonly aria-readonly="true" tabindex="-1"></label>
+          <label>监控地址<input id="monitorAddr" type="text" readonly aria-readonly="true" tabindex="-1"></label>
+          <label>日志级别<input id="logLevel" type="text" readonly aria-readonly="true" tabindex="-1"></label>
+          <label>TLS 证书<input id="tlsCert" type="text" readonly aria-readonly="true" tabindex="-1"></label>
+          <label>TLS 私钥<input id="tlsKey" type="text" readonly aria-readonly="true" tabindex="-1"></label>
+          <label>TLS 最低版本<input id="tlsMinVersion" type="text" readonly aria-readonly="true" tabindex="-1"></label>
+          <label>握手超时秒<input id="handshakeTimeout" type="number"></label>
+          <label>目标连接超时秒<input id="dialTimeout" type="number"></label>
+          <label>最大握手字节<input id="maxHandshakeBytes" type="number"></label>
+          <label>失败统计窗口秒<input id="authFailWindow" type="number"></label>
+          <label>失败封禁阈值<input id="authFailThreshold" type="number"></label>
+          <label>封禁时长秒<input id="authFailBlock" type="number"></label>
+          <label>密封密钥 ID<input id="sealKeyID" type="text" readonly aria-readonly="true" tabindex="-1"></label>
+          <label>密封私钥<input id="sealPrivate" type="text" readonly aria-readonly="true" tabindex="-1"></label>
+          <label>密封公钥<input id="sealPublic" type="text" readonly aria-readonly="true" tabindex="-1"></label>
+          <label>密封过期时间<input id="sealExpires" type="text" readonly aria-readonly="true" tabindex="-1"></label>
+        </div>
+        <div class="panel-actions">
+          <button class="btn muted" data-action="refresh">刷新</button>
+          <button class="btn primary" data-action="save">保存配置</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+  <div id="resetModal" class="modal hidden">
+    <div class="modal-card">
+      <h3>重置用户密码</h3>
+      <p>用户：<strong id="resetUserName">-</strong></p>
+      <label>新密码<input id="resetPassword" type="password" autocomplete="new-password"></label>
+      <label>确认新密码<input id="resetPasswordConfirm" type="password" autocomplete="new-password"></label>
+      <div class="modal-actions">
+        <button id="resetCancelBtn" class="btn muted" type="button">取消</button>
+        <button id="resetConfirmBtn" class="btn primary" type="button">确认重置</button>
+      </div>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+# Build outputs
+/build/
+/dist/
+
+# Runtime and test artifacts
+/tmp/
+/logs/
+/data/
+/src/client/tmp/
+/src/client/secrets/
+/src/server/tmp/
+/mobile/android/.gradle/
+/mobile/android/.kotlin/
+/mobile/android/build/
+/mobile/android/app/build/
+/mobile/android/local.properties
+
+# Obsolete pre-src generated folders kept out of source layout
+/client/bin/
+/client/tmp/
+/server/bin/
+/server/tmp/
+/server/data/
+
+# Local machine credentials and generated TLS material
+/certs/
+/secrets/
+*.key
+*.p12
+*.pfx
+*.pem
+
+# Windows/editor noise
+*.exe~
+*.log
+Thumbs.db
+.DS_Store
+
+.idea/
+src/client/cert
+src/client/conf
+src/server/conf
+src/server/logs
