@@ -16,21 +16,30 @@ if not exist ".\src\client\cert\server.crt" (
   exit /b 1
 )
 if exist "%PACKAGE_DIR%" (
-  rmdir /s /q "%PACKAGE_DIR%"
+  rmdir /s /q "%PACKAGE_DIR%" 2>nul
   if exist "%PACKAGE_DIR%" (
-    echo [ERROR] Cannot clean package directory:
+    echo [WARN] Cannot remove package directory completely; refreshing files in place:
     echo   %PACKAGE_DIR%
-    echo Close any running client from this directory, or choose another package path.
-    exit /b 1
+    if exist "%PACKAGE_DIR%\install-client-app.cmd" del /f /q "%PACKAGE_DIR%\install-client-app.cmd" >nul 2>nul
+    if exist "%PACKAGE_DIR%\uninstall-client-app.cmd" del /f /q "%PACKAGE_DIR%\uninstall-client-app.cmd" >nul 2>nul
+    if exist "%PACKAGE_DIR%\uninstall-client-app.ps1" del /f /q "%PACKAGE_DIR%\uninstall-client-app.ps1" >nul 2>nul
+    if exist "%PACKAGE_DIR%\bin\*-svc.exe" del /f /q "%PACKAGE_DIR%\bin\*-svc.exe" >nul 2>nul
+    if exist "%PACKAGE_DIR%\bin\lsyl-tunnel-profile.exe" del /f /q "%PACKAGE_DIR%\bin\lsyl-tunnel-profile.exe" >nul 2>nul
+    if exist "%PACKAGE_DIR%\install-client-app.cmd" (echo [ERROR] Cannot remove obsolete install-client-app.cmd & exit /b 1)
+    if exist "%PACKAGE_DIR%\uninstall-client-app.cmd" (echo [ERROR] Cannot remove obsolete uninstall-client-app.cmd & exit /b 1)
+    if exist "%PACKAGE_DIR%\uninstall-client-app.ps1" (echo [ERROR] Cannot remove obsolete uninstall-client-app.ps1 & exit /b 1)
+    if exist "%PACKAGE_DIR%\bin\*-svc.exe" (echo [ERROR] Cannot remove obsolete service executable from client package & exit /b 1)
+    if exist "%PACKAGE_DIR%\bin\lsyl-tunnel-profile.exe" (echo [ERROR] Cannot remove obsolete profile tool from client package & exit /b 1)
   )
 )
-mkdir "%PACKAGE_DIR%\bin" || exit /b 1
-mkdir "%PACKAGE_DIR%\conf" || exit /b 1
-mkdir "%PACKAGE_DIR%\assets" || exit /b 1
-mkdir "%PACKAGE_DIR%\cert" || exit /b 1
-mkdir "%PACKAGE_DIR%\secrets" || exit /b 1
-mkdir "%PACKAGE_DIR%\tmp\gui" || exit /b 1
-mkdir "%PACKAGE_DIR%\installer\Languages" || exit /b 1
+if not exist "%PACKAGE_DIR%" mkdir "%PACKAGE_DIR%" || exit /b 1
+if not exist "%PACKAGE_DIR%\bin" mkdir "%PACKAGE_DIR%\bin" || exit /b 1
+if not exist "%PACKAGE_DIR%\conf" mkdir "%PACKAGE_DIR%\conf" || exit /b 1
+if not exist "%PACKAGE_DIR%\assets" mkdir "%PACKAGE_DIR%\assets" || exit /b 1
+if not exist "%PACKAGE_DIR%\cert" mkdir "%PACKAGE_DIR%\cert" || exit /b 1
+if not exist "%PACKAGE_DIR%\secrets" mkdir "%PACKAGE_DIR%\secrets" || exit /b 1
+if not exist "%PACKAGE_DIR%\tmp\gui" mkdir "%PACKAGE_DIR%\tmp\gui" || exit /b 1
+if not exist "%PACKAGE_DIR%\installer\Languages" mkdir "%PACKAGE_DIR%\installer\Languages" || exit /b 1
 copy /y ".\build\bin\client\lsyl-tunnel-client-gui.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\build\bin\client\lsyl-tunnel-client-lite.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\src\client\conf\client.yaml" "%PACKAGE_DIR%\conf\client.yaml" >nul || exit /b 1

@@ -12,6 +12,7 @@
 4. [Windows 服务部署](windows-service-zh.md)
 5. [签名发布指南](release-signing-zh.md)
 6. [正规发布验收清单](release-readiness-checklist-zh.md)
+7. [版本号升级手册](version-bump-zh.md)
 
 ## 过程与归档资料
 

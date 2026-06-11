@@ -3,9 +3,7 @@
 /dist/
 
 # Runtime and test artifacts
-/tmp/
-/logs/
-/data/
+/runtime/
 /src/client/tmp/
 /src/client/secrets/
 /src/server/tmp/
@@ -21,6 +19,11 @@
 /server/bin/
 /server/tmp/
 /server/data/
+
+# Legacy local generated folders kept ignored during layout migration
+/tmp/
+/logs/
+/data/
 
 # Local machine credentials and generated TLS material
 /certs/

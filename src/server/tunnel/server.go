@@ -23,6 +23,7 @@ import (
 type Server struct {
 	cfg                 Config
 	listener            net.Listener
+	tlsConfig           *tls.Config
 	httpSrv             *http.Server
 	users               map[string]UserConfig
 	fails               *failTracker
@@ -39,18 +40,40 @@ type Server struct {
 	maxRecentEvents     int
 	requestLog          *jsonlLog
 	businessLog         *jsonlLog
+	entryTrafficLog     *jsonlLog
+	flowTrafficLog      *jsonlLog
 	requestSeq          atomic.Uint64
 	permanentBlockHits  *permanentBlockHitAggregator
+	connLimiter         *connectionLimiter
+	userStreams         *userStreamLimiter
 
-	activeStreams  atomic.Int64
-	totalStreams   atomic.Int64
-	authOK         atomic.Int64
-	authFailed     atomic.Int64
-	policyRejected atomic.Int64
-	dialFailed     atomic.Int64
-	bytesUp        atomic.Int64
-	bytesDown      atomic.Int64
+	activeStreams                   atomic.Int64
+	totalStreams                    atomic.Int64
+	userStreamLimitRejected         atomic.Int64
+	entryProtocolRejected           atomic.Int64
+	entryHTTPProbeRejected          atomic.Int64
+	entryNonTLSRejected             atomic.Int64
+	entryUnsupportedTLSRejected     atomic.Int64
+	entrySlowHandshakeRejected      atomic.Int64
+	entryClosedHandshakeRejected    atomic.Int64
+	entryOversizedHandshakeRejected atomic.Int64
+	entryUnsupportedRequestRejected atomic.Int64
+	entryInvalidHandshakeRejected   atomic.Int64
+	entryPermanentBlocksCreated     atomic.Int64
+	entryPermanentBlockHits         atomic.Int64
+	connectionsRejected             atomic.Int64
+	connectionsRejectedGlobal       atomic.Int64
+	connectionsRejectedPerIPActive  atomic.Int64
+	connectionsRejectedPerIPNewRate atomic.Int64
+	authOK                          atomic.Int64
+	authFailed                      atomic.Int64
+	policyRejected                  atomic.Int64
+	dialFailed                      atomic.Int64
+	bytesUp                         atomic.Int64
+	bytesDown                       atomic.Int64
 }
+
+var errUserStreamLimit = errors.New("too many concurrent streams for account")
 
 func Run(ctx context.Context, cfg Config, logf transport.LogFunc) error {
 	srv, err := Start(ctx, cfg, logf)
@@ -88,7 +111,8 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 	}
 	srv := &Server{
 		cfg:                cfg,
-		listener:           tls.NewListener(ln, tlsCfg),
+		listener:           ln,
+		tlsConfig:          tlsCfg,
 		users:              make(map[string]UserConfig),
 		fails:              fails,
 		reverseListeners:   make(map[string]*reverseListener),
@@ -98,7 +122,11 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 		maxRecentEvents:    cfg.Runtime.RecentEvents,
 		requestLog:         newJSONLLog(cfg.Runtime.RequestLogFile),
 		businessLog:        newJSONLLog(cfg.Runtime.BusinessLogFile),
+		entryTrafficLog:    newJSONLLog(cfg.Runtime.EntryTrafficLogFile),
+		flowTrafficLog:     newJSONLLog(cfg.Runtime.FlowTrafficLogFile),
 		permanentBlockHits: newPermanentBlockHitAggregator(defaultPermanentBlockHitLogInterval),
+		connLimiter:        newConnectionLimiter(cfg.Security),
+		userStreams:        newUserStreamLimiter(cfg.Security),
 	}
 	for _, user := range cfg.Auth.Users {
 		srv.users[user.Username] = user
@@ -150,6 +178,12 @@ func (s *Server) Close() error {
 	if s.businessLog != nil {
 		_ = s.businessLog.Close()
 	}
+	if s.entryTrafficLog != nil {
+		_ = s.entryTrafficLog.Close()
+	}
+	if s.flowTrafficLog != nil {
+		_ = s.flowTrafficLog.Close()
+	}
 	return err
 }
 
@@ -167,8 +201,59 @@ func (s *Server) acceptLoop(ctx context.Context) {
 			s.log("accept failed: %v", err)
 			continue
 		}
-		go s.handleConn(conn)
+		remoteIP := remoteHost(conn.RemoteAddr())
+		if s.fails.blockKind(remoteIP) == blockedPermanent {
+			s.recordEntryTrafficLog(EntryTrafficLogEntry{
+				Event:      "connection_rejected",
+				Result:     "blocked",
+				RemoteAddr: addrString(conn.RemoteAddr()),
+				RemoteIP:   remoteIP,
+				LocalAddr:  addrString(conn.LocalAddr()),
+				Code:       "ip_permanently_blocked",
+				Message:    "permanently blocked ip",
+				Abnormal:   true,
+			})
+			s.recordPermanentBlockedHit(remoteIP)
+			_ = conn.Close()
+			continue
+		}
+		release, ok, reason := s.connLimiter.acquire(remoteIP)
+		if !ok {
+			s.recordConnectionRejected(reason)
+			limit, windowSec := s.connectionRejectLimit(reason)
+			s.recordEntryTrafficLog(EntryTrafficLogEntry{
+				Event:      "connection_rejected",
+				Result:     "rejected",
+				RemoteAddr: addrString(conn.RemoteAddr()),
+				RemoteIP:   remoteIP,
+				LocalAddr:  addrString(conn.LocalAddr()),
+				Code:       reason,
+				Message:    "entry connection limit reached",
+				Abnormal:   true,
+				Limit:      limit,
+				WindowSec:  windowSec,
+			})
+			_ = conn.Close()
+			continue
+		}
+		acceptedAt := time.Now()
+		go func() {
+			defer release()
+			s.handleAcceptedConn(conn, acceptedAt)
+		}()
 	}
+}
+
+func (s *Server) handleAcceptedConn(conn net.Conn, acceptedAt time.Time) {
+	peekConn := &entryPeekConn{Conn: conn}
+	tlsConn := tls.Server(peekConn, s.tlsConfig)
+	_ = tlsConn.SetDeadline(time.Now().Add(time.Duration(s.cfg.Security.HandshakeTimeoutSec) * time.Second))
+	if err := tlsConn.Handshake(); err != nil {
+		s.rejectEntryProtocol(tlsConn, remoteHost(tlsConn.RemoteAddr()), "", classifyEntryHandshakeError(err, peekConn.Prefix()), "", true, time.Since(acceptedAt).Milliseconds())
+		_ = tlsConn.Close()
+		return
+	}
+	s.handleConn(tlsConn)
 }
 
 func (s *Server) handleConn(conn net.Conn) {
@@ -220,24 +305,11 @@ func (s *Server) handleConn(conn net.Conn) {
 	_ = conn.SetDeadline(time.Now().Add(time.Duration(s.cfg.Security.HandshakeTimeoutSec) * time.Second))
 	var req protocol.OpenRequest
 	if err := protocol.ReadJSON(conn, &req, s.cfg.Security.MaxHandshakeBytes); err != nil {
-		s.authFailed.Add(1)
-		if s.fails.addProtocolFailure(remoteIP) {
-			s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "auth", Result: "blocked", RemoteIP: remoteIP, Code: "ip_permanently_blocked", Message: "too many invalid tunnel requests"})
-		}
-		resp := protocol.OpenResponse{OK: false, Code: "bad_request", Message: "invalid tunnel request"}
-		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "request", Result: "failed", RemoteIP: remoteIP, Code: "bad_request", Message: "invalid tunnel request"})
-		recordRequest(protocol.OpenRequest{}, "failed", "not_attempted", resp, err)
-		_ = protocol.WriteJSON(conn, resp)
+		s.rejectEntryProtocol(conn, remoteIP, requestID, classifyEntryReadError(err), "invalid tunnel request", true, time.Since(requestStarted).Milliseconds())
 		return
 	}
 	if req.Type != "open" && req.Type != "login" && req.Type != "health" && req.Type != "forward_check" && req.Type != "reverse" && req.Type != "reverse_listen" && req.Type != "reverse_stream" {
-		if s.fails.addProtocolFailure(remoteIP) {
-			s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "auth", Result: "blocked", RemoteIP: remoteIP, Code: "ip_permanently_blocked", Message: "too many invalid tunnel requests"})
-		}
-		resp := protocol.OpenResponse{OK: false, Code: "bad_request", Message: "unsupported request"}
-		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "request", Result: "failed", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: req.ListenAddr, Code: "bad_request", Message: "unsupported request"})
-		recordRequest(req, "failed", "not_attempted", resp, nil)
-		_ = protocol.WriteJSON(conn, resp)
+		s.rejectEntryProtocol(conn, remoteIP, requestID, entryCodeUnsupportedRequest, "unsupported request", false, time.Since(requestStarted).Milliseconds())
 		return
 	}
 	user, ok := s.users[req.Username]
@@ -296,9 +368,19 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 	if req.Type == "reverse_stream" {
 		if err := s.registerReverseStream(conn, req, user, requestID); err != nil {
-			s.dialFailed.Add(1)
-			resp := protocol.OpenResponse{OK: false, Code: "reverse_failed", Message: err.Error()}
-			s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_stream", Result: "failed", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: req.ListenAddr, Code: "reverse_failed", Message: err.Error()})
+			code := "reverse_failed"
+			if errors.Is(err, errUserStreamLimit) {
+				code = "user_stream_limit"
+			} else {
+				s.dialFailed.Add(1)
+			}
+			resp := protocol.OpenResponse{OK: false, Code: code, Message: err.Error()}
+			flowLog := s.flowTrafficEntry(requestID, "stream_failed", "reverse_stream", "failed", remoteIP, req)
+			flowLog.Code = code
+			flowLog.Message = err.Error()
+			flowLog.Abnormal = true
+			s.recordFlowTrafficLog(flowLog)
+			s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_stream", Result: "failed", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: req.ListenAddr, Code: code, Message: err.Error()})
 			recordRequest(req, "failed", "ok", resp, nil)
 			_ = protocol.WriteJSON(conn, resp)
 			return
@@ -315,10 +397,30 @@ func (s *Server) handleConn(conn net.Conn) {
 		_ = protocol.WriteJSON(conn, resp)
 		return
 	}
+	releaseUserStream, ok := s.userStreams.acquire(req.Username)
+	if !ok {
+		s.userStreamLimitRejected.Add(1)
+		resp := protocol.OpenResponse{OK: false, Code: "user_stream_limit", Message: errUserStreamLimit.Error()}
+		flowLog := s.flowTrafficEntry(requestID, "stream_rejected", "open", "rejected", remoteIP, req)
+		flowLog.Code = "user_stream_limit"
+		flowLog.Message = resp.Message
+		flowLog.Abnormal = true
+		s.recordFlowTrafficLog(flowLog)
+		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "open", Result: "denied", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, Code: "user_stream_limit", Message: resp.Message})
+		recordRequest(req, "denied", "ok", resp, nil)
+		_ = protocol.WriteJSON(conn, resp)
+		return
+	}
+	defer releaseUserStream()
 	targetConn, err := net.DialTimeout("tcp", req.Target, time.Duration(s.cfg.Security.DialTimeoutSec)*time.Second)
 	if err != nil {
 		s.dialFailed.Add(1)
 		resp := protocol.OpenResponse{OK: false, Code: "target_unreachable", Message: "target service is unreachable"}
+		flowLog := s.flowTrafficEntry(requestID, "stream_failed", "open", "failed", remoteIP, req)
+		flowLog.Code = "target_unreachable"
+		flowLog.Message = resp.Message
+		flowLog.Abnormal = true
+		s.recordFlowTrafficLog(flowLog)
 		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "open", Result: "failed", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, Code: "target_unreachable", Message: "target service is unreachable"})
 		recordRequest(req, "failed", "ok", resp, nil)
 		_ = protocol.WriteJSON(conn, resp)
@@ -336,8 +438,35 @@ func (s *Server) handleConn(conn net.Conn) {
 	defer s.activeStreams.Add(-1)
 	started := time.Now()
 	s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "open", Result: "connected", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, Code: "ok"})
-	targetToClient, clientToTarget := transport.ProxyPair(targetConn, conn, &s.bytesUp, &s.bytesDown)
-	s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "open", Result: "closed", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, Code: "closed", DurationMS: time.Since(started).Milliseconds(), BytesUp: clientToTarget, BytesDown: targetToClient})
+	targetToClient, clientToTarget := transport.ProxyPairWithOptions(targetConn, conn, &s.bytesUp, &s.bytesDown, s.proxyOptions())
+	durationMS := time.Since(started).Milliseconds()
+	flowLog := s.flowTrafficEntry(requestID, "stream_closed", "open", "closed", remoteIP, req)
+	flowLog.Code = "closed"
+	flowLog.DurationMS = durationMS
+	flowLog.BytesUp = clientToTarget
+	flowLog.BytesDown = targetToClient
+	s.recordFlowTrafficLog(flowLog)
+	s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "open", Result: "closed", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, Code: "closed", DurationMS: durationMS, BytesUp: clientToTarget, BytesDown: targetToClient})
+}
+
+func (s *Server) proxyOptions() transport.ProxyOptions {
+	return transport.ProxyOptions{RateLimitBytesPerSec: s.cfg.Security.StreamRateLimitBytesPerSec}
+}
+
+func (s *Server) flowTrafficEntry(requestID, event, kind, result, remoteIP string, req protocol.OpenRequest) FlowTrafficLogEntry {
+	return FlowTrafficLogEntry{
+		RequestID:   requestID,
+		Event:       event,
+		Kind:        kind,
+		Result:      result,
+		RemoteIP:    remoteIP,
+		Username:    req.Username,
+		ClientID:    req.ClientID,
+		ForwardName: req.ForwardName,
+		Direction:   req.Direction,
+		Target:      req.Target,
+		ListenAddr:  req.ListenAddr,
+	}
 }
 
 func (s *Server) authorize(user UserConfig, target string) error {
@@ -476,20 +605,86 @@ func (s *Server) startMonitor(ctx context.Context) {
 }
 
 func (s *Server) status() map[string]any {
+	connectionLimits := s.connLimiter.snapshot()
+	userStreamLimits := s.userStreams.snapshot()
 	return map[string]any{
-		"service":         "lsyl-tunnel-server",
-		"listen_addr":     s.Addr(),
-		"uptime_sec":      int64(time.Since(s.started).Seconds()),
-		"active_streams":  s.activeStreams.Load(),
-		"total_streams":   s.totalStreams.Load(),
-		"auth_ok":         s.authOK.Load(),
-		"auth_failed":     s.authFailed.Load(),
-		"policy_rejected": s.policyRejected.Load(),
-		"dial_failed":     s.dialFailed.Load(),
-		"bytes_up":        s.bytesUp.Load(),
-		"bytes_down":      s.bytesDown.Load(),
-		"blocked_ips":     s.fails.snapshotBlocked(),
-		"recent_events":   s.recentEventSnapshot(),
+		"service":              "lsyl-tunnel-server",
+		"listen_addr":          s.Addr(),
+		"uptime_sec":           int64(time.Since(s.started).Seconds()),
+		"active_connections":   connectionLimits["active"],
+		"tracked_remote_ips":   connectionLimits["tracked_ips"],
+		"connections_rejected": s.connectionsRejected.Load(),
+		"connection_limits": map[string]any{
+			"active":                            connectionLimits["active"],
+			"tracked_remote_ips":                connectionLimits["tracked_ips"],
+			"max_concurrent_connections":        s.cfg.Security.MaxConcurrentConnections,
+			"max_concurrent_connections_per_ip": s.cfg.Security.MaxConcurrentConnectionsPerIP,
+			"new_connection_rate_window_sec":    s.cfg.Security.ConnectionRateWindowSec,
+			"max_new_connections_per_ip_window": s.cfg.Security.MaxNewConnectionsPerIPWindow,
+		},
+		"connection_rejections": map[string]any{
+			"total":                      s.connectionsRejected.Load(),
+			"global_concurrent":          s.connectionsRejectedGlobal.Load(),
+			"per_ip_concurrent":          s.connectionsRejectedPerIPActive.Load(),
+			"per_ip_new_connection_rate": s.connectionsRejectedPerIPNewRate.Load(),
+		},
+		"entry_security": map[string]any{
+			"protocol_rejected_total":       s.entryProtocolRejected.Load(),
+			"http_probe_rejected":           s.entryHTTPProbeRejected.Load(),
+			"non_tls_rejected":              s.entryNonTLSRejected.Load(),
+			"unsupported_tls_rejected":      s.entryUnsupportedTLSRejected.Load(),
+			"slow_handshake_rejected":       s.entrySlowHandshakeRejected.Load(),
+			"closed_handshake_rejected":     s.entryClosedHandshakeRejected.Load(),
+			"oversized_handshake_rejected":  s.entryOversizedHandshakeRejected.Load(),
+			"unsupported_request_rejected":  s.entryUnsupportedRequestRejected.Load(),
+			"invalid_handshake_rejected":    s.entryInvalidHandshakeRejected.Load(),
+			"permanent_blocks_created":      s.entryPermanentBlocksCreated.Load(),
+			"permanent_block_hits_observed": s.entryPermanentBlockHits.Load(),
+		},
+		"user_stream_limits": map[string]any{
+			"active":                             userStreamLimits.Active,
+			"tracked_users":                      userStreamLimits.TrackedUsers,
+			"active_by_user":                     userStreamLimits.ActiveByUser,
+			"max_concurrent_streams_per_user":    userStreamLimits.MaxPerUser,
+			"stream_rate_limit_bytes_per_sec":    s.cfg.Security.StreamRateLimitBytesPerSec,
+			"user_stream_limit_rejections_total": s.userStreamLimitRejected.Load(),
+		},
+		"user_stream_limit_rejected": s.userStreamLimitRejected.Load(),
+		"active_streams":             s.activeStreams.Load(),
+		"total_streams":              s.totalStreams.Load(),
+		"auth_ok":                    s.authOK.Load(),
+		"auth_failed":                s.authFailed.Load(),
+		"policy_rejected":            s.policyRejected.Load(),
+		"dial_failed":                s.dialFailed.Load(),
+		"bytes_up":                   s.bytesUp.Load(),
+		"bytes_down":                 s.bytesDown.Load(),
+		"blocked_ips":                s.fails.snapshotBlocked(),
+		"recent_events":              s.recentEventSnapshot(),
+	}
+}
+
+func (s *Server) recordConnectionRejected(reason string) {
+	s.connectionsRejected.Add(1)
+	switch reason {
+	case "global_concurrent_connections":
+		s.connectionsRejectedGlobal.Add(1)
+	case "per_ip_concurrent_connections":
+		s.connectionsRejectedPerIPActive.Add(1)
+	case "per_ip_new_connection_rate":
+		s.connectionsRejectedPerIPNewRate.Add(1)
+	}
+}
+
+func (s *Server) connectionRejectLimit(reason string) (int, int) {
+	switch reason {
+	case "global_concurrent_connections":
+		return s.cfg.Security.MaxConcurrentConnections, 0
+	case "per_ip_concurrent_connections":
+		return s.cfg.Security.MaxConcurrentConnectionsPerIP, 0
+	case "per_ip_new_connection_rate":
+		return s.cfg.Security.MaxNewConnectionsPerIPWindow, s.cfg.Security.ConnectionRateWindowSec
+	default:
+		return 0, 0
 	}
 }
 
@@ -700,4 +895,11 @@ func remoteHost(addr net.Addr) string {
 		return addr.String()
 	}
 	return host
+}
+
+func addrString(addr net.Addr) string {
+	if addr == nil {
+		return ""
+	}
+	return addr.String()
 }

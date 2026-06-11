@@ -97,7 +97,7 @@ func NewApp() *App {
 	app := &App{
 		workspace:  workspace,
 		configPath: detectClientConfigPath(workspace),
-		crashLog:   filepath.Join(workspace, "tmp", "gui", "client-gui.crash.log"),
+		crashLog:   filepath.Join(appTmpDir(workspace), "gui", "client-gui.crash.log"),
 	}
 	_ = os.MkdirAll(filepath.Dir(app.crashLog), 0o755)
 	return app
@@ -147,7 +147,9 @@ func (a *App) run() error {
 		return err
 	}
 	a.panelURL = "http://" + ln.Addr().String() + "/"
-	_ = os.WriteFile(filepath.Join(a.workspace, "tmp", "gui", "client-gui.url"), []byte(a.panelURL), 0o644)
+	tmpDir := filepath.Join(appTmpDir(a.workspace), "gui")
+	_ = os.MkdirAll(tmpDir, 0o755)
+	_ = os.WriteFile(filepath.Join(tmpDir, "client-gui.url"), []byte(a.panelURL), 0o644)
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
@@ -211,4 +213,11 @@ func (a *App) run() error {
 	a.scheduleInitialShow(web, 900*time.Millisecond)
 	a.mw.Run()
 	return nil
+}
+
+func appTmpDir(workspace string) string {
+	if fileExists(filepath.Join(workspace, "go.mod")) {
+		return filepath.Join(workspace, "build", "tmp")
+	}
+	return filepath.Join(workspace, "tmp")
 }

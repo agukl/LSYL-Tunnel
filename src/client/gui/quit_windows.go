@@ -43,7 +43,7 @@ func requestQuitRunningInstance() error {
 }
 
 func readClientPanelURL(workspace string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(workspace, "tmp", "gui", "client-gui.url"))
+	data, err := os.ReadFile(filepath.Join(appTmpDir(workspace), "gui", "client-gui.url"))
 	if err != nil {
 		return "", err
 	}

@@ -47,6 +47,48 @@ type BusinessLogEntry struct {
 	BytesDown   int64  `json:"bytes_down,omitempty"`
 }
 
+type EntryTrafficLogEntry struct {
+	Time                  string `json:"time"`
+	RequestID             string `json:"request_id,omitempty"`
+	Event                 string `json:"event"`
+	Result                string `json:"result"`
+	RemoteAddr            string `json:"remote_addr,omitempty"`
+	RemoteIP              string `json:"remote_ip,omitempty"`
+	LocalAddr             string `json:"local_addr,omitempty"`
+	Code                  string `json:"code,omitempty"`
+	Message               string `json:"message,omitempty"`
+	Abnormal              bool   `json:"abnormal,omitempty"`
+	DurationMS            int64  `json:"duration_ms,omitempty"`
+	Limit                 int    `json:"limit,omitempty"`
+	WindowSec             int    `json:"window_sec,omitempty"`
+	PermanentBlockCreated bool   `json:"permanent_block_created,omitempty"`
+}
+
+type FlowTrafficLogEntry struct {
+	Time                     string `json:"time"`
+	RequestID                string `json:"request_id,omitempty"`
+	Event                    string `json:"event"`
+	Kind                     string `json:"kind"`
+	Result                   string `json:"result"`
+	RemoteIP                 string `json:"remote_ip,omitempty"`
+	Username                 string `json:"username,omitempty"`
+	ClientID                 string `json:"client_id,omitempty"`
+	ForwardName              string `json:"forward_name,omitempty"`
+	Direction                string `json:"direction,omitempty"`
+	Target                   string `json:"target,omitempty"`
+	ListenAddr               string `json:"listen_addr,omitempty"`
+	Code                     string `json:"code,omitempty"`
+	Message                  string `json:"message,omitempty"`
+	Abnormal                 bool   `json:"abnormal,omitempty"`
+	DurationMS               int64  `json:"duration_ms,omitempty"`
+	BytesUp                  int64  `json:"bytes_up,omitempty"`
+	BytesDown                int64  `json:"bytes_down,omitempty"`
+	BytesTotal               int64  `json:"bytes_total,omitempty"`
+	AverageBytesPerSec       int64  `json:"average_bytes_per_sec,omitempty"`
+	RateLimitBytesPerSec     int    `json:"rate_limit_bytes_per_sec,omitempty"`
+	MaxConcurrentStreamsUser int    `json:"max_concurrent_streams_per_user,omitempty"`
+}
+
 type jsonlLog struct {
 	mu          sync.Mutex
 	basePath    string
@@ -161,6 +203,57 @@ func (s *Server) recordBusinessLog(entry BusinessLogEntry) {
 	if err := s.businessLog.Write(entry); err != nil {
 		s.log("write business log failed: %v", err)
 	}
+}
+
+func (s *Server) recordEntryTrafficLog(entry EntryTrafficLogEntry) {
+	if entry.Time == "" {
+		entry.Time = time.Now().Format(time.RFC3339)
+	}
+	data, err := json.Marshal(entry)
+	if err == nil {
+		s.log("entry_traffic_log %s", string(data))
+	}
+	if s.entryTrafficLog == nil {
+		return
+	}
+	if err := s.entryTrafficLog.Write(entry); err != nil {
+		s.log("write entry traffic log failed: %v", err)
+	}
+}
+
+func (s *Server) recordFlowTrafficLog(entry FlowTrafficLogEntry) {
+	if entry.Time == "" {
+		entry.Time = time.Now().Format(time.RFC3339)
+	}
+	if entry.BytesTotal == 0 {
+		entry.BytesTotal = entry.BytesUp + entry.BytesDown
+	}
+	if entry.AverageBytesPerSec == 0 {
+		entry.AverageBytesPerSec = averageBytesPerSec(entry.BytesTotal, entry.DurationMS)
+	}
+	if entry.RateLimitBytesPerSec == 0 {
+		entry.RateLimitBytesPerSec = s.cfg.Security.StreamRateLimitBytesPerSec
+	}
+	if entry.MaxConcurrentStreamsUser == 0 {
+		entry.MaxConcurrentStreamsUser = s.cfg.Security.MaxConcurrentStreamsPerUser
+	}
+	data, err := json.Marshal(entry)
+	if err == nil {
+		s.log("flow_traffic_log %s", string(data))
+	}
+	if s.flowTrafficLog == nil {
+		return
+	}
+	if err := s.flowTrafficLog.Write(entry); err != nil {
+		s.log("write flow traffic log failed: %v", err)
+	}
+}
+
+func averageBytesPerSec(bytesTotal, durationMS int64) int64 {
+	if bytesTotal <= 0 || durationMS <= 0 {
+		return 0
+	}
+	return bytesTotal * 1000 / durationMS
 }
 
 func (s *Server) recordBusinessLogFromEvent(event RuntimeEvent) {

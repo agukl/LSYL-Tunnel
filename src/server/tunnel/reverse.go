@@ -111,14 +111,23 @@ func (s *Server) registerReverseStream(conn net.Conn, req protocol.OpenRequest, 
 	if inbound == nil {
 		return fmt.Errorf("reverse stream has expired")
 	}
+	releaseUserStream, ok := s.userStreams.acquire(req.Username)
+	if !ok {
+		s.userStreamLimitRejected.Add(1)
+		_ = inbound.Close()
+		s.closeReverseListenerIfIdle(rl)
+		return errUserStreamLimit
+	}
 	s.closeReverseListenerIfIdle(rl)
 	transport.EnableTCPKeepAlive(conn, reverseControlHeartbeatInterval)
 	_ = conn.SetDeadline(time.Time{})
 	if err := protocol.WriteJSON(conn, protocol.OpenResponse{OK: true, Code: "ok", Message: "connected"}); err != nil {
+		releaseUserStream()
 		_ = inbound.Close()
 		return err
 	}
 	go func() {
+		defer releaseUserStream()
 		defer inbound.Close()
 		defer conn.Close()
 		s.totalStreams.Add(1)
@@ -126,8 +135,15 @@ func (s *Server) registerReverseStream(conn net.Conn, req protocol.OpenRequest, 
 		defer s.activeStreams.Add(-1)
 		started := time.Now()
 		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_stream", Result: "connected", Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: listenAddr, Code: "ok"})
-		inboundToClient, clientToInbound := transport.ProxyPair(inbound, conn, &s.bytesUp, &s.bytesDown)
-		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_stream", Result: "closed", Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: listenAddr, Code: "closed", DurationMS: time.Since(started).Milliseconds(), BytesUp: inboundToClient, BytesDown: clientToInbound})
+		inboundToClient, clientToInbound := transport.ProxyPairWithOptions(inbound, conn, &s.bytesUp, &s.bytesDown, s.proxyOptions())
+		durationMS := time.Since(started).Milliseconds()
+		flowLog := s.flowTrafficEntry(requestID, "stream_closed", "reverse_stream", "closed", remoteHost(conn.RemoteAddr()), req)
+		flowLog.Code = "closed"
+		flowLog.DurationMS = durationMS
+		flowLog.BytesUp = inboundToClient
+		flowLog.BytesDown = clientToInbound
+		s.recordFlowTrafficLog(flowLog)
+		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_stream", Result: "closed", Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: listenAddr, Code: "closed", DurationMS: durationMS, BytesUp: inboundToClient, BytesDown: clientToInbound})
 	}()
 	return nil
 }
@@ -241,6 +257,16 @@ func (s *Server) handleReverseInbound(rl *reverseListener, inbound net.Conn) {
 	control := rl.pickControl()
 	if control == nil {
 		s.dialFailed.Add(1)
+		s.recordFlowTrafficLog(FlowTrafficLogEntry{
+			Event:      "reverse_inbound_failed",
+			Kind:       "reverse_inbound",
+			Result:     "failed",
+			RemoteIP:   remoteHost(inbound.RemoteAddr()),
+			ListenAddr: rl.addr,
+			Code:       "no_active_client",
+			Message:    "reverse stream has no active client",
+			Abnormal:   true,
+		})
 		s.recordEvent(RuntimeEvent{Kind: "reverse_inbound", Result: "failed", ListenAddr: rl.addr, Code: "no_active_client", Message: "reverse stream has no active client"})
 		_ = inbound.Close()
 		s.closeReverseListenerIfIdle(rl)
@@ -259,6 +285,16 @@ func (s *Server) handleReverseInbound(rl *reverseListener, inbound net.Conn) {
 	timer := time.AfterFunc(timeout, func() {
 		if pending := rl.takePending(streamID); pending != nil {
 			s.dialFailed.Add(1)
+			s.recordFlowTrafficLog(FlowTrafficLogEntry{
+				Event:      "reverse_inbound_failed",
+				Kind:       "reverse_inbound",
+				Result:     "failed",
+				RemoteIP:   remoteHost(pending.RemoteAddr()),
+				ListenAddr: rl.addr,
+				Code:       "client_stream_timeout",
+				Message:    "timed out waiting for client stream",
+				Abnormal:   true,
+			})
 			s.recordEvent(RuntimeEvent{Kind: "reverse_inbound", Result: "failed", ListenAddr: rl.addr, Code: "client_stream_timeout", Message: "timed out waiting for client stream"})
 			_ = pending.Close()
 			s.closeReverseListenerIfIdle(rl)

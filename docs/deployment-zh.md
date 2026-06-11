@@ -30,14 +30,14 @@ deploy/windows/test/    自检脚本
 ```text
 build/bin/client/
 build/bin/server/
+build/tmp/
 dist/
-tmp/
-logs/
+runtime/logs/
 certs/
-data/
+runtime/data/
 ```
 
-这些目录可以重新生成，不应作为核心源码维护。
+这些目录可以重新生成，不应作为核心源码维护。服务端生产日志在 `logs` 下按类型分目录保存：`request`、`business`、`entry-traffic`、`flow-traffic` 和 `service`。
 
 ## 2. 服务端证书边界
 

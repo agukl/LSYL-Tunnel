@@ -4,6 +4,8 @@ LSYL Tunnel is a username/password-authenticated TCP tunnel and port-forwarding 
 
 The identity boundary is the account password, not a client certificate. TLS protects tunnel traffic and lets the client verify the server. The client does not present a certificate or private key.
 
+Current release version: `1.1.0`
+
 Chinese documentation: [docs/README-zh.md](docs/README-zh.md)
 System flow overview (Chinese): [docs/system-flow-zh.md](docs/system-flow-zh.md)
 
@@ -14,12 +16,16 @@ src/client/             Client CLI, GUI, Win7 Lite UI, config, bundled trust cer
 src/server/             Server CLI, Web admin console, service wrapper, config, tunnel logic
 src/internal/           Shared protocol, transport, password, credential sealing, service helpers
 src/cmd/                Admin tools: lsyl-tunnel-passwd, lsyl-tunnel-cert
-build/bin/              Local build outputs, split by client and server
+mobile/android/         Android client source
+build/bin/              Local build outputs, split by client, server, and profile tool
+build/tmp/              Local test, GUI, and packaging scratch files
+runtime/data/           Local development runtime state
+runtime/logs/           Local development runtime logs, grouped by log type
 deploy/windows/         Windows scripts grouped by build/run/cert/service/app/inno/test
 docs/                   Chinese documentation
 ```
 
-Generated/runtime directories such as `build/bin/client`, `build/bin/server`, `dist`, `tmp`, `logs`, root `certs`, and `data` are ignored by `.gitignore`.
+Generated/runtime directories such as `build/bin`, `build/tmp`, `dist`, `runtime`, and root `certs` are ignored by `.gitignore`. Legacy local `tmp`, `logs`, and `data` folders remain ignored during migration, but new development outputs should use `build/tmp` and `runtime`.
 
 ## Main Windows Entry Points
 

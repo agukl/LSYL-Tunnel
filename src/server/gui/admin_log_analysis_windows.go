@@ -179,8 +179,8 @@ func parseLogAnalysisTime(text string, endOfDay bool) (time.Time, error) {
 }
 
 func (a *App) buildLogAnalysis(ctx context.Context, cfg tunnel.Config, start, end time.Time, lookupGeo bool) (*logAnalysisResult, error) {
-	businessPath := a.runtimeLogPath(cfg.Runtime.BusinessLogFile, "business.jsonl")
-	requestPath := a.runtimeLogPath(cfg.Runtime.RequestLogFile, "request.jsonl")
+	businessPath := a.runtimeLogPath(cfg.Runtime.BusinessLogFile, filepath.Join("business", "business.jsonl"))
+	requestPath := a.runtimeLogPath(cfg.Runtime.RequestLogFile, filepath.Join("request", "request.jsonl"))
 	result := &logAnalysisResult{
 		OK:      true,
 		Message: "日志分析完成",

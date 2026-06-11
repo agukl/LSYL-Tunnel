@@ -1,5 +1,5 @@
 #define AppName "LSYL Tunnel Server"
-#define AppVersion "1.0.1"
+#define AppVersion "1.1.0"
 ; This script is copied into the server distributable package:
 ;   LSYL Tunnel Server\installer\server.iss
 ; It compiles the files from that package directory, not from source.
@@ -37,6 +37,11 @@ Name: "{app}\conf"; Flags: uninsneveruninstall
 Name: "{app}\certs"; Flags: uninsneveruninstall
 Name: "{app}\data"; Flags: uninsneveruninstall
 Name: "{app}\logs"; Flags: uninsneveruninstall
+Name: "{app}\logs\request"; Flags: uninsneveruninstall
+Name: "{app}\logs\business"; Flags: uninsneveruninstall
+Name: "{app}\logs\entry-traffic"; Flags: uninsneveruninstall
+Name: "{app}\logs\flow-traffic"; Flags: uninsneveruninstall
+Name: "{app}\logs\service"; Flags: uninsneveruninstall
 
 [Files]
 Source: "{#SourceRoot}\bin\lsyl-tunnel-server.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
@@ -162,8 +167,8 @@ begin
   HelperExe := ExpandConstant('{app}\bin\lsyl-tunnel-server-gui.exe');
   ServiceExe := ExpandConstant('{app}\bin\lsyl-tunnel-server-svc.exe');
   ConfigFile := ExpandConstant('{app}\conf\server.yaml');
-  LogFile := ExpandConstant('{app}\logs\server-service.log');
-  ResultFile := ExpandConstant('{app}\logs\service-register-error.txt');
+  LogFile := ExpandConstant('{app}\logs\service\server-service.log');
+  ResultFile := ExpandConstant('{app}\logs\service\service-register-error.txt');
   DeleteFile(ResultFile);
   if not FileExists(HelperExe) then begin
     MsgBox('服务端 Windows 服务注册失败：缺少管理台程序。' + #13#10 + HelperExe, mbError, MB_OK);

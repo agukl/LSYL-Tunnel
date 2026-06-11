@@ -1,10 +1,12 @@
 build/bin/
 build/_toolchains/
 dist/
+build/tmp/
+runtime/
+certs/
 tmp/
 logs/
 data/
-certs/
 mobile/android/.gradle/
 mobile/android/.kotlin/
 mobile/android/build/

@@ -60,6 +60,30 @@ pbkdf2-sha256:<iterations>:<salt-base64>:<hash-base64>
 
 服务端 GUI 中，“用户认证”页只维护账号；“转发端口”页按用户分配端口放通。服务端目标默认限制在本机回环地址，核心校验不会接受全局放行策略。
 
+## 连接级限流
+
+服务端在接受 TCP 连接后、进入 TLS 和认证握手前，会先执行轻量连接限制：
+
+- `security.max_concurrent_connections`
+- `security.max_concurrent_connections_per_ip`
+- `security.connection_rate_window_sec`
+- `security.max_new_connections_per_ip_window`
+
+达到阈值的连接会被直接关闭，不进入请求解析和认证流程，也不会写入请求流水。这一层用于限制慢 TLS、慢握手和短时间新建连接洪峰对文件描述符、goroutine 和握手处理资源的消耗。
+
+这里的“速率”只表示新建连接次数速率，不表示隧道内业务数据的带宽上限。业务流量统计在连接关闭事件里记录 `bytes_up`、`bytes_down` 和 `duration_ms`。
+
+## 账号业务流限制
+
+认证和转发授权通过后，服务端会对真正进入数据转发的业务连接执行账号维度限制：
+
+- `security.max_concurrent_streams_per_user`
+- `security.stream_rate_limit_bytes_per_sec`
+
+`max_concurrent_streams_per_user` 限制单个账号同时保持的正向 `open` 和反向 `reverse_stream` 数据通道数量。登录、健康检查、转发检查和反向控制连接不占用该额度。
+
+`stream_rate_limit_bytes_per_sec` 限制每条业务连接的上下行合计速率。它不会改变业务日志口径；连接关闭时仍按实际通过的字节数记录 `bytes_up`、`bytes_down` 和 `duration_ms`。
+
 ## 登录失败封禁
 
 服务端按来源 IP 统计认证失败：

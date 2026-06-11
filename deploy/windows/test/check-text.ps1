@@ -55,7 +55,7 @@ foreach ($file in $files) {
     if ($file.FullName -eq $self) {
         continue
     }
-    if ($file.FullName -like "*\build\*" -or $file.FullName -like "*\tmp\*" -or $file.FullName -like "*\.git\*") {
+    if ($file.FullName -like "*\build\*" -or $file.FullName -like "*\runtime\*" -or $file.FullName -like "*\tmp\*" -or $file.FullName -like "*\.git\*") {
         continue
     }
     if ($skipExtensions -contains $file.Extension.ToLowerInvariant()) {

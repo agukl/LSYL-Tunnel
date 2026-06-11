@@ -38,18 +38,17 @@ if not exist ".\build\bin\client\lsyl-tunnel-client-lite.exe" (
 )
 
 if exist "%PACKAGE_DIR%" (
-  rmdir /s /q "%PACKAGE_DIR%"
+  rmdir /s /q "%PACKAGE_DIR%" 2>nul
   if exist "%PACKAGE_DIR%" (
-    echo [ERROR] Cannot clean package directory:
+    echo [WARN] Cannot remove package directory completely; refreshing files in place:
     echo   %PACKAGE_DIR%
-    echo Close any process using this directory, or choose another package path.
-    exit /b 1
   )
 )
 
-mkdir "%PACKAGE_DIR%\android" || exit /b 1
-mkdir "%PACKAGE_DIR%\windows-win7" || exit /b 1
-mkdir "%PACKAGE_DIR%\profiles" || exit /b 1
+if not exist "%PACKAGE_DIR%" mkdir "%PACKAGE_DIR%" || exit /b 1
+if not exist "%PACKAGE_DIR%\android" mkdir "%PACKAGE_DIR%\android" || exit /b 1
+if not exist "%PACKAGE_DIR%\windows-win7" mkdir "%PACKAGE_DIR%\windows-win7" || exit /b 1
+if not exist "%PACKAGE_DIR%\profiles" mkdir "%PACKAGE_DIR%\profiles" || exit /b 1
 
 copy /y "%MOBILE_APK_SOURCE%" "%PACKAGE_DIR%\android\lsyl-tunnel-mobile.apk" >nul || exit /b 1
 copy /y ".\build\bin\client\lsyl-tunnel-client-lite.exe" "%PACKAGE_DIR%\windows-win7\lsyl-tunnel-client-lite.exe" >nul || exit /b 1

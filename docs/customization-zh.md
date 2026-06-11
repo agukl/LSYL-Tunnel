@@ -254,7 +254,7 @@ src\cmd\*\app.manifest
 当前版本：
 
 ```text
-1.0.1 / 1.0.1.0
+1.1.0 / 1.1.0.0
 ```
 
 相关文件：
@@ -273,7 +273,7 @@ deploy\windows\test\selfcheck.cmd
 ### 注意
 
 - 改 manifest 后需要重新生成 `rsrc.syso`。
-- `selfcheck.cmd` 当前会检查 exe 文件版本为 `1.0.1.0`。
+- `selfcheck.cmd` 当前会检查 exe 文件版本为 `1.1.0.0`。
 - 后续如果要频繁发版，建议把版本号集中到一个生成脚本里，不要手工逐文件改。
 
 ## 9. 代码签名证书

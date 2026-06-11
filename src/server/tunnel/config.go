@@ -17,12 +17,19 @@ type TLSConfig struct {
 }
 
 type SecurityConfig struct {
-	HandshakeTimeoutSec int `yaml:"handshake_timeout_sec"`
-	DialTimeoutSec      int `yaml:"dial_timeout_sec"`
-	MaxHandshakeBytes   int `yaml:"max_handshake_bytes"`
-	AuthFailWindowSec   int `yaml:"auth_fail_window_sec"`
-	AuthFailThreshold   int `yaml:"auth_fail_threshold"`
-	AuthFailBlockSec    int `yaml:"auth_fail_block_sec"`
+	HandshakeTimeoutSec           int `yaml:"handshake_timeout_sec"`
+	DialTimeoutSec                int `yaml:"dial_timeout_sec"`
+	MaxHandshakeBytes             int `yaml:"max_handshake_bytes"`
+	MaxConcurrentConnections      int `yaml:"max_concurrent_connections"`
+	MaxConcurrentConnectionsPerIP int `yaml:"max_concurrent_connections_per_ip"`
+	ConnectionRateWindowSec       int `yaml:"connection_rate_window_sec"`
+	MaxNewConnectionsPerIPWindow  int `yaml:"max_new_connections_per_ip_window"`
+	MaxConnectionsPerIPPerWindow  int `yaml:"max_connections_per_ip_per_window,omitempty"`
+	MaxConcurrentStreamsPerUser   int `yaml:"max_concurrent_streams_per_user"`
+	StreamRateLimitBytesPerSec    int `yaml:"stream_rate_limit_bytes_per_sec"`
+	AuthFailWindowSec             int `yaml:"auth_fail_window_sec"`
+	AuthFailThreshold             int `yaml:"auth_fail_threshold"`
+	AuthFailBlockSec              int `yaml:"auth_fail_block_sec"`
 }
 
 type CredentialSealKeyConfig struct {
@@ -38,11 +45,13 @@ type CredentialSealConfig struct {
 }
 
 type RuntimeConfig struct {
-	StateFile          string `yaml:"state_file"`
-	PermanentBlockFile string `yaml:"permanent_block_file"`
-	RequestLogFile     string `yaml:"request_log_file"`
-	BusinessLogFile    string `yaml:"business_log_file"`
-	RecentEvents       int    `yaml:"recent_events"`
+	StateFile           string `yaml:"state_file"`
+	PermanentBlockFile  string `yaml:"permanent_block_file"`
+	RequestLogFile      string `yaml:"request_log_file"`
+	BusinessLogFile     string `yaml:"business_log_file"`
+	EntryTrafficLogFile string `yaml:"entry_traffic_log_file"`
+	FlowTrafficLogFile  string `yaml:"flow_traffic_log_file"`
+	RecentEvents        int    `yaml:"recent_events"`
 }
 
 type ForwardConfig struct {
@@ -99,24 +108,34 @@ func LoadConfig(path string) (Config, error) {
 	base := filepath.Dir(path)
 	ApplyDefaults(&cfg)
 	if strings.TrimSpace(cfg.Runtime.StateFile) == "" {
-		cfg.Runtime.StateFile = filepath.Join(base, "..", "data", "server-state.json")
+		cfg.Runtime.StateFile = defaultRuntimePath(base, "data", "server-state.json")
 	} else {
 		cfg.Runtime.StateFile = resolveConfigPath(base, cfg.Runtime.StateFile)
 	}
 	if strings.TrimSpace(cfg.Runtime.PermanentBlockFile) == "" {
-		cfg.Runtime.PermanentBlockFile = filepath.Join(base, "..", "data", "server-permanent-block.txt")
+		cfg.Runtime.PermanentBlockFile = defaultRuntimePath(base, "data", "server-permanent-block.txt")
 	} else {
 		cfg.Runtime.PermanentBlockFile = resolveConfigPath(base, cfg.Runtime.PermanentBlockFile)
 	}
 	if strings.TrimSpace(cfg.Runtime.RequestLogFile) == "" {
-		cfg.Runtime.RequestLogFile = filepath.Join(base, "..", "logs", "request.jsonl")
+		cfg.Runtime.RequestLogFile = defaultRuntimePath(base, "logs", filepath.Join("request", "request.jsonl"))
 	} else {
 		cfg.Runtime.RequestLogFile = resolveConfigPath(base, cfg.Runtime.RequestLogFile)
 	}
 	if strings.TrimSpace(cfg.Runtime.BusinessLogFile) == "" {
-		cfg.Runtime.BusinessLogFile = filepath.Join(base, "..", "logs", "business.jsonl")
+		cfg.Runtime.BusinessLogFile = defaultRuntimePath(base, "logs", filepath.Join("business", "business.jsonl"))
 	} else {
 		cfg.Runtime.BusinessLogFile = resolveConfigPath(base, cfg.Runtime.BusinessLogFile)
+	}
+	if strings.TrimSpace(cfg.Runtime.EntryTrafficLogFile) == "" {
+		cfg.Runtime.EntryTrafficLogFile = defaultRuntimePath(base, "logs", filepath.Join("entry-traffic", "entry-traffic.jsonl"))
+	} else {
+		cfg.Runtime.EntryTrafficLogFile = resolveConfigPath(base, cfg.Runtime.EntryTrafficLogFile)
+	}
+	if strings.TrimSpace(cfg.Runtime.FlowTrafficLogFile) == "" {
+		cfg.Runtime.FlowTrafficLogFile = defaultRuntimePath(base, "logs", filepath.Join("flow-traffic", "flow-traffic.jsonl"))
+	} else {
+		cfg.Runtime.FlowTrafficLogFile = resolveConfigPath(base, cfg.Runtime.FlowTrafficLogFile)
 	}
 	cfg.TLS.CertFile = resolveConfigPath(base, cfg.TLS.CertFile)
 	cfg.TLS.KeyFile = resolveConfigPath(base, cfg.TLS.KeyFile)
@@ -159,6 +178,22 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Security.MaxHandshakeBytes <= 0 {
 		cfg.Security.MaxHandshakeBytes = 32768
 	}
+	if cfg.Security.MaxConcurrentConnections <= 0 {
+		cfg.Security.MaxConcurrentConnections = 2048
+	}
+	if cfg.Security.MaxConcurrentConnectionsPerIP <= 0 {
+		cfg.Security.MaxConcurrentConnectionsPerIP = 128
+	}
+	if cfg.Security.ConnectionRateWindowSec <= 0 {
+		cfg.Security.ConnectionRateWindowSec = 1
+	}
+	if cfg.Security.MaxNewConnectionsPerIPWindow <= 0 && cfg.Security.MaxConnectionsPerIPPerWindow > 0 {
+		cfg.Security.MaxNewConnectionsPerIPWindow = cfg.Security.MaxConnectionsPerIPPerWindow
+	}
+	if cfg.Security.MaxNewConnectionsPerIPWindow <= 0 {
+		cfg.Security.MaxNewConnectionsPerIPWindow = 120
+	}
+	cfg.Security.MaxConnectionsPerIPPerWindow = 0
 	if cfg.Security.AuthFailWindowSec <= 0 {
 		cfg.Security.AuthFailWindowSec = 300
 	}
@@ -227,4 +262,20 @@ func resolveConfigPath(base, p string) string {
 		return p
 	}
 	return filepath.Clean(filepath.Join(base, p))
+}
+
+func defaultRuntimePath(configDir, category, name string) string {
+	configDir = filepath.Clean(configDir)
+	if isSourceServerConfigDir(configDir) {
+		root := filepath.Dir(filepath.Dir(filepath.Dir(configDir)))
+		return filepath.Join(root, "runtime", category, name)
+	}
+	return filepath.Join(configDir, "..", category, name)
+}
+
+func isSourceServerConfigDir(configDir string) bool {
+	configDir = filepath.Clean(configDir)
+	return strings.EqualFold(filepath.Base(configDir), "conf") &&
+		strings.EqualFold(filepath.Base(filepath.Dir(configDir)), "server") &&
+		strings.EqualFold(filepath.Base(filepath.Dir(filepath.Dir(configDir))), "src")
 }

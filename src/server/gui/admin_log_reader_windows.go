@@ -25,7 +25,7 @@ func (a *App) loadBusinessLogs(cfg tunnel.Config, max int) []tunnel.BusinessLogE
 }
 
 func (a *App) readBusinessLogEntries(cfg tunnel.Config, max int) []tunnel.BusinessLogEntry {
-	path := a.runtimeLogPath(cfg.Runtime.BusinessLogFile, "business.jsonl")
+	path := a.runtimeLogPath(cfg.Runtime.BusinessLogFile, filepath.Join("business", "business.jsonl"))
 	return readJSONLRecent(path, max, func(line []byte) (tunnel.BusinessLogEntry, bool) {
 		var entry tunnel.BusinessLogEntry
 		if err := json.Unmarshal(line, &entry); err != nil {
@@ -40,7 +40,7 @@ func (a *App) loadRequestLogs(cfg tunnel.Config, max int) []tunnel.RequestLogEnt
 }
 
 func (a *App) readRequestLogEntries(cfg tunnel.Config, max int) []tunnel.RequestLogEntry {
-	path := a.runtimeLogPath(cfg.Runtime.RequestLogFile, "request.jsonl")
+	path := a.runtimeLogPath(cfg.Runtime.RequestLogFile, filepath.Join("request", "request.jsonl"))
 	return readJSONLRecent(path, max, func(line []byte) (tunnel.RequestLogEntry, bool) {
 		var entry tunnel.RequestLogEntry
 		if err := json.Unmarshal(line, &entry); err != nil {
@@ -53,7 +53,7 @@ func (a *App) readRequestLogEntries(cfg tunnel.Config, max int) []tunnel.Request
 func (a *App) runtimeLogPath(configured, defaultName string) string {
 	configured = strings.TrimSpace(configured)
 	if configured == "" {
-		return filepath.Join(filepath.Dir(a.configPath), "..", "logs", defaultName)
+		return a.defaultRuntimePath("logs", defaultName)
 	}
 	if filepath.IsAbs(configured) {
 		return configured

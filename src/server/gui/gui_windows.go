@@ -67,7 +67,7 @@ func NewApp() *App {
 		serviceName: serverServiceName,
 		configPath:  detectServerConfigPath(workspace),
 		logService:  detectServerServiceLog(workspace),
-		crashLog:    filepath.Join(workspace, "tmp", "gui", "server-gui.crash.log"),
+		crashLog:    filepath.Join(appTmpDir(workspace), "gui", "server-gui.crash.log"),
 	}
 	_ = os.MkdirAll(filepath.Dir(app.logService), 0o755)
 	_ = os.MkdirAll(filepath.Dir(app.crashLog), 0o755)
@@ -233,8 +233,9 @@ func (a *App) startAdminServer() (*http.Server, error) {
 		return nil, err
 	}
 	a.panelURL = "http://" + ln.Addr().String() + "/"
-	_ = os.MkdirAll(filepath.Join(a.workspace, "tmp", "gui"), 0o755)
-	_ = os.WriteFile(filepath.Join(a.workspace, "tmp", "gui", "server-gui.url"), []byte(a.panelURL), 0o644)
+	tmpDir := filepath.Join(appTmpDir(a.workspace), "gui")
+	_ = os.MkdirAll(tmpDir, 0o755)
+	_ = os.WriteFile(filepath.Join(tmpDir, "server-gui.url"), []byte(a.panelURL), 0o644)
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
@@ -358,9 +359,16 @@ func detectServerConfigPath(workspace string) string {
 
 func detectServerServiceLog(workspace string) string {
 	if fileExists(filepath.Join(workspace, "bin", "lsyl-tunnel-server-svc.exe")) {
-		return filepath.Join(workspace, "tmp", "server-service.log")
+		return filepath.Join(workspace, "logs", "service", "server-service.log")
 	}
-	return filepath.Join(workspace, "logs", "server-service.log")
+	return filepath.Join(workspace, "runtime", "logs", "service", "server-service.log")
+}
+
+func appTmpDir(workspace string) string {
+	if fileExists(filepath.Join(workspace, "go.mod")) {
+		return filepath.Join(workspace, "build", "tmp")
+	}
+	return filepath.Join(workspace, "tmp")
 }
 
 func fileExists(path string) bool {

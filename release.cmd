@@ -126,7 +126,11 @@ if "%SKIP_TEST%"=="1" (
 if "%PACKAGE_ONLY%"=="1" (
   echo [4/7] Build dist packages
   if exist dist\installers (
-    rmdir /s /q dist\installers || exit /b 1
+    rmdir /s /q dist\installers 2>nul
+    if exist dist\installers (
+      echo [WARN] Cannot remove old installer directory; package-only output ignores installer files:
+      echo   %WORKSPACE%\dist\installers
+    )
   )
   call deploy\windows\app\package-client.cmd || exit /b 1
   call deploy\windows\app\package-light-clients.cmd || exit /b 1

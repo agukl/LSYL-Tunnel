@@ -19,6 +19,7 @@
       <nav class="nav">
         <button class="nav-item active" data-tab="overview">运行总览</button>
         <button class="nav-item" data-tab="users">用户认证</button>
+        <button class="nav-item" data-tab="user-concurrency">用户并发</button>
         <button class="nav-item" data-tab="forwards">转发端口</button>
         <button class="nav-item" data-tab="security">服务安全</button>
         <button class="nav-item" data-tab="blocks">封禁查看</button>
@@ -45,13 +46,17 @@
         <div class="panel-head">
           <div>
             <h2>运行总览</h2>
-            <p>这里展示服务入口、监控接口以及当前服务运行指标。</p>
+            <p>这里展示服务入口以及当前服务运行指标。</p>
           </div>
         </div>
         <div class="cards">
           <div class="card"><small>隧道入口</small><strong id="listenAddrView">-</strong></div>
-          <div class="card"><small>监控地址</small><strong id="monitorAddrView">-</strong></div>
-          <div class="card"><small>活跃连接</small><strong id="activeStreamsView">0</strong></div>
+          <div class="card"><small>入口连接</small><strong id="activeConnectionsView">0</strong></div>
+          <div class="card"><small>活跃转发</small><strong id="activeStreamsView">0</strong></div>
+          <div class="card warn"><small>限流拒绝</small><strong id="connectionsRejectedView">0</strong></div>
+          <div class="card warn"><small>并发拒绝</small><strong id="connectionConcurrentRejectsView">0</strong></div>
+          <div class="card warn"><small>新连速率拒绝</small><strong id="connectionRateRejectsView">0</strong></div>
+          <div class="card warn"><small>账号并发拒绝</small><strong id="userStreamLimitRejectedView">0</strong></div>
           <div class="card"><small>认证成功</small><strong id="authOKView">0</strong></div>
           <div class="card warn"><small>认证失败</small><strong id="authFailedView">0</strong></div>
           <div class="card warn"><small>策略拒绝</small><strong id="policyRejectedView">0</strong></div>
@@ -305,26 +310,80 @@
         </div>
       </section>
 
+      <section id="user-concurrency" class="panel tab-panel">
+        <div class="panel-head">
+          <div>
+            <h2>用户并发</h2>
+            <p>这里调整数据流层的账号并发和单连接速率限制，并查看各账号当前业务连接数。</p>
+          </div>
+        </div>
+        <div class="user-concurrency-toolbar">
+          <div class="detail-grid user-concurrency-summary">
+            <div class="detail-card"><small>单账号上限</small><strong id="userStreamLimitView">不限</strong></div>
+            <div class="detail-card"><small>每连接总速率</small><strong id="streamRateLimitView">不限</strong></div>
+            <div class="detail-card"><small>活跃业务连接</small><strong id="userStreamActiveView">0</strong></div>
+            <div class="detail-card warn"><small>账号并发拒绝</small><strong id="userConcurrencyRejectedView">0</strong></div>
+          </div>
+          <div class="form-grid user-concurrency-controls">
+            <label>账号连接上限<input id="maxConcurrentStreamsPerUser" type="number"></label>
+            <label>连接速率 B/s<input id="streamRateLimitBytesPerSec" type="number"></label>
+          </div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-title">
+            <h3>账号业务连接</h3>
+            <span>只统计正向 open 和反向 reverse_stream，不包含登录、健康检查和反向控制连接。</span>
+          </div>
+          <div class="table-wrap detail-table-wrap">
+            <table class="data-table detail-table" id="userConcurrencyTable">
+              <thead>
+                <tr>
+                  <th>用户名</th>
+                  <th>状态</th>
+                  <th>绑定端口</th>
+                  <th>当前业务连接</th>
+                  <th>单账号上限</th>
+                  <th>每连接总速率</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel-actions">
+          <button class="btn muted" data-action="refresh">刷新</button>
+          <button class="btn primary" data-action="save">保存配置</button>
+        </div>
+      </section>
+
       <section id="security" class="panel tab-panel">
         <div class="panel-head">
           <div>
             <h2>服务安全</h2>
-            <p>服务入口、TLS 身份、本地密码密封密钥和认证失败封禁参数。</p>
+            <p>服务入口、TLS 身份、本地密码密封密钥、入口连接限流和认证失败封禁参数。</p>
           </div>
         </div>
         <div class="form-grid">
+          <div class="form-section-title">服务入口</div>
           <label>监听地址<input id="listenAddr" type="text" readonly aria-readonly="true" tabindex="-1"></label>
           <label>监控地址<input id="monitorAddr" type="text" readonly aria-readonly="true" tabindex="-1"></label>
           <label>日志级别<input id="logLevel" type="text" readonly aria-readonly="true" tabindex="-1"></label>
           <label>TLS 证书<input id="tlsCert" type="text" readonly aria-readonly="true" tabindex="-1"></label>
           <label>TLS 私钥<input id="tlsKey" type="text" readonly aria-readonly="true" tabindex="-1"></label>
           <label>TLS 最低版本<input id="tlsMinVersion" type="text" readonly aria-readonly="true" tabindex="-1"></label>
+          <div class="form-section-title">入口连接层</div>
+          <label>入口最大并发连接<input id="maxConcurrentConnections" type="number"></label>
+          <label>单 IP 最大并发连接<input id="maxConcurrentConnectionsPerIP" type="number"></label>
           <label>握手超时秒<input id="handshakeTimeout" type="number"></label>
           <label>目标连接超时秒<input id="dialTimeout" type="number"></label>
           <label>最大握手字节<input id="maxHandshakeBytes" type="number"></label>
+          <label>新建连接速率窗口秒<input id="connectionRateWindow" type="number"></label>
+          <label>单 IP 窗口新建连接上限<input id="maxNewConnectionsPerIPWindow" type="number"></label>
+          <div class="form-section-title">认证封禁</div>
           <label>失败统计窗口秒<input id="authFailWindow" type="number"></label>
           <label>失败封禁阈值<input id="authFailThreshold" type="number"></label>
           <label>封禁时长秒<input id="authFailBlock" type="number"></label>
+          <div class="form-section-title">登录凭据密封</div>
           <label>密封密钥 ID<input id="sealKeyID" type="text" readonly aria-readonly="true" tabindex="-1"></label>
           <label>密封私钥<input id="sealPrivate" type="text" readonly aria-readonly="true" tabindex="-1"></label>
           <label>密封公钥<input id="sealPublic" type="text" readonly aria-readonly="true" tabindex="-1"></label>

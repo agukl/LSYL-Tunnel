@@ -6,13 +6,13 @@
 
 项目里同时使用两种版本格式：
 
-- 发布/安装包版本：`1.0.1`
-- Windows 文件版本：`1.0.1.0`
+- 发布/安装包版本：`1.1.0`
+- Windows 文件版本：`1.1.0.0`
 
-升级时先确定目标版本。例如从 `1.0.1` 升级到 `1.0.2` 时：
+升级时先确定目标版本。例如从 `1.1.0` 升级到 `1.1.1` 时：
 
-- `APP_VERSION=1.0.2`
-- `WINDOWS_FILE_VERSION=1.0.2.0`
+- `APP_VERSION=1.1.1`
+- `WINDOWS_FILE_VERSION=1.1.1.0`
 
 ## 必改位置
 
@@ -26,7 +26,7 @@
 示例：
 
 ```iss
-#define AppVersion "1.0.2"
+#define AppVersion "1.1.1"
 ```
 
 ### 2. Windows manifest 版本
@@ -46,7 +46,7 @@
 示例：
 
 ```xml
-version="1.0.2.0"
+version="1.1.1.0"
 ```
 
 ### 3. Windows 版本资源
@@ -77,13 +77,13 @@ version="1.0.2.0"
 搜索并替换：
 
 ```text
-FileVersion -ne '1.0.1.0'
+FileVersion -ne '1.1.0.0'
 ```
 
 为：
 
 ```text
-FileVersion -ne '1.0.2.0'
+FileVersion -ne '1.1.1.0'
 ```
 
 ### 5. 文档说明
@@ -99,13 +99,13 @@ FileVersion -ne '1.0.2.0'
 
 - `build/`
 - `dist/`
-- `tmp/`
+- `build/tmp/`
 
 如果已经生成过发布包，升级版本后应该重新构建，让产物自然刷新。
 
 ## 推荐操作顺序
 
-1. 确定目标版本，例如 `1.0.2` / `1.0.2.0`。
+1. 确定目标版本，例如 `1.1.1` / `1.1.1.0`。
 2. 修改两个 Inno 脚本的 `AppVersion`。
 3. 修改所有 `app.manifest` 的 `assemblyIdentity version`。
 4. 重新生成所有相关 `rsrc.syso`。
@@ -119,13 +119,13 @@ FileVersion -ne '1.0.2.0'
 确认源码、部署脚本和文档里没有旧版本：
 
 ```powershell
-rg -n "1\.0\.1|1\.0\.1\.0" src deploy docs release.cmd README.md
+rg -n "1\.1\.0|1\.1\.0\.0" src deploy docs release.cmd README.md
 ```
 
 确认新版本出现的位置：
 
 ```powershell
-rg -n "1\.0\.2|1\.0\.2\.0|AppVersion" src deploy docs release.cmd README.md
+rg -n "1\.1\.1|1\.1\.1\.0|AppVersion" src deploy docs release.cmd README.md
 ```
 
 构建并验证：
@@ -146,6 +146,6 @@ cmd /c release.cmd /verify-only
 
 当前发布版本：
 
-- 安装包版本：`1.0.1`
-- Windows 文件版本：`1.0.1.0`
+- 安装包版本：`1.1.0`
+- Windows 文件版本：`1.1.0.0`
 

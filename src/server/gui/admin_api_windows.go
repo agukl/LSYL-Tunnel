@@ -111,12 +111,19 @@ type adminForward struct {
 }
 
 type adminSecurity struct {
-	HandshakeTimeoutSec int `json:"handshake_timeout_sec"`
-	DialTimeoutSec      int `json:"dial_timeout_sec"`
-	MaxHandshakeBytes   int `json:"max_handshake_bytes"`
-	AuthFailWindowSec   int `json:"auth_fail_window_sec"`
-	AuthFailThreshold   int `json:"auth_fail_threshold"`
-	AuthFailBlockSec    int `json:"auth_fail_block_sec"`
+	HandshakeTimeoutSec           int `json:"handshake_timeout_sec"`
+	DialTimeoutSec                int `json:"dial_timeout_sec"`
+	MaxHandshakeBytes             int `json:"max_handshake_bytes"`
+	MaxConcurrentConnections      int `json:"max_concurrent_connections"`
+	MaxConcurrentConnectionsPerIP int `json:"max_concurrent_connections_per_ip"`
+	ConnectionRateWindowSec       int `json:"connection_rate_window_sec"`
+	MaxNewConnectionsPerIPWindow  int `json:"max_new_connections_per_ip_window"`
+	MaxConnectionsPerIPPerWindow  int `json:"max_connections_per_ip_per_window,omitempty"`
+	MaxConcurrentStreamsPerUser   int `json:"max_concurrent_streams_per_user"`
+	StreamRateLimitBytesPerSec    int `json:"stream_rate_limit_bytes_per_sec"`
+	AuthFailWindowSec             int `json:"auth_fail_window_sec"`
+	AuthFailThreshold             int `json:"auth_fail_threshold"`
+	AuthFailBlockSec              int `json:"auth_fail_block_sec"`
 }
 
 type adminCredential struct {
@@ -444,7 +451,7 @@ func (a *App) loadPersistedBlockedIPs(cfg tunnel.Config) []tunnel.BlockedIPState
 func (a *App) runtimeStatePath(cfg tunnel.Config) string {
 	stateFile := strings.TrimSpace(cfg.Runtime.StateFile)
 	if stateFile == "" {
-		stateFile = filepath.Join("..", "data", "server-state.json")
+		return a.defaultRuntimePath("data", "server-state.json")
 	}
 	if !filepath.IsAbs(stateFile) {
 		stateFile = filepath.Clean(filepath.Join(filepath.Dir(a.configPath), stateFile))
@@ -455,12 +462,26 @@ func (a *App) runtimeStatePath(cfg tunnel.Config) string {
 func (a *App) runtimePermanentBlockPath(cfg tunnel.Config) string {
 	blockFile := strings.TrimSpace(cfg.Runtime.PermanentBlockFile)
 	if blockFile == "" {
-		blockFile = filepath.Join("..", "data", "server-permanent-block.txt")
+		return a.defaultRuntimePath("data", "server-permanent-block.txt")
 	}
 	if !filepath.IsAbs(blockFile) {
 		blockFile = filepath.Clean(filepath.Join(filepath.Dir(a.configPath), blockFile))
 	}
 	return blockFile
+}
+
+func (a *App) defaultRuntimePath(category, name string) string {
+	if isSourceServerConfigPath(a.configPath) {
+		return filepath.Join(a.workspace, "runtime", category, name)
+	}
+	return filepath.Join(filepath.Dir(a.configPath), "..", category, name)
+}
+
+func isSourceServerConfigPath(path string) bool {
+	dir := filepath.Clean(filepath.Dir(path))
+	return strings.EqualFold(filepath.Base(dir), "conf") &&
+		strings.EqualFold(filepath.Base(filepath.Dir(dir)), "server") &&
+		strings.EqualFold(filepath.Base(filepath.Dir(filepath.Dir(dir))), "src")
 }
 
 func adminConfigFromTunnel(cfg tunnel.Config) adminConfig {
@@ -498,12 +519,18 @@ func adminConfigFromTunnel(cfg tunnel.Config) adminConfig {
 		Users:    users,
 		Forwards: forwards,
 		Security: adminSecurity{
-			HandshakeTimeoutSec: cfg.Security.HandshakeTimeoutSec,
-			DialTimeoutSec:      cfg.Security.DialTimeoutSec,
-			MaxHandshakeBytes:   cfg.Security.MaxHandshakeBytes,
-			AuthFailWindowSec:   cfg.Security.AuthFailWindowSec,
-			AuthFailThreshold:   cfg.Security.AuthFailThreshold,
-			AuthFailBlockSec:    cfg.Security.AuthFailBlockSec,
+			HandshakeTimeoutSec:           cfg.Security.HandshakeTimeoutSec,
+			DialTimeoutSec:                cfg.Security.DialTimeoutSec,
+			MaxHandshakeBytes:             cfg.Security.MaxHandshakeBytes,
+			MaxConcurrentConnections:      cfg.Security.MaxConcurrentConnections,
+			MaxConcurrentConnectionsPerIP: cfg.Security.MaxConcurrentConnectionsPerIP,
+			ConnectionRateWindowSec:       cfg.Security.ConnectionRateWindowSec,
+			MaxNewConnectionsPerIPWindow:  cfg.Security.MaxNewConnectionsPerIPWindow,
+			MaxConcurrentStreamsPerUser:   cfg.Security.MaxConcurrentStreamsPerUser,
+			StreamRateLimitBytesPerSec:    cfg.Security.StreamRateLimitBytesPerSec,
+			AuthFailWindowSec:             cfg.Security.AuthFailWindowSec,
+			AuthFailThreshold:             cfg.Security.AuthFailThreshold,
+			AuthFailBlockSec:              cfg.Security.AuthFailBlockSec,
 		},
 		CredentialSeal: activeCredential(cfg.CredentialSeal),
 	}
@@ -544,12 +571,19 @@ func adminConfigToTunnel(form adminConfig, existing tunnel.Config) (tunnel.Confi
 		cfg.Forwards = append(cfg.Forwards, fwd)
 	}
 	cfg.Security = tunnel.SecurityConfig{
-		HandshakeTimeoutSec: form.Security.HandshakeTimeoutSec,
-		DialTimeoutSec:      form.Security.DialTimeoutSec,
-		MaxHandshakeBytes:   form.Security.MaxHandshakeBytes,
-		AuthFailWindowSec:   form.Security.AuthFailWindowSec,
-		AuthFailThreshold:   form.Security.AuthFailThreshold,
-		AuthFailBlockSec:    form.Security.AuthFailBlockSec,
+		HandshakeTimeoutSec:           form.Security.HandshakeTimeoutSec,
+		DialTimeoutSec:                form.Security.DialTimeoutSec,
+		MaxHandshakeBytes:             form.Security.MaxHandshakeBytes,
+		MaxConcurrentConnections:      form.Security.MaxConcurrentConnections,
+		MaxConcurrentConnectionsPerIP: form.Security.MaxConcurrentConnectionsPerIP,
+		ConnectionRateWindowSec:       form.Security.ConnectionRateWindowSec,
+		MaxNewConnectionsPerIPWindow:  form.Security.MaxNewConnectionsPerIPWindow,
+		MaxConnectionsPerIPPerWindow:  form.Security.MaxConnectionsPerIPPerWindow,
+		MaxConcurrentStreamsPerUser:   form.Security.MaxConcurrentStreamsPerUser,
+		StreamRateLimitBytesPerSec:    form.Security.StreamRateLimitBytesPerSec,
+		AuthFailWindowSec:             form.Security.AuthFailWindowSec,
+		AuthFailThreshold:             form.Security.AuthFailThreshold,
+		AuthFailBlockSec:              form.Security.AuthFailBlockSec,
 	}
 	credentialSeal, err := credentialSealFromAdmin(form.CredentialSeal, existing.CredentialSeal)
 	if err != nil {

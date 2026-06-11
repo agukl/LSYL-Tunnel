@@ -28,6 +28,18 @@
 
 `security.max_handshake_bytes`：认证请求最大字节数。
 
+`security.max_concurrent_connections`：服务端入口允许的最大并发连接数，包含尚未完成 TLS/认证握手的连接。
+
+`security.max_concurrent_connections_per_ip`：同一来源 IP 允许的最大并发入口连接数。
+
+`security.connection_rate_window_sec`：来源 IP 新建连接速率统计窗口秒数。
+
+`security.max_new_connections_per_ip_window`：同一来源 IP 在速率窗口内允许的新建连接数。该限制只控制新建连接速率，不限制已建立隧道的业务带宽。
+
+`security.max_concurrent_streams_per_user`：单个账号允许同时保持的业务连接数，`0` 表示不限制。只统计正向 `open` 和反向 `reverse_stream` 数据通道，不统计登录、健康检查和反向控制连接。
+
+`security.stream_rate_limit_bytes_per_sec`：每条业务连接的总速率上限，单位字节/秒，`0` 表示不限制。该上限按单条连接上下行合计统计。
+
 `security.auth_fail_window_sec`：登录失败统计窗口。
 
 `security.auth_fail_threshold`：窗口内失败次数阈值。
@@ -46,7 +58,15 @@
 
 `credential_seal.keys[].active`：当前下发给客户端的新密封公钥，只允许一个 active。
 
-`runtime.state_file`：服务端运行状态持久化文件，默认位于 `data\server-state.json`。当前用于保存已触发封禁的来源 IP，避免服务重启后立刻失效。
+`runtime.state_file`：服务端运行状态持久化文件。源码开发配置默认位于 `runtime\data\server-state.json`；安装包内配置默认位于 `data\server-state.json`。当前用于保存已触发封禁的来源 IP，避免服务重启后立刻失效。
+
+`runtime.request_log_file`：请求认证层流水日志。源码开发配置默认位于 `runtime\logs\request\request.jsonl`；安装包内配置默认位于 `logs\request\request.jsonl`。
+
+`runtime.business_log_file`：业务控制层流水日志。源码开发配置默认位于 `runtime\logs\business\business.jsonl`；安装包内配置默认位于 `logs\business\business.jsonl`。
+
+`runtime.entry_traffic_log_file`：入口连接层流量和异常日志。源码开发配置默认位于 `runtime\logs\entry-traffic\entry-traffic.jsonl`；安装包内配置默认位于 `logs\entry-traffic\entry-traffic.jsonl`。用于记录连接限制拒绝、永久封禁命中、非 TLS、HTTP 探测、TLS/协议握手异常等入口层事件。
+
+`runtime.flow_traffic_log_file`：业务数据流层流量和异常日志。源码开发配置默认位于 `runtime\logs\flow-traffic\flow-traffic.jsonl`；安装包内配置默认位于 `logs\flow-traffic\flow-traffic.jsonl`。用于记录 `open`、`reverse_stream` 数据流关闭时的字节数、时长、平均速率，以及单账号并发限制、目标不可达、反向流超时等异常。
 
 `runtime.recent_events`：服务端内存中保留的最近运行事件数量，默认 500。请求、认证、连接、拒绝、目标失败等运行详情只做滑窗保留，并同步写入按天切分的服务日志。
 

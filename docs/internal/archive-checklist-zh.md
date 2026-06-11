@@ -53,10 +53,10 @@ docs/
 ```text
 build/bin/client/
 build/bin/server/
+build/tmp/
 dist/
-tmp/
-logs/
-data/
+runtime/logs/
+runtime/data/
 certs/
 secrets/
 *.key
@@ -68,9 +68,9 @@ secrets/
 原因：
 
 - `build/bin/client/`、`build/bin/server/`、`dist/` 是构建和打包产物，可以重新生成。
-- `tmp/` 是 GUI 临时地址、测试截图或临时运行文件。
-- `logs/` 是本机运行日志。
-- `data/` 是服务端运行状态，例如封禁 IP 持久化结果。
+- `build/tmp/` 是 GUI 临时地址、测试截图或临时运行文件。
+- `runtime/logs/` 是本机开发运行日志。
+- `runtime/data/` 是服务端开发运行状态，例如封禁 IP 持久化结果。
 - `certs/` 可能包含 `server.key`、登录密封私钥等本机私钥，不能进入源码归档。
 - `secrets/` 是客户端本地密封凭据目录，不应归档。
 
@@ -144,15 +144,14 @@ secrets/
 安全清理临时目录：
 
 ```powershell
-Remove-Item -Recurse -Force .\tmp\* -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force .\build\tmp\* -ErrorAction SilentlyContinue
 ```
 
 不要默认清理：
 
 ```text
 certs/
-logs/
-data/
+runtime/
 dist/
 ```
 

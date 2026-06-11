@@ -52,6 +52,7 @@ func (s *Server) recordPermanentBlockedHit(remoteIP string) {
 	if s == nil || remoteIP == "" {
 		return
 	}
+	s.countEntryPermanentBlockHit()
 	if s.permanentBlockHits == nil {
 		s.recordEvent(RuntimeEvent{
 			Kind:     "auth",

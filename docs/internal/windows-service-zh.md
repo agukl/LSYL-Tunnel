@@ -44,7 +44,7 @@ cmd /c deploy\windows\service\server.cmd uninstall
 服务注册使用项目内置的服务注册助手，不再直接依赖安装器拼接 `sc.exe` 命令。Windows Server 上如果注册失败，安装器会直接提示具体原因；同时会写入：
 
 ```text
-C:\Program Files\LSYL Tunnel Server\logs\service-register-error.txt
+C:\Program Files\LSYL Tunnel Server\logs\service\service-register-error.txt
 ```
 
 常见原因包括：未以管理员身份运行、服务正在删除中、服务程序缺失、配置文件缺失、安装目录权限不足。
@@ -68,7 +68,7 @@ C:\Program Files\LSYL Tunnel Server\logs\service-register-error.txt
 ```text
 build\bin\server\lsyl-tunnel-server-svc.exe
 src\server\conf\server.yaml
-logs\server-service-YYYY-MM-DD.log
+runtime\logs\service\server-service-YYYY-MM-DD.log
 ```
 
 安装后的服务端：
@@ -77,7 +77,7 @@ logs\server-service-YYYY-MM-DD.log
 C:\Program Files\LSYL Tunnel Server\bin\lsyl-tunnel-server-svc.exe
 C:\Program Files\LSYL Tunnel Server\conf\server.yaml
 C:\Program Files\LSYL Tunnel Server\certs\server.crt
-C:\Program Files\LSYL Tunnel Server\logs\server-service-YYYY-MM-DD.log
+C:\Program Files\LSYL Tunnel Server\logs\service\server-service-YYYY-MM-DD.log
 ```
 
 安装后的客户端：
@@ -122,10 +122,10 @@ src\client\cert\server.crt
 
 ## 日志和运行状态
 
-服务日志按天切分。传入 `-log logs\server-service.log` 时，实际文件形如：
+服务日志按天切分。源码开发服务传入 `-log runtime\logs\service\server-service.log` 时，实际文件形如：
 
 ```text
-logs\server-service-2026-05-20.log
+runtime\logs\service\server-service-2026-05-20.log
 ```
 
 请求、认证、连接、拒绝、目标失败等运行事件会同步写入当天日志，并在服务进程内保留最近 `runtime.recent_events` 条，供运行详情页面读取。
@@ -133,7 +133,7 @@ logs\server-service-2026-05-20.log
 封禁 IP 属于业务结果，不依赖文本日志推断。服务端会写入 `runtime.state_file`，默认是：
 
 ```text
-data\server-state.json
+runtime\data\server-state.json
 ```
 
 服务重启后，未过期封禁 IP 会从该文件恢复。

@@ -40,16 +40,16 @@ if not exist ".\src\server\conf\server.yaml" (
   echo [ERROR] Missing src\server\conf\server.yaml.
   exit /b 1
 )
-if not exist ".\logs" mkdir ".\logs"
+if not exist ".\runtime\logs\service" mkdir ".\runtime\logs\service"
 echo Registering server service: %SVC%
 echo Display name: LSYL Tunnel Server
 echo Description: LSYL Tunnel server for account-authenticated TLS tunnel and port forwarding.
 echo Binary: %WORKSPACE%\build\bin\server\lsyl-tunnel-server-svc.exe
 echo Config: %WORKSPACE%\src\server\conf\server.yaml
-echo Log: %WORKSPACE%\logs\server-service-YYYY-MM-DD.log
-set "SERVICE_RESULT=%WORKSPACE%\logs\service-register-error.txt"
+echo Log: %WORKSPACE%\runtime\logs\service\server-service-YYYY-MM-DD.log
+set "SERVICE_RESULT=%WORKSPACE%\runtime\logs\service\service-register-error.txt"
 del /f /q "%SERVICE_RESULT%" >nul 2>nul
-"%WORKSPACE%\build\bin\server\lsyl-tunnel-server-gui.exe" -service-action install -service-exe "%WORKSPACE%\build\bin\server\lsyl-tunnel-server-svc.exe" -service-name "%SVC%" -start-type manual -config "%WORKSPACE%\src\server\conf\server.yaml" -log "%WORKSPACE%\logs\server-service.log" -result-file "%SERVICE_RESULT%"
+"%WORKSPACE%\build\bin\server\lsyl-tunnel-server-gui.exe" -service-action install -service-exe "%WORKSPACE%\build\bin\server\lsyl-tunnel-server-svc.exe" -service-name "%SVC%" -start-type manual -config "%WORKSPACE%\src\server\conf\server.yaml" -log "%WORKSPACE%\runtime\logs\service\server-service.log" -result-file "%SERVICE_RESULT%"
 if errorlevel 1 (
   echo [ERROR] Server Windows service registration failed.
   if exist "%SERVICE_RESULT%" (

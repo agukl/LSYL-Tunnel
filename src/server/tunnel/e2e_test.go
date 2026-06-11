@@ -85,6 +85,56 @@ func TestAccountTunnelForwarding(t *testing.T) {
 	}
 }
 
+func TestServerLimitsConcurrentStreamsPerUser(t *testing.T) {
+	certFile, keyFile := writeTestCertificate(t)
+	echoLn := startEchoServer(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	server, err := Start(ctx, Config{
+		ListenAddr: "127.0.0.1:0",
+		TLS:        TLSConfig{CertFile: certFile, KeyFile: keyFile, MinVersion: "1.2"},
+		Auth: AuthConfig{Users: []UserConfig{{
+			Username:     "alice",
+			PasswordHash: "plain:secret",
+		}}},
+		Forwards: []ForwardConfig{{
+			Name:         "echo",
+			Direction:    DirectionClientToServer,
+			ServerTarget: echoLn.Addr().String(),
+			AllowedUsers: []string{"alice"},
+		}},
+		Security: SecurityConfig{
+			HandshakeTimeoutSec:         3,
+			DialTimeoutSec:              3,
+			MaxHandshakeBytes:           32768,
+			MaxConcurrentStreamsPerUser: 1,
+			AuthFailThreshold:           3,
+			AuthFailWindowSec:           60,
+			AuthFailBlockSec:            60,
+		},
+	}, t.Logf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	first, resp := openTargetConnForTest(t, server.Addr(), certFile, "alice", "secret", "echo", echoLn.Addr().String())
+	defer first.Close()
+	if !resp.OK {
+		t.Fatalf("first open failed: %+v", resp)
+	}
+	waitForUserStreamActive(t, server, "alice", 1, time.Second)
+
+	second := openTargetForTest(t, server.Addr(), certFile, "alice", "secret", "echo", echoLn.Addr().String())
+	if second.OK || second.Code != "user_stream_limit" {
+		t.Fatalf("second open response = %+v, want user_stream_limit", second)
+	}
+	if got := server.userStreamLimitRejected.Load(); got != 1 {
+		t.Fatalf("userStreamLimitRejected = %d, want 1", got)
+	}
+}
+
 func TestAccountTunnelReverseForwarding(t *testing.T) {
 	certFile, keyFile := writeTestCertificate(t)
 	echoLn := startEchoServer(t)
@@ -829,6 +879,28 @@ func openTargetForTest(t *testing.T, serverAddr, caFile, username, password, for
 	return resp
 }
 
+func openTargetConnForTest(t *testing.T, serverAddr, caFile, username, password, forwardName, target string) (*tls.Conn, protocol.OpenResponse) {
+	t.Helper()
+	conn := dialTLSForTest(t, serverAddr, caFile)
+	if err := protocol.WriteJSON(conn, protocol.OpenRequest{
+		Type:        "open",
+		Username:    username,
+		Password:    password,
+		ForwardName: forwardName,
+		Direction:   DirectionClientToServer,
+		Target:      target,
+	}); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
+	var resp protocol.OpenResponse
+	if err := protocol.ReadJSON(conn, &resp, protocol.DefaultMaxHandshakeBytes); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
+	return conn, resp
+}
+
 func checkForwardForTest(t *testing.T, serverAddr, caFile, username, password, forwardName, direction, listenAddr, target string) protocol.OpenResponse {
 	t.Helper()
 	conn := dialTLSForTest(t, serverAddr, caFile)
@@ -919,6 +991,19 @@ func waitForClientForwardState(t *testing.T, client *tunnel.Client, name, want s
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for client forward %s to become %s; stats: %+v", name, want, client.Stats())
+}
+
+func waitForUserStreamActive(t *testing.T, server *Server, username string, want int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		got := server.userStreams.snapshot().ActiveByUser[username]
+		if got == want {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for user stream count %s=%d; snapshot: %+v", username, want, server.userStreams.snapshot())
 }
 
 func waitForTCPDialFails(t *testing.T, addr string, timeout time.Duration) {
