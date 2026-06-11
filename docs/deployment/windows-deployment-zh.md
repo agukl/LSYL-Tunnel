@@ -1,6 +1,6 @@
 ﻿# 部署与安装指南
 
-本文集中说明 LSYL Tunnel 的 Windows 分发、安装、卸载和安装器生成流程。开发调试请先看 [内部开发快速开始](internal/quickstart-zh.md)，服务端业务配置请看 [服务端管理员指南](server-admin-zh.md)。
+本文集中说明 LSYL Tunnel 的 Windows 分发、安装、卸载和安装器生成流程。开发调试请先看 [开发快速开始](../development/quickstart-zh.md)，服务端业务配置请看 [服务端管理员指南](server-admin-zh.md)。
 
 ## 1. 目录边界
 
@@ -335,5 +335,5 @@ cmd /c release.cmd
 
 构建脚本会先签分发包内的 exe，再编译安装器，最后签安装器。没有配置签名证书时会跳过签名，不影响开发构建。
 
-详细说明见 [签名发布指南](internal/release-signing-zh.md)。
+详细说明见 [签名发布指南](../release/signing-zh.md)。
 

@@ -1,6 +1,6 @@
 ﻿# 服务端管理员指南
 
-服务端安装、卸载、Inno Setup 和默认保留目录的完整流程见 [部署与安装指南](deployment-zh.md)。本文聚焦服务端业务配置和运行管理。
+服务端安装、卸载、Inno Setup 和默认保留目录的完整流程见 [Windows 部署与安装](windows-deployment-zh.md)。本文聚焦服务端业务配置和运行管理。
 
 ## 1. 构建服务端
 
@@ -138,7 +138,7 @@ cmd /c deploy\windows\run.cmd server-gui
 
 服务端 GUI 只保留“重启服务”按钮。点击后会保存未保存配置并重启 `LSYLTunnelServer` Windows 服务；如果服务尚未注册，会请求管理员授权完成注册并启动。命令行调试才使用 `run.cmd server`。
 
-Windows 服务见 [Windows 服务部署](internal/windows-service-zh.md)。
+Windows 服务见 [Windows 服务部署与调试](../development/windows-service-zh.md)。
 
 生成完整客户端/服务端安装器，推荐使用根目录发布入口：
 

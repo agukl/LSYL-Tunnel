@@ -153,9 +153,9 @@ cmd /c release.cmd /verify-only
 正式交付至少包含：
 
 - 安装器：`LSYL-Tunnel-Client-Setup.exe`、`LSYL-Tunnel-Server-Setup.exe`
-- 部署说明：`docs/deployment-zh.md`
-- 安全说明：`docs/security-model-zh.md`
-- 签名说明：`docs/internal/release-signing-zh.md`
+- 部署说明：`docs/deployment/windows-deployment-zh.md`
+- 安全说明：`docs/system/security-zh.md`
+- 签名说明：`docs/release/signing-zh.md`
 - 发布清单：本文档
 - 发布产物清单：`dist\release-manifest.txt`、`dist\release-manifest.json`
 - 误报申诉材料：文件 SHA256、签名状态、服务说明和安装行为说明，可直接从发布产物清单摘取

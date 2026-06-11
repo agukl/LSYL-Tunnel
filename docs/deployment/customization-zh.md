@@ -178,7 +178,7 @@ src\server\cmd\lsyl-tunnel-server-svc\main.go
 deploy\windows\service\server.cmd
 deploy\windows\inno\package-server.iss
 deploy\windows\sign\write-release-manifest.ps1
-docs\internal\windows-service-zh.md
+docs\development\windows-service-zh.md
 ```
 
 ### 是否建议替换

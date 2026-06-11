@@ -7,7 +7,8 @@ The identity boundary is the account password, not a client certificate. TLS pro
 Current release version: `1.1.0`
 
 Chinese documentation: [docs/README-zh.md](docs/README-zh.md)
-System flow overview (Chinese): [docs/system-flow-zh.md](docs/system-flow-zh.md)
+System flow overview (Chinese): [docs/system/overview-zh.md](docs/system/overview-zh.md)
+Version update checklist (Chinese): [docs/release/version-bump-zh.md](docs/release/version-bump-zh.md)
 
 ## Layout
 
@@ -77,9 +78,9 @@ dist\LSYL Tunnel Client\make-installer.cmd
 dist\LSYL Tunnel Server\make-installer.cmd
 ```
 
-Detailed Windows deployment notes: [docs/deployment-zh.md](docs/deployment-zh.md)
+Detailed Windows deployment notes: [docs/deployment/windows-deployment-zh.md](docs/deployment/windows-deployment-zh.md)
 
-Internal archive and handoff checklist: [docs/internal/archive-checklist-zh.md](docs/internal/archive-checklist-zh.md)
+Release readiness checklist: [docs/release/readiness-checklist-zh.md](docs/release/readiness-checklist-zh.md)
 
 Server service entry:
 

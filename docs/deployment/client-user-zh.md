@@ -1,6 +1,6 @@
 ﻿# 客户端用户指南
 
-客户端安装、卸载、分发包和 Inno Setup 的完整流程见 [部署与安装指南](deployment-zh.md)。本文聚焦普通用户使用和客户端配置边界。
+客户端安装、卸载、分发包和 Inno Setup 的完整流程见 [Windows 部署与安装](windows-deployment-zh.md)。本文聚焦普通用户使用和客户端配置边界。
 
 ## 1. 普通用户需要什么
 

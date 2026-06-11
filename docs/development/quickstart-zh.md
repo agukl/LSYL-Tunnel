@@ -1,6 +1,6 @@
 ﻿# 快速开始
 
-本文用于本机开发和功能验证。生产部署前请阅读 [部署与安装指南](../deployment-zh.md)、[服务端管理员指南](../server-admin-zh.md)、[客户端用户指南](../client-user-zh.md) 和 [安全模型](../security-model-zh.md)。
+本文用于本机开发和功能验证。生产部署前请阅读 [Windows 部署与安装](../deployment/windows-deployment-zh.md)、[服务端管理员指南](../deployment/server-admin-zh.md)、[客户端用户指南](../deployment/client-user-zh.md) 和 [安全模型](../system/security-zh.md)。
 
 ## 1. 构建程序
 
@@ -80,7 +80,7 @@ cmd /c deploy\windows\test\selfcheck.cmd
 
 ## 6. 生成分发包和安装器
 
-完整安装、卸载和 Inno Setup 说明见 [部署与安装指南](../deployment-zh.md)。这里仅列常用命令。
+完整安装、卸载和 Inno Setup 说明见 [Windows 部署与安装](../deployment/windows-deployment-zh.md)。这里仅列常用命令。
 
 推荐使用根目录发布入口，它会自动执行测试、打包、安装器构建、签名和产物验证：
 

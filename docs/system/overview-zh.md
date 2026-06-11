@@ -7,7 +7,7 @@
 3. 配置、启动、连接、转发各自怎么流转。
 4. 哪些地方是正常容易混的概念边界。
 
-更细的网络分层说明见 [网络连接流程与项目所在层级](internal/network-flow-zh.md)，安装与签名见 [部署与安装指南](deployment-zh.md) 和 [签名发布指南](internal/release-signing-zh.md)。
+更细的网络分层说明见 [网络连接流程与项目所在层级](network-flow-zh.md)，安装与签名见 [Windows 部署与安装](../deployment/windows-deployment-zh.md) 和 [签名发布指南](../release/signing-zh.md)。
 
 ## 1. 一句话定义
 

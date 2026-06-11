@@ -1,6 +1,6 @@
 # Windows 服务部署
 
-完整安装包流程见 [部署与安装指南](deployment-zh.md)。本文只说明 Windows 服务本身的注册、重启、停止和日志边界。
+完整安装包流程见 [Windows 部署与安装](../deployment/windows-deployment-zh.md)。本文只说明 Windows 服务本身的注册、重启、停止和日志边界。
 
 服务脚本统一放在：
 
