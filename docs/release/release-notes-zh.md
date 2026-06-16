@@ -27,4 +27,5 @@
 
 - 一键发布入口保持为根目录 `release.cmd`。
 - 打包脚本在旧 `dist` 目录被占用时支持原地刷新，减少 Windows 资源管理器占用导致的失败。
+- `release.cmd` 默认对安装包内主线 Go 二进制启用 `garble` 混淆和 `-trimpath -ldflags "-s -w"` 瘦身。
 - Windows exe 版本资源、manifest、Inno 安装包版本和自检脚本统一到 `1.1.0 / 1.1.0.0`。

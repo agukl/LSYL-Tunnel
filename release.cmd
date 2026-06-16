@@ -10,6 +10,7 @@ set "SKIP_TEST=0"
 set "PACKAGE_ONLY=0"
 set "VERIFY_ONLY=0"
 set "HELP_REQUESTED=0"
+set "PROTECT_BINARIES=1"
 
 :parse_args
 if "%~1"=="" goto parsed
@@ -70,6 +71,16 @@ if /i "%~1"=="--verify-only" (
   shift
   goto parse_args
 )
+if /i "%~1"=="/no-protect" (
+  set "PROTECT_BINARIES=0"
+  shift
+  goto parse_args
+)
+if /i "%~1"=="--no-protect" (
+  set "PROTECT_BINARIES=0"
+  shift
+  goto parse_args
+)
 echo [ERROR] Unknown argument: %~1
 echo.
 goto usage
@@ -80,6 +91,7 @@ echo.
 goto usage
 
 :parsed
+set "LSYL_RELEASE_PROTECT=%PROTECT_BINARIES%"
 if "%VERIFY_ONLY%"=="1" goto verify
 
 echo [INFO] LSYL Tunnel release workflow
@@ -121,6 +133,12 @@ if "%SKIP_TEST%"=="1" (
 ) else (
   echo [3/7] Run Go tests
   go test ./... || exit /b 1
+)
+
+if "%LSYL_RELEASE_PROTECT%"=="1" (
+  echo [INFO] Dist package binaries will be built with garble obfuscation and stripped symbols.
+) else (
+  echo [WARN] Dist package binary protection is disabled for this release run.
 )
 
 if "%PACKAGE_ONLY%"=="1" (
@@ -196,13 +214,14 @@ exit /b 0
 
 :usage
 echo Usage:
-echo   release.cmd [/hosts "dns,ip"] [/local-sign] [/skip-test] [/package-only] [/verify-only]
+echo   release.cmd [/hosts "dns,ip"] [/local-sign] [/skip-test] [/package-only] [/verify-only] [/no-protect]
 echo.
 echo Common:
 echo   release.cmd /hosts "vpn.example.com,203.0.113.10" /local-sign
 echo   release.cmd
 echo   release.cmd /skip-test
 echo   release.cmd /verify-only
+echo   release.cmd /no-protect
 echo.
 echo Options:
 echo   /hosts        Regenerate server TLS certificate and copy server.crt into client trust input.
@@ -210,5 +229,6 @@ echo   /local-sign   Create/reuse a local self-signed code signing certificate f
 echo   /skip-test    Skip go test ./... for faster local iteration.
 echo   /package-only Build signed dist packages but do not compile Inno installers.
 echo   /verify-only  Only verify current release outputs and signatures.
+echo   /no-protect   Disable garble/-s/-w protected binary build for troubleshooting.
 if "%HELP_REQUESTED%"=="1" exit /b 0
 exit /b 1

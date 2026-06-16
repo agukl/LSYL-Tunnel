@@ -42,6 +42,8 @@ Name: "{app}\logs\business"; Flags: uninsneveruninstall
 Name: "{app}\logs\entry-traffic"; Flags: uninsneveruninstall
 Name: "{app}\logs\flow-traffic"; Flags: uninsneveruninstall
 Name: "{app}\logs\service"; Flags: uninsneveruninstall
+Name: "{app}\tmp"
+Name: "{app}\tmp\gui"; Permissions: users-modify
 
 [Files]
 Source: "{#SourceRoot}\bin\lsyl-tunnel-server.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
@@ -52,6 +54,8 @@ Source: "{#SourceRoot}\bin\lsyl-tunnel-cert.exe"; DestDir: "{app}\bin"; Flags: i
 Source: "{#SourceRoot}\assets\server.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#SourceRoot}\assets\server.svg"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#SourceRoot}\conf\server.yaml"; DestDir: "{app}\conf"; Flags: ignoreversion onlyifdoesntexist uninsneveruninstall
+Source: "{#SourceRoot}\bin\lsyl-tunnel-server-gui.exe"; DestName: "lsyl-tunnel-server-gui-check.exe"; Flags: dontcopy
+Source: "{#SourceRoot}\conf\server.yaml"; DestName: "server-reference.yaml"; Flags: dontcopy
 
 [Icons]
 Name: "{group}\LSYL Tunnel Server"; Filename: "{app}\bin\lsyl-tunnel-server-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\assets\server.ico"
@@ -103,6 +107,54 @@ begin
     Result := 'localhost,127.0.0.1';
 end;
 
+function CheckServerConfigCompatibility: String;
+var
+  ResultCode: Integer;
+  ConfigFile: String;
+  ReferenceFile: String;
+  CheckerExe: String;
+  ResultFile: String;
+  Params: String;
+  Detail: AnsiString;
+  DetailText: String;
+begin
+  Result := '';
+  ConfigFile := ExpandConstant('{app}\conf\server.yaml');
+  if not FileExists(ConfigFile) then
+    exit;
+
+  ExtractTemporaryFile('server-reference.yaml');
+  ExtractTemporaryFile('lsyl-tunnel-server-gui-check.exe');
+  ReferenceFile := ExpandConstant('{tmp}\server-reference.yaml');
+  CheckerExe := ExpandConstant('{tmp}\lsyl-tunnel-server-gui-check.exe');
+  ResultFile := ExpandConstant('{tmp}\server-config-compat-result.txt');
+  DeleteFile(ResultFile);
+
+  Params :=
+    '-config-compat-check' +
+    ' -config "' + ConfigFile + '"' +
+    ' -reference-config "' + ReferenceFile + '"' +
+    ' -result-file "' + ResultFile + '"';
+  if not Exec(CheckerExe, Params, ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then begin
+    Result :=
+      'Cannot start server config compatibility checker.' + #13#10 +
+      CheckerExe;
+    exit;
+  end;
+  if ResultCode <> 0 then begin
+    Detail := '';
+    if FileExists(ResultFile) then
+      LoadStringFromFile(ResultFile, Detail);
+    DetailText := Trim(String(Detail));
+    if DetailText = '' then
+      DetailText := 'The installed config structure differs from the config required by this installer.';
+    Result :=
+      'Installed server config is not compatible with this server installer. Installation stopped.' + #13#10 + #13#10 +
+      DetailText + #13#10 + #13#10 +
+      'Installed config: ' + ConfigFile;
+  end;
+end;
+
 procedure StopServerService;
 var
   ResultCode: Integer;
@@ -112,7 +164,14 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  CompatError: String;
 begin
+  CompatError := CheckServerConfigCompatibility();
+  if CompatError <> '' then begin
+    Result := CompatError;
+    exit;
+  end;
   StopServerService();
   Result := '';
 end;

@@ -91,6 +91,7 @@ deploy\windows\app\write-dist-tools.cmd
 ```cmd
 release.cmd
 release.cmd /package-only
+release.cmd /no-protect
 ```
 
 实施侧如果只拿到 `dist`，使用：
@@ -106,6 +107,8 @@ dist\LSYL Tunnel Server\make-installer.cmd
 ```text
 deploy\windows\inno\
 ```
+
+`release.cmd` 默认启用受保护构建：主线客户端、服务端和 profile 工具使用 `garble` 混淆，并带 `-trimpath -ldflags "-s -w"`；Win7 Lite 客户端保持 Go 1.20 兼容，只做 `-trimpath -s -w` 瘦身。普通 `deploy\windows\build.cmd` 默认不混淆，便于开发调试。
 
 ### 7. 签名
 

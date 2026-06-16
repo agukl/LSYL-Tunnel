@@ -93,6 +93,7 @@ if not exist deploy\windows\inno\package-client.iss (echo [ERROR] Missing: deplo
 if not exist deploy\windows\inno\package-server.iss (echo [ERROR] Missing: deploy\windows\inno\package-server.iss & exit /b 1)
 findstr /c:"autostartservice" deploy\windows\inno\package-server.iss >nul || (echo [ERROR] Server installer is missing service auto-start confirmation task & exit /b 1)
 findstr /c:"-start-type" deploy\windows\inno\package-server.iss >nul || (echo [ERROR] Server installer is missing service start-type registration parameter & exit /b 1)
+findstr /c:"config-compat-check" deploy\windows\inno\package-server.iss >nul || (echo [ERROR] Server installer is missing config compatibility check & exit /b 1)
 if exist deploy\windows\inno\client.iss (echo [ERROR] Obsolete source-side Inno template remains: deploy\windows\inno\client.iss & exit /b 1)
 if exist deploy\windows\inno\server.iss (echo [ERROR] Obsolete source-side Inno template remains: deploy\windows\inno\server.iss & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path 'deploy\windows\inno\package-client.iss' -SimpleMatch 'taskkill' -List; if($hit){ Write-Host ('[ERROR] Client installer must not force-kill processes: ' + $hit.Path + ':' + $hit.LineNumber); exit 1 }" || exit /b 1
@@ -173,6 +174,7 @@ if not exist %SELF_TMP%\selfcheck-server-package\installer\server.iss (echo [ERR
 if not exist %SELF_TMP%\selfcheck-server-package\installer\Languages\ChineseSimplified.isl (echo [ERROR] Missing: server package installer language & exit /b 1)
 findstr /c:"autostartservice" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul || (echo [ERROR] Server package installer is missing service auto-start confirmation task & exit /b 1)
 findstr /c:"-start-type" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul || (echo [ERROR] Server package installer is missing service start-type registration parameter & exit /b 1)
+findstr /c:"config-compat-check" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul || (echo [ERROR] Server package installer is missing config compatibility check & exit /b 1)
 if exist %SELF_TMP%\selfcheck-server-package\install-server-app.cmd (echo [ERROR] Server package should not include manual install script & exit /b 1)
 if exist %SELF_TMP%\selfcheck-server-package\uninstall-server-app.cmd (echo [ERROR] Server package should not include manual uninstall script & exit /b 1)
 if exist %SELF_TMP%\selfcheck-server-package\uninstall-server-app.ps1 (echo [ERROR] Server package should not include manual uninstall script & exit /b 1)

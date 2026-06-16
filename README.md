@@ -46,6 +46,7 @@ cmd /c release.cmd /verify-only
 ```
 
 `release.cmd` is the recommended entry for packaging, installer build, signing, and output verification. Lower-level scripts under `deploy/windows` are kept for development, troubleshooting, and one-off custom packages.
+Release packages are protected by default: main Go binaries are built with `garble` plus `-trimpath -ldflags "-s -w"`. Use `release.cmd /no-protect` only for troubleshooting protected-build issues.
 
 ```powershell
 cmd /c deploy\windows\build.cmd all
