@@ -206,6 +206,26 @@ func (f *failTracker) unblock(key string) (bool, error) {
 	return removed, nil
 }
 
+func (f *failTracker) unblockPermanent(key string) (bool, error) {
+	if f == nil {
+		return false, nil
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false, nil
+	}
+	_, inMemory := f.permanent.Load(key)
+	removed, err := RemovePermanentBlockedIP(f.permanentFile, key)
+	if err != nil {
+		return false, err
+	}
+	if removed || inMemory {
+		f.permanent.Delete(key)
+		return true, nil
+	}
+	return false, nil
+}
+
 func blockedIPStates(items []persistedBlockedIP, now time.Time) []BlockedIPState {
 	out := []BlockedIPState{}
 	for _, item := range items {

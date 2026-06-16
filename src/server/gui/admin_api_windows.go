@@ -161,6 +161,7 @@ func (a *App) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/password/hash", a.handleAdminPasswordHash)
 	mux.HandleFunc("/api/service/restart", a.handleAdminServiceRestart)
 	mux.HandleFunc("/api/security/unblock", a.handleAdminUnblockIP)
+	mux.HandleFunc("/api/security/permanent-block/delete", a.handleAdminDeletePermanentBlock)
 	mux.HandleFunc("/api/log-analysis", a.handleAdminLogAnalysis)
 	mux.Handle("/", noStore(http.FileServer(http.FS(frontassets.FS))))
 }
@@ -295,6 +296,55 @@ func (a *App) handleAdminUnblockIP(w http.ResponseWriter, r *http.Request) {
 	msg := "未找到封禁 IP: " + ip
 	if removed {
 		msg = "已解封 IP: " + ip
+	}
+	writeJSON(w, http.StatusOK, apiResult{OK: true, Message: msg, State: a.buildAdminState(msg)})
+}
+
+func (a *App) handleAdminDeletePermanentBlock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, apiResult{OK: false, Message: "method not allowed"})
+		return
+	}
+	var req unblockIPRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiResult{OK: false, Message: "invalid delete request"})
+		return
+	}
+	ip := strings.TrimSpace(req.IP)
+	if net.ParseIP(ip) == nil {
+		writeJSON(w, http.StatusOK, apiResult{OK: false, Message: "IP 格式不正确", State: a.buildAdminState("IP 格式不正确")})
+		return
+	}
+	cfg, err := readRawServerConfig(a.configPath)
+	if err != nil {
+		msg := friendlyError(err)
+		writeJSON(w, http.StatusOK, apiResult{OK: false, Message: msg, State: a.buildAdminState(msg)})
+		return
+	}
+
+	serviceRunning := a.isServerServiceRunning()
+	removed := false
+	liveSynced := false
+	if serviceRunning && strings.TrimSpace(cfg.MonitorAddr) != "" {
+		removed, err = deletePermanentBlockViaMonitor(cfg.MonitorAddr, ip)
+		if err == nil {
+			liveSynced = true
+		}
+	}
+	if !liveSynced {
+		removed, err = tunnel.RemovePermanentBlockedIP(a.runtimePermanentBlockPath(cfg), ip)
+	}
+	if err != nil {
+		msg := friendlyError(err)
+		writeJSON(w, http.StatusOK, apiResult{OK: false, Message: msg, State: a.buildAdminState(msg)})
+		return
+	}
+	msg := "未找到永久封禁 IP: " + ip
+	if removed {
+		msg = "已删除永久封禁 IP: " + ip
+		if !liveSynced {
+			msg = "已从永久封禁文件删除 IP: " + ip + "，重启服务后完全生效"
+		}
 	}
 	writeJSON(w, http.StatusOK, apiResult{OK: true, Message: msg, State: a.buildAdminState(msg)})
 }
@@ -678,6 +728,39 @@ func unblockIPViaMonitor(addr, ip string) (bool, error) {
 	}
 	client := &http.Client{Timeout: 1200 * time.Millisecond}
 	resp, err := client.Post("http://"+addr+"/security/unblock", "application/json; charset=utf-8", bytes.NewReader(body))
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	var result struct {
+		OK      bool   `json:"ok"`
+		Message string `json:"message"`
+		Removed bool   `json:"removed"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || !result.OK {
+		if result.Message == "" {
+			result.Message = fmt.Sprintf("monitor returned %s", resp.Status)
+		}
+		return false, fmt.Errorf("%s", result.Message)
+	}
+	return result.Removed, nil
+}
+
+func deletePermanentBlockViaMonitor(addr, ip string) (bool, error) {
+	addr = strings.TrimSpace(addr)
+	ip = strings.TrimSpace(ip)
+	if addr == "" {
+		return false, fmt.Errorf("monitor address is empty")
+	}
+	body, err := json.Marshal(unblockIPRequest{IP: ip})
+	if err != nil {
+		return false, err
+	}
+	client := &http.Client{Timeout: 1200 * time.Millisecond}
+	resp, err := client.Post("http://"+addr+"/security/permanent-block/delete", "application/json; charset=utf-8", bytes.NewReader(body))
 	if err != nil {
 		return false, err
 	}

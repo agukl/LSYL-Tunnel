@@ -305,7 +305,7 @@ p { margin: 0; color: #6d8490; line-height: 1.75; }
   min-height: 0;
 }
 .detail-table { min-width: 760px; table-layout: fixed; }
-#temporaryBlockedTable, #permanentBlockedTable { min-width: 720px; }
+#temporaryBlockedTable, #permanentBlockedTable { min-width: 760px; }
 #userConcurrencyTable { min-width: 880px; table-layout: fixed; }
 #businessTable { min-width: 1280px; }
 #requestTable { min-width: 1680px; }
@@ -314,10 +314,11 @@ p { margin: 0; color: #6d8490; line-height: 1.75; }
 #temporaryBlockedTable th:nth-child(2), #temporaryBlockedTable td:nth-child(2) { width: 22%; }
 #temporaryBlockedTable th:nth-child(3), #temporaryBlockedTable td:nth-child(3) { width: 34%; }
 #temporaryBlockedTable th:nth-child(4), #temporaryBlockedTable td:nth-child(4) { width: 14%; text-align: right; }
-#permanentBlockedTable th:nth-child(1), #permanentBlockedTable td:nth-child(1) { width: 26%; }
-#permanentBlockedTable th:nth-child(2), #permanentBlockedTable td:nth-child(2) { width: 20%; }
-#permanentBlockedTable th:nth-child(3), #permanentBlockedTable td:nth-child(3) { width: 38%; }
+#permanentBlockedTable th:nth-child(1), #permanentBlockedTable td:nth-child(1) { width: 24%; }
+#permanentBlockedTable th:nth-child(2), #permanentBlockedTable td:nth-child(2) { width: 16%; }
+#permanentBlockedTable th:nth-child(3), #permanentBlockedTable td:nth-child(3) { width: 34%; }
 #permanentBlockedTable th:nth-child(4), #permanentBlockedTable td:nth-child(4) { width: 16%; }
+#permanentBlockedTable th:nth-child(5), #permanentBlockedTable td:nth-child(5) { width: 10%; text-align: right; }
 #userConcurrencyTable th:nth-child(1), #userConcurrencyTable td:nth-child(1) { width: 20%; }
 #userConcurrencyTable th:nth-child(2), #userConcurrencyTable td:nth-child(2) { width: 12%; }
 #userConcurrencyTable th:nth-child(3), #userConcurrencyTable td:nth-child(3) { width: 26%; }

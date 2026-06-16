@@ -589,6 +589,35 @@ func (s *Server) startMonitor(ctx context.Context) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "message": "unblocked", "removed": removed})
 	})
+	mux.HandleFunc("/security/permanent-block/delete", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "message": "method not allowed"})
+			return
+		}
+		var req struct {
+			IP string `json:"ip"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "message": "invalid request"})
+			return
+		}
+		ip := strings.TrimSpace(req.IP)
+		if net.ParseIP(ip) == nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "message": "invalid ip"})
+			return
+		}
+		removed, err := s.fails.unblockPermanent(ip)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "message": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "message": "permanent block deleted", "removed": removed})
+	})
 	s.httpSrv = &http.Server{Addr: s.cfg.MonitorAddr, Handler: mux}
 	go func() {
 		<-ctx.Done()

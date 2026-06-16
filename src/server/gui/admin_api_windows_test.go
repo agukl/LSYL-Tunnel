@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -432,6 +433,61 @@ func TestHandleAdminUnblockIPRemovesPersistedBlockedIP(t *testing.T) {
 	}
 	if got, err := tunnel.LoadBlockedIPs(stateFile); err != nil || len(got) != 0 {
 		t.Fatalf("LoadBlockedIPs = %#v, %v", got, err)
+	}
+}
+
+func TestHandleAdminDeletePermanentBlockRemovesPersistedIP(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "conf", "server.yaml")
+	permanentFile := filepath.Join(dir, "data", "server-permanent-block.txt")
+	cfg := tunnel.Config{
+		ListenAddr:  "127.0.0.1:9443",
+		MonitorAddr: "127.0.0.1:19111",
+		TLS:         tunnel.TLSConfig{CertFile: "server.crt", KeyFile: "server.key"},
+		Runtime:     tunnel.RuntimeConfig{PermanentBlockFile: permanentFile},
+	}
+	if err := tunnel.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(permanentFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(permanentFile, []byte("203.0.113.10\n203.0.113.20\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app := NewApp()
+	app.configPath = configPath
+	app.serviceName = "LSYL Tunnel Test Missing Service"
+	body, err := json.Marshal(unblockIPRequest{IP: "203.0.113.10"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/security/permanent-block/delete", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	app.handleAdminDeletePermanentBlock(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var res apiResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK {
+		t.Fatalf("unexpected response: %#v", res)
+	}
+	data, err := os.ReadFile(permanentFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, "203.0.113.10") || !strings.Contains(text, "203.0.113.20") {
+		t.Fatalf("unexpected permanent block file content: %q", text)
+	}
+	if res.State == nil || len(res.State.PermanentBlocks) != 1 || res.State.PermanentBlocks[0].IP != "203.0.113.20" {
+		t.Fatalf("unexpected refreshed state: %#v", res.State)
 	}
 }
 

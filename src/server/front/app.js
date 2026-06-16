@@ -86,6 +86,7 @@
     setActionDisabled('save', busy || blockedByPermission);
     setActionDisabled('refresh', busy);
     setUnblockButtonsDisabled(busy);
+    setPermanentBlockDeleteButtonsDisabled(busy);
     setConfigEditingEnabled(!blockedByPermission);
   }
 
@@ -1009,6 +1010,17 @@
     });
   }
 
+  function deletePermanentBlock(ip) {
+    if (!ip || busy) { return; }
+    if (!window.confirm('确认删除永久封禁 IP：' + ip + '？')) { return; }
+    setBusy(true);
+    api('POST', '/api/security/permanent-block/delete', { ip: ip }, function (res) {
+      setBusy(false);
+      if (res.state) { renderState(res.state, false); }
+      showToast((res && res.message) || ('已删除永久封禁 ' + ip), !(res && res.ok));
+    });
+  }
+
   function restartService() {
     if (dirty) {
       saveConfig(function (ok) {
@@ -1075,7 +1087,7 @@
     var tbody = $('permanentBlockedTable').getElementsByTagName('tbody')[0];
     tbody.innerHTML = '';
     if (!items || items.length === 0) {
-      appendEmptyRow(tbody, 4, '暂无永久封禁 IP');
+      appendEmptyRow(tbody, 5, '暂无永久封禁 IP');
       return;
     }
     for (var i = 0; i < items.length; i++) {
@@ -1085,6 +1097,7 @@
       appendPlainCell(tr, '永久封禁', 'strong-text');
       appendPlainCell(tr, permanentBlockSourceText(item), 'ellipsis-cell');
       appendPlainCell(tr, '重启服务后仍然生效', 'ellipsis-cell');
+      appendPermanentBlockDeleteCell(tr, item.ip || '');
       tbody.appendChild(tr);
     }
   }
@@ -1110,8 +1123,29 @@
     row.appendChild(td);
   }
 
+  function appendPermanentBlockDeleteCell(row, ip) {
+    var td = document.createElement('td');
+    td.className = 'row-actions';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn small danger';
+    btn.textContent = '删除';
+    btn.setAttribute('data-delete-permanent-ip', ip);
+    btn.disabled = busy || !ip;
+    btn.onclick = function () { deletePermanentBlock(ip); };
+    td.appendChild(btn);
+    row.appendChild(td);
+  }
+
   function setUnblockButtonsDisabled(disabled) {
     var buttons = document.querySelectorAll('[data-unblock-ip]');
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].disabled = disabled;
+    }
+  }
+
+  function setPermanentBlockDeleteButtonsDisabled(disabled) {
+    var buttons = document.querySelectorAll('[data-delete-permanent-ip]');
     for (var i = 0; i < buttons.length; i++) {
       buttons[i].disabled = disabled;
     }

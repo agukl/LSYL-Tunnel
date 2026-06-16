@@ -54,3 +54,46 @@ func appendPermanentBlockedIP(path, ip string) error {
 	_, err = file.WriteString(ip + "\n")
 	return err
 }
+
+func RemovePermanentBlockedIP(path, ip string) (bool, error) {
+	path = strings.TrimSpace(path)
+	ip = strings.TrimSpace(ip)
+	if path == "" || ip == "" {
+		return false, nil
+	}
+	path = filepath.Clean(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	hasTrailingNewline := strings.HasSuffix(text, "\n")
+	lines := strings.Split(text, "\n")
+	if hasTrailingNewline && len(lines) > 0 {
+		lines = lines[:len(lines)-1]
+	}
+
+	removed := false
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == ip {
+			removed = true
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if !removed {
+		return false, nil
+	}
+
+	out := strings.Join(kept, "\n")
+	if hasTrailingNewline && len(kept) > 0 {
+		out += "\n"
+	}
+	return true, os.WriteFile(path, []byte(out), 0o600)
+}
