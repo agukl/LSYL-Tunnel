@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/lxn/walk"
+	. "github.com/lxn/walk/declarative"
 	"github.com/lxn/win"
 	"golang.org/x/sys/windows/registry"
 )
@@ -37,6 +38,7 @@ type App struct {
 	mu            sync.Mutex
 	logs          []string
 	webLayoutSeq  uint64
+	closing       uint32
 	lastWebBounds walk.Rectangle
 	initialShown  bool
 }
@@ -84,9 +86,14 @@ func NewApp() *App {
 func (a *App) Run() (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			msg := fmt.Sprintf("panic: %v\r\n%s", r, debug.Stack())
-			crashLog := a.writeCrashLog(msg)
-			err = fmt.Errorf("服务端管理台启动异常，详情见: %s", crashLog)
+			stack := debug.Stack()
+			if a.isWalkShutdownPanic(r, stack) {
+				err = nil
+				return
+			}
+			msg := fmt.Sprintf("panic: %v\r\n%s", r, stack)
+			_ = os.WriteFile(a.crashLog, []byte(msg), 0o644)
+			err = fmt.Errorf("服务端管理台启动异常，详情见: %s", a.crashLog)
 		}
 	}()
 	return a.runUI()
@@ -108,71 +115,60 @@ func (a *App) runUI() error {
 		_ = srv.Shutdown(ctx)
 	}()
 
-	mw, err := walk.NewMainWindow()
-	if err != nil {
+	var web *walk.WebView
+	ui := MainWindow{
+		AssignTo:   &a.mw,
+		Title:      windowTitle,
+		Size:       Size{1180, 760},
+		MinSize:    Size{980, 640},
+		Background: SolidColorBrush{Color: walk.RGB(232, 246, 245)},
+		Layout:     VBox{MarginsZero: true, SpacingZero: true},
+		Children: []Widget{
+			WebView{
+				AssignTo:                 &web,
+				URL:                      a.panelURL,
+				Background:               SolidColorBrush{Color: walk.RGB(232, 246, 245)},
+				NativeContextMenuEnabled: false,
+				StretchFactor:            1,
+				OnDocumentCompleted: func(string) {
+					a.showInitialWindow(web)
+				},
+			},
+		},
+	}
+	if err := ui.Create(); err != nil {
 		return err
-	}
-	a.mw = mw
-	if err := mw.SetTitle(windowTitle); err != nil {
-		return err
-	}
-	if err := mw.SetSize(walk.Size{Width: 1180, Height: 760}); err != nil {
-		return err
-	}
-	if err := mw.SetMinMaxSize(walk.Size{Width: 980, Height: 640}, walk.Size{}); err != nil {
-		return err
-	}
-	if bg, err := walk.NewSolidColorBrush(walk.RGB(232, 246, 245)); err == nil {
-		mw.SetBackground(bg)
-	}
-	layout := walk.NewVBoxLayout()
-	layout.SetMargins(walk.Margins{})
-	layout.SetSpacing(0)
-	if err := mw.SetLayout(layout); err != nil {
-		return err
-	}
-	web, err := walk.NewWebView(mw)
-	if err != nil {
-		return err
-	}
-	if bg, err := walk.NewSolidColorBrush(walk.RGB(232, 246, 245)); err == nil {
-		web.SetBackground(bg)
-	}
-	web.SetNativeContextMenuEnabled(false)
-	if err := web.SetURL(a.panelURL); err != nil {
-		return err
-	}
-	web.DocumentCompleted().Attach(func(string) {
-		a.showInitialWindow(web)
-	})
-	if err := layout.SetStretchFactor(web, 1); err != nil {
-		return err
-	}
-	if web == nil {
-		return fmt.Errorf("WebView 初始化失败")
 	}
 	a.web = web
-	if toolBar := mw.ToolBar(); toolBar != nil {
-		toolBar.SetVisible(false)
-	}
-	if statusBar := mw.StatusBar(); statusBar != nil {
-		statusBar.SetVisible(false)
-	}
+	a.mw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+		a.beginShutdown()
+	})
+	a.mw.ToolBar().SetVisible(false)
+	a.mw.StatusBar().SetVisible(false)
 	a.bindWebViewResizeGuard(web)
 	a.scheduleInitialShow(web, 900*time.Millisecond)
-	mw.Run()
+	a.mw.Run()
 	return nil
 }
 
-func (a *App) writeCrashLog(msg string) string {
-	if writeTextFile(a.crashLog, msg, 0o644) == nil {
-		return a.crashLog
+func (a *App) beginShutdown() {
+	if !atomic.CompareAndSwapUint32(&a.closing, 0, 1) {
+		return
 	}
-	fallback := filepath.Join(fallbackAppTmpDir(), "gui", "server-gui.crash.log")
-	if writeTextFile(fallback, msg, 0o644) == nil {
-		return fallback
+	atomic.AddUint64(&a.webLayoutSeq, 1)
+	a.mw = nil
+	a.web = nil
+}
+
+func (a *App) isWalkShutdownPanic(r any, stack []byte) bool {
+	if atomic.LoadUint32(&a.closing) == 0 {
+		return false
 	}
-	return a.crashLog
+	msg := fmt.Sprint(r)
+	if !strings.Contains(msg, "WindowGroup that has been removed from its manager") {
+		return false
+	}
+	return strings.Contains(string(stack), "github.com/lxn/walk.(*FormBase).close")
 }
 
 func (a *App) bindWebViewResizeGuard(web *walk.WebView) {
@@ -275,7 +271,8 @@ func (a *App) startAdminServer() (*http.Server, error) {
 	}
 	a.panelURL = "http://" + ln.Addr().String() + "/"
 	tmpDir := filepath.Join(appTmpDir(a.workspace), "gui")
-	_ = writeTextFile(filepath.Join(tmpDir, "server-gui.url"), a.panelURL, 0o644)
+	_ = os.MkdirAll(tmpDir, 0o755)
+	_ = os.WriteFile(filepath.Join(tmpDir, "server-gui.url"), []byte(a.panelURL), 0o644)
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
@@ -406,44 +403,9 @@ func detectServerServiceLog(workspace string) string {
 
 func appTmpDir(workspace string) string {
 	if fileExists(filepath.Join(workspace, "go.mod")) {
-		candidate := filepath.Join(workspace, "build", "tmp")
-		if isWritableDir(filepath.Join(candidate, "gui")) {
-			return candidate
-		}
+		return filepath.Join(workspace, "build", "tmp")
 	}
-	candidate := filepath.Join(workspace, "tmp")
-	if isWritableDir(filepath.Join(candidate, "gui")) {
-		return candidate
-	}
-	return fallbackAppTmpDir()
-}
-
-func fallbackAppTmpDir() string {
-	if dir, err := os.UserCacheDir(); err == nil && strings.TrimSpace(dir) != "" {
-		return filepath.Join(dir, "LSYL Tunnel Server", "tmp")
-	}
-	return filepath.Join(os.TempDir(), "LSYL Tunnel Server", "tmp")
-}
-
-func isWritableDir(dir string) bool {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return false
-	}
-	probe := filepath.Join(dir, fmt.Sprintf(".lsyl-write-test-%d.tmp", os.Getpid()))
-	file, err := os.OpenFile(probe, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return false
-	}
-	_ = file.Close()
-	_ = os.Remove(probe)
-	return true
-}
-
-func writeTextFile(path, text string, perm os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(text), perm)
+	return filepath.Join(workspace, "tmp")
 }
 
 func fileExists(path string) bool {

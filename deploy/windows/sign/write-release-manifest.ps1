@@ -71,11 +71,6 @@ if (-not (Test-Path $OutputDir)) {
 }
 
 $buildTime = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
-$protectedBuild = $env:LSYL_RELEASE_PROTECT -eq "1"
-$garbleVersion = $env:LSYL_GARBLE_VERSION
-if ([string]::IsNullOrWhiteSpace($garbleVersion)) {
-    $garbleVersion = "v0.15.0"
-}
 $entries = foreach ($file in $resolvedFiles) {
     $item = Get-Item $file
     $relative = Resolve-Path -Relative $file
@@ -103,11 +98,10 @@ $manifest = [ordered]@{
     build_time = $buildTime
     workspace = $workspace.Path
     package_only = [bool]$PackageOnly
-    binary_protection = [ordered]@{
-        enabled = [bool]$protectedBuild
-        go_build_flags = if ($protectedBuild) { "-trimpath -ldflags '-s -w'" } else { "-trimpath" }
-        obfuscator = if ($protectedBuild) { "garble $garbleVersion" } else { "" }
-        note = if ($protectedBuild) { "Main client/server/profile Go binaries are obfuscated for release packages. Win7 Lite keeps Go 1.20 compatibility and uses stripped symbols without garble." } else { "Protected release build was disabled." }
+    binary_build = [ordered]@{
+        stripped = $true
+        go_build_flags = "-trimpath -ldflags '-s -w'"
+        note = "Release binaries use Go official symbol stripping only. No obfuscation or executable packing is applied."
     }
     service = [ordered]@{
         name = "LSYLTunnelServer"
@@ -133,12 +127,9 @@ $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add("LSYL Tunnel Release Manifest")
 $lines.Add("Build time: $buildTime")
 $lines.Add("Package only: $([bool]$PackageOnly)")
-$lines.Add("Binary protection: $([bool]$protectedBuild)")
-if ($protectedBuild) {
-    $lines.Add("  Go flags: -trimpath -ldflags '-s -w'")
-    $lines.Add("  Obfuscator: garble $garbleVersion")
-    $lines.Add("  Note: Win7 Lite keeps Go 1.20 compatibility and is stripped without garble.")
-}
+$lines.Add("Binary symbol stripping: True")
+$lines.Add("  Go flags: -trimpath -ldflags '-s -w'")
+$lines.Add("  Note: Go official symbol stripping only; no obfuscation or executable packing.")
 $lines.Add("")
 $lines.Add("Windows service:")
 $lines.Add("  Name: LSYLTunnelServer")

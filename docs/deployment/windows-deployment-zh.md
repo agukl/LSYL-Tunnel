@@ -146,7 +146,7 @@ dist/LSYL Tunnel Server
 - 注册 `LSYLTunnelServer` Windows 服务，默认启动类型为手动；安装向导中明确勾选后才设置为开机自启动。
 - 创建服务端 GUI 快捷方式。
 - 保留已存在的 `conf/server.yaml`。
-- 覆盖安装前检查已安装 `conf/server.yaml` 与安装包默认配置的结构是否兼容；配置项数量或层级不一致时停止安装，避免用新程序启动旧结构配置。
+- 覆盖安装前检查已安装 `conf/server.yaml` 与安装包默认配置的结构是否兼容；配置项数量或层级不一致时停止安装，避免新程序使用旧结构配置启动。
 
 默认安装路径：
 
@@ -177,15 +177,11 @@ cmd /c release.cmd
 
 - 检查/同步客户端需要信任的服务端公开证书。
 - 执行 `go test ./...`。
-- 使用 `garble` 和 `-trimpath -ldflags "-s -w"` 生成受保护的客户端/服务端分发二进制。
+- 使用 Go 官方构建参数 `-trimpath -ldflags "-s -w"` 生成低风险瘦身二进制，不使用混淆器或压缩壳。
 - 生成客户端和服务端分发目录。
 - 编译 Inno 安装器。
 - 对分发包内 exe 和安装器执行签名。
 - 校验最终产物是否存在以及签名是否有效。
-
-`release.cmd` 默认启用受保护构建，只影响 `dist` 分发包和安装器中的 Go 二进制；开发调试用的 `deploy\windows\build.cmd` 默认仍保留普通构建。发布脚本会自动安装并复用 `build\tools\bin\garble.exe`，默认版本为 `v0.15.0`。如需临时排查混淆导致的问题，可以使用 `release.cmd /no-protect`。
-
-Win7 轻量客户端继续使用 Go 1.20 构建以保持旧系统兼容，因此只应用 `-trimpath -ldflags "-s -w"` 瘦身，不强制使用 `garble`。
 
 如果需要发布前重新生成服务端 TLS 公开证书，并同步到客户端打包输入目录：
 

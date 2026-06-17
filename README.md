@@ -46,7 +46,7 @@ cmd /c release.cmd /verify-only
 ```
 
 `release.cmd` is the recommended entry for packaging, installer build, signing, and output verification. Lower-level scripts under `deploy/windows` are kept for development, troubleshooting, and one-off custom packages.
-Release packages are protected by default: main Go binaries are built with `garble` plus `-trimpath -ldflags "-s -w"`. Use `release.cmd /no-protect` only for troubleshooting protected-build issues.
+Release binaries use Go's official low-risk slimming flags: `-trimpath -ldflags "-s -w"`. Obfuscators and executable packers are not used.
 
 ```powershell
 cmd /c deploy\windows\build.cmd all
@@ -102,7 +102,7 @@ The Lite binary is built separately with Go 1.20.x as `windows/386` and `CGO_ENA
 
 The server GUI is a local Web operations console. Frontend assets live in `src/server/front` and are embedded into `lsyl-tunnel-server-gui.exe`; the GUI exposes only a local `127.0.0.1` management API for status, configuration editing, and restarting the `LSYLTunnelServer` service.
 
-The server installer generates a self-signed server TLS identity during install when `certs/server.crt` or `certs/server.key` is missing. Administrators distribute only `server.crt` to clients; `server.key` stays on the server. Server uninstall keeps `conf`, `certs`, `data`, and `logs` by default.
+The server installer generates a self-signed server TLS identity during install when `certs/server.crt` or `certs/server.key` is missing. During upgrades, it preserves the installed `conf/server.yaml` and blocks installation if the installed config shape is incompatible with the package config. Administrators distribute only `server.crt` to clients; `server.key` stays on the server. Server uninstall keeps `conf`, `certs`, `data`, and `logs` by default.
 
 Forward entries support two directions:
 
