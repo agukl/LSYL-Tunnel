@@ -43,9 +43,11 @@ cmd /c release.cmd /hosts "vpn.example.com,203.0.113.10" /local-sign
 cmd /c release.cmd /skip-test
 cmd /c release.cmd /package-only
 cmd /c release.cmd /verify-only
+cmd /c clean-build.cmd
 ```
 
 `release.cmd` is the recommended entry for packaging, installer build, signing, and output verification. Lower-level scripts under `deploy/windows` are kept for development, troubleshooting, and one-off custom packages.
+`clean-build.cmd` removes local build outputs and scratch directories under `build`, including stale Go cache shard directories. It keeps `build\_toolchains` by default; use `clean-build.cmd /all` only when you also want to remove downloaded toolchains.
 Release binaries use Go's official low-risk slimming flags: `-trimpath -ldflags "-s -w"`. Obfuscators and executable packers are not used.
 
 ```powershell

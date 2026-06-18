@@ -75,6 +75,9 @@ if exist deploy\windows\release.cmd (echo [ERROR] Obsolete duplicated release en
 if exist deploy\windows\inno\build-installers.cmd (echo [ERROR] Obsolete duplicated installer build entry exists: deploy\windows\inno\build-installers.cmd & exit /b 1)
 if exist deploy\windows\inno\compile-client-package-installer.cmd (echo [ERROR] Obsolete compatibility entry exists: deploy\windows\inno\compile-client-package-installer.cmd & exit /b 1)
 if not exist release.cmd (echo [ERROR] Missing: release.cmd & exit /b 1)
+if not exist clean-build.cmd (echo [ERROR] Missing: clean-build.cmd & exit /b 1)
+if not exist deploy\windows\clean-build.ps1 (echo [ERROR] Missing: deploy\windows\clean-build.ps1 & exit /b 1)
+call clean-build.cmd /dry-run >nul || exit /b 1
 if not exist deploy\windows\build.cmd (echo [ERROR] Missing: deploy\windows\build.cmd & exit /b 1)
 findstr /c:"-s -w" deploy\windows\build.cmd >nul || (echo [ERROR] build.cmd must strip Go debug symbols with -s -w & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path 'release.cmd','deploy\windows\build.cmd','deploy\windows\sign\write-release-manifest.ps1' -Pattern 'garble','upx','UPX' -List; if($hit){ $hit | ForEach-Object { Write-Host ('[ERROR] Release build must use Go official slimming only: ' + $_.Path + ':' + $_.LineNumber) }; exit 1 }" || exit /b 1

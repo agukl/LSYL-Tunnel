@@ -6,9 +6,10 @@ Windows 相关辅助脚本统一放在 `deploy\windows\`。
 
 ```cmd
 release.cmd
+clean-build.cmd
 ```
 
-`release.cmd` 负责测试、打包、安装器构建、签名和产物校验；这里的其它脚本主要用于开发调试、手动服务管理和一次性定制。
+`release.cmd` 负责测试、打包、安装器构建、签名和产物校验；`clean-build.cmd` 用于清理本地 `build` 输出和临时目录。这里的其它脚本主要用于开发调试、手动服务管理和一次性定制。
 
 ## 当前保留的入口
 
@@ -137,6 +138,16 @@ deploy\windows\test\selfcheck.cmd
 - 安装器模板
 - 签名与文本资源基本完整性
 
+### 9. 构建清理
+
+```cmd
+clean-build.cmd
+clean-build.cmd /dry-run
+clean-build.cmd /all
+```
+
+默认清理 `build\bin`、`build\tmp`、历史 Go cache 分片目录和临时工具目录，保留 `build\_toolchains`，避免重新下载 Win7 Lite 构建用的 Go 1.20。`/all` 会连同 `build\_toolchains` 一起删除。
+
 ## 推荐使用方式
 
 日常最常用的其实只有这几条：
@@ -144,6 +155,7 @@ deploy\windows\test\selfcheck.cmd
 ```cmd
 release.cmd
 release.cmd /package-only
+clean-build.cmd
 deploy\windows\build.cmd all
 deploy\windows\run.cmd server-gui
 deploy\windows\run.cmd client-gui
