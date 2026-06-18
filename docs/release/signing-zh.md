@@ -41,9 +41,10 @@ dist/LSYL Tunnel Client/bin/lsyl-tunnel-client-lite.exe
 服务端中间包/bin/*.exe
 dist/installers/LSYL-Tunnel-Client-Setup.exe
 dist/installers/LSYL-Tunnel-Server-Setup.exe
+dist/installers/LSYL-Tunnel-Android.apk
 ```
 
-完整发布时，服务端 exe 会在中间包内签名后生成安装器；最终 `dist` 只交付 `dist/installers/LSYL-Tunnel-Server-Setup.exe`，不保留 `dist/LSYL Tunnel Server`。
+完整发布时，服务端 exe 会在中间包内签名后生成安装器；最终 `dist` 只交付 `dist/installers/LSYL-Tunnel-Server-Setup.exe`，不保留 `dist/LSYL Tunnel Server`。Android APK 由 Android 构建链自身签名，发布脚本只记录 SHA256 和清单，不做 Windows Authenticode 签名。
 
 ## 3. 准备签名工具
 

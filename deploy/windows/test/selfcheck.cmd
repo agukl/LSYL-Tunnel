@@ -86,6 +86,7 @@ if not exist deploy\windows\sign\write-release-manifest.ps1 (echo [ERROR] Missin
 if not exist deploy\windows\sign\init-selfsigned-codesign.cmd (echo [ERROR] Missing: deploy\windows\sign\init-selfsigned-codesign.cmd & exit /b 1)
 if not exist deploy\windows\app\write-dist-tools.cmd (echo [ERROR] Missing: deploy\windows\app\write-dist-tools.cmd & exit /b 1)
 if not exist deploy\windows\app\prune-release-dist.ps1 (echo [ERROR] Missing: deploy\windows\app\prune-release-dist.ps1 & exit /b 1)
+if not exist deploy\windows\app\package-android-installer.cmd (echo [ERROR] Missing: deploy\windows\app\package-android-installer.cmd & exit /b 1)
 if not exist deploy\windows\app\package-profile.cmd (echo [ERROR] Missing: deploy\windows\app\package-profile.cmd & exit /b 1)
 if not exist deploy\windows\app\package-light-clients.cmd (echo [ERROR] Missing: deploy\windows\app\package-light-clients.cmd & exit /b 1)
 if not exist deploy\windows\inno\make-installers.cmd (echo [ERROR] Missing: deploy\windows\inno\make-installers.cmd & exit /b 1)
@@ -116,6 +117,7 @@ if not exist build\bin\server\lsyl-tunnel-server-gui.exe (echo [ERROR] Missing: 
 if not exist build\bin\server\lsyl-tunnel-server-svc.exe (echo [ERROR] Missing: build\bin\server\lsyl-tunnel-server-svc.exe & exit /b 1)
 if not exist build\bin\server\lsyl-tunnel-cert.exe (echo [ERROR] Missing: build\bin\server\lsyl-tunnel-cert.exe & exit /b 1)
 if not exist build\bin\server\lsyl-tunnel-passwd.exe (echo [ERROR] Missing: build\bin\server\lsyl-tunnel-passwd.exe & exit /b 1)
+if not exist mobile\android\app\build\outputs\apk\release\app-release.apk if not exist mobile\android\app\build\outputs\apk\debug\app-debug.apk (echo [ERROR] Missing Android APK for installers output & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$targets=@('build\bin\client\lsyl-tunnel-client.exe','build\bin\client\lsyl-tunnel-client-gui.exe','build\bin\client\lsyl-tunnel-client-lite.exe','build\bin\profile\lsyl-tunnel-profile.exe','build\bin\server\lsyl-tunnel-server.exe','build\bin\server\lsyl-tunnel-server-gui.exe','build\bin\server\lsyl-tunnel-server-svc.exe','build\bin\server\lsyl-tunnel-cert.exe','build\bin\server\lsyl-tunnel-passwd.exe'); $bad=@(); foreach($t in $targets){ $vi=(Get-Item $t).VersionInfo; if([string]::IsNullOrWhiteSpace($vi.ProductName) -or [string]::IsNullOrWhiteSpace($vi.FileDescription) -or [string]::IsNullOrWhiteSpace($vi.CompanyName) -or $vi.FileVersion -ne '1.1.0.0'){ $bad += ($t + ' product=' + $vi.ProductName + ' desc=' + $vi.FileDescription + ' company=' + $vi.CompanyName + ' version=' + $vi.FileVersion) } }; if($bad){ Write-Host '[ERROR] Missing or incomplete Windows version resource:'; $bad | ForEach-Object { Write-Host ('  ' + $_) }; exit 1 }" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='build\bin\client\lsyl-tunnel-client-lite.exe'; $b=[IO.File]::ReadAllBytes($p); $pe=[BitConverter]::ToInt32($b,0x3c); $machine=[BitConverter]::ToUInt16($b,$pe+4); if($machine -ne 0x014c){ Write-Host ('[ERROR] Win7 Lite client must be PE32/i386, got machine 0x{0:X4}' -f $machine); exit 1 }" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\sign\write-release-manifest.ps1 -OutputDir %SELF_TMP%\selfcheck-release-manifest -Files build\bin\client\lsyl-tunnel-client.exe,build\bin\client\lsyl-tunnel-client-gui.exe,build\bin\client\lsyl-tunnel-client-lite.exe,build\bin\profile\lsyl-tunnel-profile.exe,build\bin\server\lsyl-tunnel-server.exe,build\bin\server\lsyl-tunnel-server-gui.exe,build\bin\server\lsyl-tunnel-server-svc.exe,build\bin\server\lsyl-tunnel-cert.exe,build\bin\server\lsyl-tunnel-passwd.exe >nul || exit /b 1
@@ -139,6 +141,10 @@ if exist %SELF_TMP%\selfcheck-client-package\bin\lsyl-tunnel-client-svc.exe (ech
 findstr /c:"../cert/server.crt" %SELF_TMP%\selfcheck-client-package\conf\client.yaml >nul || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%SELF_TMP%\selfcheck-client-package\conf\client.yaml'; $t=Get-Content -Raw -Encoding UTF8 $p; if($t -match 'ciphertext:|key_id:|client_id:\s*demo-client'){ Write-Host '[ERROR] Client package config contains runtime-only credential data or demo client id.'; exit 1 }; if($t -notmatch '(?m)^saved_credential:\s*\{\}' -or $t -notmatch '(?m)^forwards:'){ Write-Host '[ERROR] Client package config was not sanitized correctly or lost forwards.'; exit 1 }" || exit /b 1
 rmdir /s /q %SELF_TMP%\selfcheck-client-package
+if exist %SELF_TMP%\selfcheck-android-installer rmdir /s /q %SELF_TMP%\selfcheck-android-installer
+call deploy\windows\app\package-android-installer.cmd %SELF_TMP%\selfcheck-android-installer >nul || exit /b 1
+if not exist %SELF_TMP%\selfcheck-android-installer\LSYL-Tunnel-Android.apk (echo [ERROR] Missing: Android installer APK & exit /b 1)
+rmdir /s /q %SELF_TMP%\selfcheck-android-installer
 if exist %SELF_TMP%\selfcheck-profile-package rmdir /s /q %SELF_TMP%\selfcheck-profile-package
 call deploy\windows\app\package-profile.cmd %SELF_TMP%\selfcheck-profile-package >nul || exit /b 1
 if not exist %SELF_TMP%\selfcheck-profile-package\bin\lsyl-tunnel-profile.exe (echo [ERROR] Missing: profile package tool & exit /b 1)

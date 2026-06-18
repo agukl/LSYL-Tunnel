@@ -34,7 +34,8 @@ function Get-DefaultReleaseFiles {
     } else {
         $targets += @(
             "dist\installers\LSYL-Tunnel-Client-Setup.exe",
-            "dist\installers\LSYL-Tunnel-Server-Setup.exe"
+            "dist\installers\LSYL-Tunnel-Server-Setup.exe",
+            "dist\installers\LSYL-Tunnel-Android.apk"
         )
     }
     return $targets
@@ -77,15 +78,23 @@ $entries = foreach ($file in $resolvedFiles) {
     $relative = Resolve-Path -Relative $file
     $relative = $relative -replace '^[.][\\/]',''
     $hash = Get-FileHash -Algorithm SHA256 -Path $file
-    $sig = Get-AuthenticodeSignature -FilePath $file
+    $isApk = $item.Extension -ieq ".apk"
+    if ($isApk) {
+        $sigStatus = "NotApplicable"
+        $signerSubject = ""
+    } else {
+        $sig = Get-AuthenticodeSignature -FilePath $file
+        $sigStatus = [string]$sig.Status
+        $signerSubject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { "" }
+    }
     $vi = $item.VersionInfo
     [ordered]@{
         path = $relative
         file_name = $item.Name
         size_bytes = $item.Length
         sha256 = $hash.Hash
-        signature_status = [string]$sig.Status
-        signer_subject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { "" }
+        signature_status = $sigStatus
+        signer_subject = $signerSubject
         product_name = $vi.ProductName
         company_name = $vi.CompanyName
         file_description = $vi.FileDescription

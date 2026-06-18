@@ -170,6 +170,7 @@ if "%PACKAGE_ONLY%"=="1" (
   call "dist\LSYL Tunnel Client\make-installer.cmd" || exit /b 1
   if not defined INNO_SETUP_ISCC if exist "dist\tools\inno\ISCC.exe" set "INNO_SETUP_ISCC=%WORKSPACE%\dist\tools\inno\ISCC.exe"
   call "%WORKSPACE%\build\tmp\release-server-package\make-installer.cmd" "%WORKSPACE%\dist\installers" || exit /b 1
+  call deploy\windows\app\package-android-installer.cmd "%WORKSPACE%\dist\installers" || exit /b 1
   call deploy\windows\sign\sign-release.cmd installers || exit /b 1
   powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\app\prune-release-dist.ps1 -DistDir dist
   if errorlevel 1 exit /b 1
@@ -185,7 +186,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "if($env:LSYL_SIGN_CERT_PFX -or $env:LSYL_SIGN_CERT_SHA1 -or (Test-Path 'certs\codesign-thumbprint.txt')){ $expectSigned=$true }" ^
   "$targets=@('dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-gui.exe','dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-lite.exe','dist\LSYL Tunnel Profile Tool\bin\lsyl-tunnel-profile.exe');" ^
   "if($packageOnly){ $targets += @('dist\LSYL Tunnel Server\bin\lsyl-tunnel-server.exe','dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-svc.exe','dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-gui.exe','dist\LSYL Tunnel Server\bin\lsyl-tunnel-passwd.exe','dist\LSYL Tunnel Server\bin\lsyl-tunnel-cert.exe') } else { $targets += @('dist\installers\LSYL-Tunnel-Client-Setup.exe','dist\installers\LSYL-Tunnel-Server-Setup.exe') }" ^
+  "$artifacts=@(); if(-not $packageOnly){ $artifacts += @('dist\installers\LSYL-Tunnel-Android.apk') }" ^
   "$missing=@(); $bad=@(); foreach($t in $targets){ if(-not (Test-Path $t)){ $missing += $t; continue }; $sig=Get-AuthenticodeSignature $t; $name=Split-Path $t -Leaf; if($sig.SignerCertificate){ Write-Host ('[INFO] '+$name+' signature: '+$sig.Status+' / '+$sig.SignerCertificate.Subject) } else { Write-Host ('[INFO] '+$name+' signature: '+$sig.Status) }; if($expectSigned -and $sig.Status -ne 'Valid'){ $bad += $t } }" ^
+  "foreach($t in $artifacts){ if(-not (Test-Path $t)){ $missing += $t } else { Write-Host ('[INFO] release artifact: '+$t) } }" ^
   "if($missing){ $missing | ForEach-Object { Write-Host ('[ERROR] Missing release output: '+$_) }; exit 1 }" ^
   "if($bad){ $bad | ForEach-Object { Write-Host ('[ERROR] Invalid or missing signature: '+$_) }; exit 1 }" ^
   "exit 0" || exit /b 1
@@ -209,6 +212,7 @@ if "%PACKAGE_ONLY%"=="1" (
   echo Installers:
   echo   %WORKSPACE%\dist\installers\LSYL-Tunnel-Client-Setup.exe
   echo   %WORKSPACE%\dist\installers\LSYL-Tunnel-Server-Setup.exe
+  echo   %WORKSPACE%\dist\installers\LSYL-Tunnel-Android.apk
   echo Manifest:
   echo   %WORKSPACE%\dist\release-manifest.txt
 )

@@ -95,9 +95,9 @@ dist/LSYL Tunnel Client
 
 Win7 轻量客户端由 `deploy\windows\build-win7-lite.cmd` 使用 Go 1.20.x 构建为 32 位 exe。构建机可通过 `GO120EXE` 指定 Go 1.20，也可以让脚本下载安装到 `build\_toolchains`；最终用户机器不需要 Go 或其他运行时。
 
-完整发布包默认不再生成单独的 `dist/LSYL Tunnel Lightweight Clients`。客户端分发目录和客户端安装包已经包含 Win7 轻量客户端；现场改 `dist/LSYL Tunnel Client` 下的配置和证书后重新生成客户端安装包即可，不需要改轻量客户端 exe。
+完整发布包默认不再生成单独的 `dist/LSYL Tunnel Lightweight Clients`。Android 客户端 APK 会直接复制到 `dist/installers/LSYL-Tunnel-Android.apk`；客户端分发目录和 Windows 客户端安装包已经包含 Win7 轻量客户端。现场改 `dist/LSYL Tunnel Client` 下的配置和证书后重新生成客户端安装包即可，不需要改轻量客户端 exe。
 
-如果需要 Android APK 或独立 Win7 轻量客户端直发包，可手动运行 `deploy\windows\app\package-light-clients.cmd` 生成可选交付目录，其中 `android/lsyl-tunnel-mobile.apk` 是 Android 移动端，`windows-win7/lsyl-tunnel-client-lite.exe` 是 Win7 友好的 32 位轻量客户端，`profiles/` 可用于现场放置按用户导出的 `.lsylprofile`。
+如果需要 Android APK 和独立 Win7 轻量客户端放在同一个直发目录，可手动运行 `deploy\windows\app\package-light-clients.cmd` 生成可选交付目录，其中 `android/lsyl-tunnel-mobile.apk` 是 Android 移动端，`windows-win7/lsyl-tunnel-client-lite.exe` 是 Win7 友好的 32 位轻量客户端，`profiles/` 可用于现场放置按用户导出的 `.lsylprofile`。
 
 客户端安装、升级和卸载前，安装器会先调用客户端内置 `/quit` 命令请求正在运行的 GUI 温和退出。退出失败时安装器会停止并提示用户从托盘手动退出，不使用 `taskkill /F` 强制结束进程。
 
@@ -198,13 +198,15 @@ cmd /c release.cmd /package-only
 dist/tools/inno/
 ```
 
-实施人员拿到完整发布的 `dist` 后，服务端直接使用：
+实施人员拿到完整发布的 `dist` 后，三端安装包在：
 
 ```text
+dist/installers/LSYL-Tunnel-Client-Setup.exe
 dist/installers/LSYL-Tunnel-Server-Setup.exe
+dist/installers/LSYL-Tunnel-Android.apk
 ```
 
-客户端如果需要按现场修改地址、证书或预置配置，不需要源码和 `deploy` 目录，通常也不需要单独安装 Inno Setup 6，直接运行：
+Windows 客户端如果需要按现场修改地址、证书或预置配置，不需要源码和 `deploy` 目录，通常也不需要单独安装 Inno Setup 6，直接运行：
 
 ```cmd
 dist\make-installers.cmd

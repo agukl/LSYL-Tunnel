@@ -56,7 +56,7 @@ bin\lsyl-tunnel-profile.exe export-mobile -profile PROFILE_NAME -out .\mobile.ls
 
 同一个 `.lsylprofile` 也可以导入 Win7 轻量客户端 `lsyl-tunnel-client-lite.exe`。轻量客户端复用移动端的安全边界，只提供导入、连接、断开，不做托盘值守。
 
-完整发布默认不再生成 `dist/LSYL Tunnel Lightweight Clients`。需要移动端 APK 或独立 Win7 轻量客户端直发包时，手动运行 `deploy\windows\app\package-light-clients.cmd` 生成可选交付目录，便于现场把两个轻量入口和用户专属 `.lsylprofile` 放在同一个目录里。
+完整发布默认把移动端 APK 放到 `dist/installers/LSYL-Tunnel-Android.apk`，不再生成 `dist/LSYL Tunnel Lightweight Clients`。需要移动端 APK 和独立 Win7 轻量客户端放在同一个直发目录时，手动运行 `deploy\windows\app\package-light-clients.cmd` 生成可选交付目录，便于现场把两个轻量入口和用户专属 `.lsylprofile` 放在同一个目录里。
 
 `profile.json` 示例：
 

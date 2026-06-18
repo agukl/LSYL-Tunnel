@@ -72,6 +72,7 @@ deploy\windows\service\server.cmd uninstall
 
 ```cmd
 deploy\windows\app\package-client.cmd
+deploy\windows\app\package-android-installer.cmd
 deploy\windows\app\package-server.cmd
 deploy\windows\app\package-profile.cmd
 deploy\windows\app\write-dist-tools.cmd
@@ -80,6 +81,7 @@ deploy\windows\app\write-dist-tools.cmd
 用途：
 
 - 刷新 `dist\LSYL Tunnel Client`
+- 复制 Android APK 到 `dist\installers`
 - 刷新 `dist\LSYL Tunnel Profile Tool`
 - 向 `dist` 根目录写入安装器构建入口和可选的 Inno 编译器
 
