@@ -4,6 +4,7 @@ set "PACKAGE_DIR=%~dp0"
 set "SCRIPT_FILE=%PACKAGE_DIR%installer\server.iss"
 set "OUT_DIR=%PACKAGE_DIR%..\installers"
 set "DIST_DIR=%PACKAGE_DIR%.."
+if not "%~1"=="" set "OUT_DIR=%~1"
 for %%I in ("%OUT_DIR%") do set "OUT_DIR=%%~fI"
 for %%I in ("%DIST_DIR%") do set "DIST_DIR=%%~fI"
 
@@ -54,7 +55,7 @@ echo [INFO] Building server installer from package:
 echo   %PACKAGE_DIR%
 echo [INFO] Inno compiler:
 echo   %ISCC%
-"%ISCC%" "%SCRIPT_FILE%" || exit /b 1
+"%ISCC%" "/O%OUT_DIR%" "%SCRIPT_FILE%" || exit /b 1
 echo Server installer created:
 echo   %OUT_DIR%\LSYL-Tunnel-Server-Setup.exe
 endlocal

@@ -80,7 +80,6 @@ deploy\windows\app\write-dist-tools.cmd
 用途：
 
 - 刷新 `dist\LSYL Tunnel Client`
-- 刷新 `dist\LSYL Tunnel Server`
 - 刷新 `dist\LSYL Tunnel Profile Tool`
 - 向 `dist` 根目录写入安装器构建入口和可选的 Inno 编译器
 
@@ -99,7 +98,6 @@ release.cmd /no-protect
 ```cmd
 dist\make-installers.cmd
 dist\LSYL Tunnel Client\make-installer.cmd
-dist\LSYL Tunnel Server\make-installer.cmd
 ```
 
 源码中的对应模板和复制入口保留在：

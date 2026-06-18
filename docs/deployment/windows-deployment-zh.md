@@ -95,13 +95,9 @@ dist/LSYL Tunnel Client
 
 Win7 轻量客户端由 `deploy\windows\build-win7-lite.cmd` 使用 Go 1.20.x 构建为 32 位 exe。构建机可通过 `GO120EXE` 指定 Go 1.20，也可以让脚本下载安装到 `build\_toolchains`；最终用户机器不需要 Go 或其他运行时。
 
-移动端 APK 和 Win7 轻量客户端会额外一起打包到：
+完整发布包默认不再生成单独的 `dist/LSYL Tunnel Lightweight Clients`。客户端分发目录和客户端安装包已经包含 Win7 轻量客户端；现场改 `dist/LSYL Tunnel Client` 下的配置和证书后重新生成客户端安装包即可，不需要改轻量客户端 exe。
 
-```text
-dist/LSYL Tunnel Lightweight Clients
-```
-
-其中 `android/lsyl-tunnel-mobile.apk` 是 Android 移动端，`windows-win7/lsyl-tunnel-client-lite.exe` 是 Win7 友好的 32 位轻量客户端，`profiles/` 可用于现场放置按用户导出的 `.lsylprofile`。
+如果需要 Android APK 或独立 Win7 轻量客户端直发包，可手动运行 `deploy\windows\app\package-light-clients.cmd` 生成可选交付目录，其中 `android/lsyl-tunnel-mobile.apk` 是 Android 移动端，`windows-win7/lsyl-tunnel-client-lite.exe` 是 Win7 友好的 32 位轻量客户端，`profiles/` 可用于现场放置按用户导出的 `.lsylprofile`。
 
 客户端安装、升级和卸载前，安装器会先调用客户端内置 `/quit` 命令请求正在运行的 GUI 温和退出。退出失败时安装器会停止并提示用户从托盘手动退出，不使用 `taskkill /F` 强制结束进程。
 
@@ -178,9 +174,10 @@ cmd /c release.cmd
 - 检查/同步客户端需要信任的服务端公开证书。
 - 执行 `go test ./...`。
 - 使用 Go 官方构建参数 `-trimpath -ldflags "-s -w"` 生成低风险瘦身二进制，不使用混淆器或压缩壳。
-- 生成客户端和服务端分发目录。
+- 生成客户端分发目录和服务端安装器中间目录。
 - 编译 Inno 安装器。
 - 对分发包内 exe 和安装器执行签名。
+- 完整发布完成后删除 `dist/LSYL Tunnel Server`，服务端在最终 `dist` 中只保留安装包。
 - 校验最终产物是否存在以及签名是否有效。
 
 如果需要发布前重新生成服务端 TLS 公开证书，并同步到客户端打包输入目录：
@@ -201,17 +198,22 @@ cmd /c release.cmd /package-only
 dist/tools/inno/
 ```
 
-实施人员拿到 `dist` 后，不需要源码和 `deploy` 目录，通常也不需要单独安装 Inno Setup 6，直接运行：
+实施人员拿到完整发布的 `dist` 后，服务端直接使用：
+
+```text
+dist/installers/LSYL-Tunnel-Server-Setup.exe
+```
+
+客户端如果需要按现场修改地址、证书或预置配置，不需要源码和 `deploy` 目录，通常也不需要单独安装 Inno Setup 6，直接运行：
 
 ```cmd
 dist\make-installers.cmd
 ```
 
-也可以只生成某一侧安装器：
+也可以只重新生成客户端安装器：
 
 ```cmd
 dist\LSYL Tunnel Client\make-installer.cmd
-dist\LSYL Tunnel Server\make-installer.cmd
 ```
 
 实施可以先按客户现场修改：
@@ -219,7 +221,6 @@ dist\LSYL Tunnel Server\make-installer.cmd
 ```text
 dist/LSYL Tunnel Client/conf/client.yaml
 dist/LSYL Tunnel Client/cert/server.crt
-dist/LSYL Tunnel Server/conf/server.yaml
 ```
 
 然后再生成安装器。生成结果写入：

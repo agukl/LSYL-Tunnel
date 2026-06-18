@@ -123,7 +123,7 @@ monitor_addr: 127.0.0.1:19111
 ### 替换方式
 
 - 改 `src\server\conf\server.yaml` 后重新打包。
-- 或改 `dist\LSYL Tunnel Server\conf\server.yaml` 后生成一次性安装包。
+- 完整发布包中服务端只保留 `dist\installers\LSYL-Tunnel-Server-Setup.exe`；如需现场重打服务端安装包，使用 `release.cmd /package-only` 生成中间目录后再处理。
 
 ### 注意
 

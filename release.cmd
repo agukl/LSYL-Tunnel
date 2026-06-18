@@ -151,22 +151,28 @@ if "%PACKAGE_ONLY%"=="1" (
     )
   )
   call deploy\windows\app\package-client.cmd || exit /b 1
-  call deploy\windows\app\package-light-clients.cmd || exit /b 1
   call deploy\windows\app\package-server.cmd || exit /b 1
   call deploy\windows\app\package-profile.cmd || exit /b 1
   call deploy\windows\app\write-dist-tools.cmd || exit /b 1
   call deploy\windows\sign\sign-release.cmd package || exit /b 1
 ) else (
   echo [4/7] Build packages and Inno installers
+  powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\app\prune-release-dist.ps1 -DistDir dist
+  if errorlevel 1 exit /b 1
   call deploy\windows\app\package-client.cmd || exit /b 1
-  call deploy\windows\app\package-light-clients.cmd || exit /b 1
-  call deploy\windows\app\package-server.cmd || exit /b 1
+  call deploy\windows\app\package-server.cmd "%WORKSPACE%\build\tmp\release-server-package" || exit /b 1
   call deploy\windows\app\package-profile.cmd || exit /b 1
   call deploy\windows\app\write-dist-tools.cmd || exit /b 1
+  set "LSYL_SERVER_PACKAGE_DIR=%WORKSPACE%\build\tmp\release-server-package"
   call deploy\windows\sign\sign-release.cmd package || exit /b 1
+  set "LSYL_SERVER_PACKAGE_DIR="
   if not exist "dist\installers" mkdir "dist\installers"
-  call "dist\make-installers.cmd" || exit /b 1
+  call "dist\LSYL Tunnel Client\make-installer.cmd" || exit /b 1
+  if not defined INNO_SETUP_ISCC if exist "dist\tools\inno\ISCC.exe" set "INNO_SETUP_ISCC=%WORKSPACE%\dist\tools\inno\ISCC.exe"
+  call "%WORKSPACE%\build\tmp\release-server-package\make-installer.cmd" "%WORKSPACE%\dist\installers" || exit /b 1
   call deploy\windows\sign\sign-release.cmd installers || exit /b 1
+  powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\app\prune-release-dist.ps1 -DistDir dist
+  if errorlevel 1 exit /b 1
 )
 
 goto verify
@@ -177,11 +183,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$packageOnly='%PACKAGE_ONLY%' -eq '1';" ^
   "$expectSigned=$false;" ^
   "if($env:LSYL_SIGN_CERT_PFX -or $env:LSYL_SIGN_CERT_SHA1 -or (Test-Path 'certs\codesign-thumbprint.txt')){ $expectSigned=$true }" ^
-  "$targets=@('dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-gui.exe','dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-lite.exe','dist\LSYL Tunnel Lightweight Clients\windows-win7\lsyl-tunnel-client-lite.exe','dist\LSYL Tunnel Profile Tool\bin\lsyl-tunnel-profile.exe','dist\LSYL Tunnel Server\bin\lsyl-tunnel-server.exe','dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-svc.exe','dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-gui.exe','dist\LSYL Tunnel Server\bin\lsyl-tunnel-passwd.exe','dist\LSYL Tunnel Server\bin\lsyl-tunnel-cert.exe');" ^
-  "$artifacts=@('dist\LSYL Tunnel Lightweight Clients\android\lsyl-tunnel-mobile.apk');" ^
-  "if(-not $packageOnly){ $targets += @('dist\installers\LSYL-Tunnel-Client-Setup.exe','dist\installers\LSYL-Tunnel-Server-Setup.exe') }" ^
+  "$targets=@('dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-gui.exe','dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-lite.exe','dist\LSYL Tunnel Profile Tool\bin\lsyl-tunnel-profile.exe');" ^
+  "if($packageOnly){ $targets += @('dist\LSYL Tunnel Server\bin\lsyl-tunnel-server.exe','dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-svc.exe','dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-gui.exe','dist\LSYL Tunnel Server\bin\lsyl-tunnel-passwd.exe','dist\LSYL Tunnel Server\bin\lsyl-tunnel-cert.exe') } else { $targets += @('dist\installers\LSYL-Tunnel-Client-Setup.exe','dist\installers\LSYL-Tunnel-Server-Setup.exe') }" ^
   "$missing=@(); $bad=@(); foreach($t in $targets){ if(-not (Test-Path $t)){ $missing += $t; continue }; $sig=Get-AuthenticodeSignature $t; $name=Split-Path $t -Leaf; if($sig.SignerCertificate){ Write-Host ('[INFO] '+$name+' signature: '+$sig.Status+' / '+$sig.SignerCertificate.Subject) } else { Write-Host ('[INFO] '+$name+' signature: '+$sig.Status) }; if($expectSigned -and $sig.Status -ne 'Valid'){ $bad += $t } }" ^
-  "foreach($t in $artifacts){ if(-not (Test-Path $t)){ $missing += $t } else { Write-Host ('[INFO] release artifact: '+$t) } }" ^
   "if($missing){ $missing | ForEach-Object { Write-Host ('[ERROR] Missing release output: '+$_) }; exit 1 }" ^
   "if($bad){ $bad | ForEach-Object { Write-Host ('[ERROR] Invalid or missing signature: '+$_) }; exit 1 }" ^
   "exit 0" || exit /b 1
@@ -197,7 +201,6 @@ echo [7/7] Release ready
 if "%PACKAGE_ONLY%"=="1" (
   echo Packages:
   echo   %WORKSPACE%\dist\LSYL Tunnel Client
-  echo   %WORKSPACE%\dist\LSYL Tunnel Lightweight Clients
   echo   %WORKSPACE%\dist\LSYL Tunnel Server
   echo   %WORKSPACE%\dist\LSYL Tunnel Profile Tool
   echo Manifest:

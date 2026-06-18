@@ -11,9 +11,6 @@ if exist "%DIST_DIR%LSYL Tunnel Client\make-installer.cmd" (
 
 if exist "%DIST_DIR%LSYL Tunnel Server\make-installer.cmd" (
   call "%DIST_DIR%LSYL Tunnel Server\make-installer.cmd" || exit /b 1
-) else (
-  echo [WARN] Server package not found:
-  echo   %DIST_DIR%LSYL Tunnel Server
 )
 
 if exist "%DIST_DIR%installers\LSYL-Tunnel-Profile-Tool-Setup.exe" (

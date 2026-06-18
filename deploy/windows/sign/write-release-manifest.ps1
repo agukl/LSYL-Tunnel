@@ -21,16 +21,17 @@ function Get-DefaultReleaseFiles {
     $targets = @(
         "dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-gui.exe",
         "dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-lite.exe",
-        "dist\LSYL Tunnel Lightweight Clients\android\lsyl-tunnel-mobile.apk",
-        "dist\LSYL Tunnel Lightweight Clients\windows-win7\lsyl-tunnel-client-lite.exe",
-        "dist\LSYL Tunnel Profile Tool\bin\lsyl-tunnel-profile.exe",
-        "dist\LSYL Tunnel Server\bin\lsyl-tunnel-server.exe",
-        "dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-svc.exe",
-        "dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-gui.exe",
-        "dist\LSYL Tunnel Server\bin\lsyl-tunnel-passwd.exe",
-        "dist\LSYL Tunnel Server\bin\lsyl-tunnel-cert.exe"
+        "dist\LSYL Tunnel Profile Tool\bin\lsyl-tunnel-profile.exe"
     )
-    if (-not $PackageOnly) {
+    if ($PackageOnly) {
+        $targets += @(
+            "dist\LSYL Tunnel Server\bin\lsyl-tunnel-server.exe",
+            "dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-svc.exe",
+            "dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-gui.exe",
+            "dist\LSYL Tunnel Server\bin\lsyl-tunnel-passwd.exe",
+            "dist\LSYL Tunnel Server\bin\lsyl-tunnel-cert.exe"
+        )
+    } else {
         $targets += @(
             "dist\installers\LSYL-Tunnel-Client-Setup.exe",
             "dist\installers\LSYL-Tunnel-Server-Setup.exe"
@@ -112,6 +113,7 @@ $manifest = [ordered]@{
     notes = @(
         "The client does not register a Windows service.",
         "The server registers the fixed LSYLTunnelServer service with manual start.",
+        "Full release dist keeps the server as the signed installer only; dist\LSYL Tunnel Server is an intermediate/package-only directory.",
         "Server uninstall keeps conf, certs, data, and logs by default.",
         "Formal releases should use a public code signing certificate. Self-signed certificates are for development or internal testing only."
     )
@@ -154,6 +156,7 @@ $lines.Add("")
 $lines.Add("Notes:")
 $lines.Add("  The client does not register a Windows service.")
 $lines.Add("  The server registers the fixed LSYLTunnelServer service with manual start.")
+$lines.Add("  Full release dist keeps the server as the signed installer only; dist\LSYL Tunnel Server is an intermediate/package-only directory.")
 $lines.Add("  Server uninstall keeps conf, certs, data, and logs by default.")
 $lines.Add("  Formal releases should use a public code signing certificate. Self-signed certificates are for development or internal testing only.")
 $lines | Set-Content -Encoding UTF8 -Path $txtPath

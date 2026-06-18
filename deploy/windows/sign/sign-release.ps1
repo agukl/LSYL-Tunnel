@@ -40,27 +40,29 @@ function Get-SignToolPath {
 }
 
 function Get-Targets([string]$scope) {
+    $serverPackageRoot = "dist\LSYL Tunnel Server"
+    if ($env:LSYL_SERVER_PACKAGE_DIR) {
+        $serverPackageRoot = $env:LSYL_SERVER_PACKAGE_DIR
+    }
     $clientPackage = @(
         "dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-gui.exe",
         "dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-lite.exe"
     )
-    $lightweightPackage = @(
-        "dist\LSYL Tunnel Lightweight Clients\windows-win7\lsyl-tunnel-client-lite.exe"
-    )
+    $lightweightPackage = @("dist\LSYL Tunnel Lightweight Clients\windows-win7\lsyl-tunnel-client-lite.exe")
     $profilePackage = @("dist\LSYL Tunnel Profile Tool\bin\lsyl-tunnel-profile.exe")
     $serverPackage = @(
-        "dist\LSYL Tunnel Server\bin\lsyl-tunnel-server.exe",
-        "dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-svc.exe",
-        "dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-gui.exe",
-        "dist\LSYL Tunnel Server\bin\lsyl-tunnel-passwd.exe",
-        "dist\LSYL Tunnel Server\bin\lsyl-tunnel-cert.exe"
+        (Join-Path $serverPackageRoot "bin\lsyl-tunnel-server.exe"),
+        (Join-Path $serverPackageRoot "bin\lsyl-tunnel-server-svc.exe"),
+        (Join-Path $serverPackageRoot "bin\lsyl-tunnel-server-gui.exe"),
+        (Join-Path $serverPackageRoot "bin\lsyl-tunnel-passwd.exe"),
+        (Join-Path $serverPackageRoot "bin\lsyl-tunnel-cert.exe")
     )
     $clientInstaller = @("dist\installers\LSYL-Tunnel-Client-Setup.exe")
     $serverInstaller = @("dist\installers\LSYL-Tunnel-Server-Setup.exe")
 
     switch ($scope.ToLowerInvariant()) {
-        "all" { return @($clientPackage + $lightweightPackage + $profilePackage + $serverPackage + $clientInstaller + $serverInstaller) }
-        "package" { return @($clientPackage + $lightweightPackage + $profilePackage + $serverPackage) }
+        "all" { return @($clientPackage + $profilePackage + $serverPackage + $clientInstaller + $serverInstaller) }
+        "package" { return @($clientPackage + $profilePackage + $serverPackage) }
         "client-package" { return $clientPackage }
         "lightweight-package" { return $lightweightPackage }
         "profile-package" { return $profilePackage }

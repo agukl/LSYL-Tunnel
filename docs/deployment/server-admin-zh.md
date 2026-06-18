@@ -152,15 +152,15 @@ cmd /c release.cmd
 cmd /c release.cmd /package-only
 ```
 
-开发人员可以只交付整个 `dist` 目录给实施。实施人员按现场修改 `dist\LSYL Tunnel Server\conf\server.yaml` 后，可以运行：
+完整发布的 `dist` 中，服务端只交付已经生成好的安装包：
 
-```cmd
-dist\LSYL Tunnel Server\make-installer.cmd
+```text
+dist\installers\LSYL-Tunnel-Server-Setup.exe
 ```
 
-如果开发机已安装 Inno Setup 6，`dist` 会包含 `tools\inno\ISCC.exe`，实施机器不需要额外安装 Inno；没有内置编译器时再安装 Inno Setup 6 或设置 `INNO_SETUP_ISCC`。
+如果需要调整服务端默认配置后重新生成服务端安装包，优先在发布前修改源码侧 `src\server\conf\server.yaml` 后执行 `release.cmd`。`release.cmd /package-only` 仍会保留 `dist\LSYL Tunnel Server` 作为开发/实施侧的中间重打包目录，但它不是完整发布包的常规交付内容。
 
-也可以在 `dist` 根目录一键生成客户端和服务端安装器：
+完整发布包保留客户端分发目录，主要用于按客户现场修改客户端地址、证书或预置配置后重新生成客户端安装器：
 
 ```cmd
 dist\make-installers.cmd

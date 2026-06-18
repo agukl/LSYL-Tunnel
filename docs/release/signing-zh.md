@@ -38,10 +38,12 @@ LSYL Tunnel 的安装器会写入程序文件、配置和证书；服务端安�
 ```text
 dist/LSYL Tunnel Client/bin/lsyl-tunnel-client-gui.exe
 dist/LSYL Tunnel Client/bin/lsyl-tunnel-client-lite.exe
-dist/LSYL Tunnel Server/bin/*.exe
+服务端中间包/bin/*.exe
 dist/installers/LSYL-Tunnel-Client-Setup.exe
 dist/installers/LSYL-Tunnel-Server-Setup.exe
 ```
+
+完整发布时，服务端 exe 会在中间包内签名后生成安装器；最终 `dist` 只交付 `dist/installers/LSYL-Tunnel-Server-Setup.exe`，不保留 `dist/LSYL Tunnel Server`。
 
 ## 3. 准备签名工具
 
