@@ -54,10 +54,11 @@ type ForwardStatus struct {
 }
 
 type ClientStats struct {
-	Health HealthStatus    `json:"health"`
-	Active int64           `json:"active"`
-	Total  int64           `json:"total"`
-	Items  []ForwardStatus `json:"items"`
+	Health        HealthStatus    `json:"health"`
+	ServerVersion string          `json:"server_version,omitempty"`
+	Active        int64           `json:"active"`
+	Total         int64           `json:"total"`
+	Items         []ForwardStatus `json:"items"`
 }
 
 type ForwardCheckSummary struct {
@@ -89,6 +90,7 @@ func (c *Client) Stats() ClientStats {
 	}
 	c.healthMu.Lock()
 	health := c.health
+	serverVersion := c.serverVersion
 	c.healthMu.Unlock()
 
 	c.forwardsMu.Lock()
@@ -101,11 +103,29 @@ func (c *Client) Stats() ClientStats {
 		return items[i].Name < items[j].Name
 	})
 	return ClientStats{
-		Health: health,
-		Active: c.active.Load(),
-		Total:  c.total.Load(),
-		Items:  items,
+		Health:        health,
+		ServerVersion: serverVersion,
+		Active:        c.active.Load(),
+		Total:         c.total.Load(),
+		Items:         items,
 	}
+}
+
+func (c *Client) SetServerVersion(version string) {
+	if c == nil {
+		return
+	}
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return
+	}
+	c.healthMu.Lock()
+	c.serverVersion = version
+	c.healthMu.Unlock()
+}
+
+func (c *Client) setServerVersionFromResponse(resp protocol.OpenResponse) {
+	c.SetServerVersion(resp.ServerVersion)
 }
 
 func (f *forwardRuntime) snapshot() ForwardStatus {
@@ -270,6 +290,7 @@ func (c *Client) CheckHealthNow(ctx context.Context) HealthStatus {
 		state, message := classifyHealthError(err)
 		return c.finalizeHealthStatus(c.setHealth(state, message, err.Error(), state == HealthAuthError))
 	}
+	c.setServerVersionFromResponse(resp)
 	if !resp.OK {
 		message := resp.Message
 		if message == "" {
@@ -380,23 +401,18 @@ func (c *Client) checkForwardResponse(ctx context.Context, name string, fwd Forw
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
-	req := protocol.OpenRequest{
-		Type:        "forward_check",
-		Username:    c.cfg.Username,
-		Password:    c.cfg.Password,
-		Credential:  credentialFromConfig(c.cfg),
-		ClientID:    c.cfg.ClientID,
-		ForwardName: name,
-		Direction:   forwardDirection(fwd),
-		ListenAddr:  fwd.ListenAddr,
-		Target:      fwd.ServerTarget,
-	}
+	req := newOpenRequest(c.cfg, "forward_check")
+	req.ForwardName = name
+	req.Direction = forwardDirection(fwd)
+	req.ListenAddr = fwd.ListenAddr
+	req.Target = fwd.ServerTarget
 	if err := protocol.WriteJSON(conn, req); err != nil {
 		return resp, err
 	}
 	if err := protocol.ReadJSON(conn, &resp, protocol.DefaultMaxHandshakeBytes); err != nil {
 		return resp, err
 	}
+	c.setServerVersionFromResponse(resp)
 	if !resp.OK {
 		return resp, responseError(resp, "server rejected forward check")
 	}
@@ -486,6 +502,8 @@ func classifyHealthError(err error) (string, string) {
 	}
 	text := strings.ToLower(err.Error())
 	switch {
+	case containsAny(text, "client_version_unsupported", "protocol_version_unsupported"):
+		return HealthAuthError, "client version is not compatible with this server"
 	case containsAny(text, "auth_failed", "username or password"):
 		return HealthAuthError, "账号或密码不正确，需要重新登录"
 	case containsAny(text, "credential_expired", "saved login has expired"):
@@ -525,6 +543,8 @@ func ForwardErrorMessage(err error) string {
 	}
 	text := strings.ToLower(err.Error())
 	switch {
+	case containsAny(text, "client_version_unsupported", "protocol_version_unsupported"):
+		return "client version is not compatible with this server"
 	case containsAny(text, "auth_failed", "username or password"):
 		return "账号或密码不正确，请重新登录"
 	case containsAny(text, "credential_expired", "saved login has expired"):
@@ -567,6 +587,8 @@ func IsPermanentForwardError(err error) bool {
 		"username or password",
 		"credential_expired",
 		"saved login has expired",
+		"client_version_unsupported",
+		"protocol_version_unsupported",
 		"certificate",
 		"x509",
 		"tls",

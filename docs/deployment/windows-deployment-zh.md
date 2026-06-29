@@ -16,13 +16,16 @@ src/cmd/                管理工具源码
 Windows 部署脚本：
 
 ```text
-deploy/windows/build/   构建二进制
-deploy/windows/run/     开发调试启动
-deploy/windows/service/ 服务端 Windows 服务手动注册入口
-deploy/windows/app/     客户端/服务端分发目录生成脚本
-deploy/windows/inno/    Inno Setup 安装器配置和可选内置编译器打包
-deploy/windows/sign/    代码签名初始化和签名脚本
-deploy/windows/test/    自检脚本
+release.cmd                         根目录完整发布入口
+deploy/windows/README.md            Windows 脚本命令地图
+deploy/windows/build.cmd            构建二进制
+deploy/windows/build-win7-lite.cmd  构建 Win7 Lite 客户端
+deploy/windows/run.cmd              开发调试启动
+deploy/windows/service/             服务端 Windows 服务手动注册入口
+deploy/windows/app/                 客户端/服务端分发目录生成脚本
+deploy/windows/inno/                Inno Setup 安装器配置和可选内置编译器打包
+deploy/windows/sign/                代码签名初始化和签名脚本
+deploy/windows/test/                自检脚本
 ```
 
 运行产物和安装产物：
@@ -93,11 +96,11 @@ dist/LSYL Tunnel Client
 
 客户端安装包会安装普通 GUI、Win7 轻量客户端、配置、图标和 `cert/server.crt`。默认运行方式是 GUI 进程模式 + 托盘值守；轻量客户端需要导入 `.lsylprofile` 后手动连接/断开。两者都不注册客户端 Windows 服务。
 
-Win7 轻量客户端由 `deploy\windows\build-win7-lite.cmd` 使用 Go 1.20.x 构建为 32 位 exe。构建机可通过 `GO120EXE` 指定 Go 1.20，也可以让脚本下载安装到 `build\_toolchains`；最终用户机器不需要 Go 或其他运行时。
+Win7 轻量客户端由 `deploy\windows\build-win7-lite.cmd` 使用 Go 1.20.x 构建为 32 位 exe。构建机可通过 `GO120EXE` 指定 Go 1.20；未指定时脚本先查 PATH，再查 `tool\go1.20.14`。默认找不到 Go 1.20 时直接失败；只有显式设置 `ALLOW_GO120_DOWNLOAD=1` 时，脚本才会下载 Go 1.20 到 `tool\go1.20.14`。最终用户机器不需要 Go 或其他运行时。
 
-完整发布包默认不再生成单独的 `dist/LSYL Tunnel Lightweight Clients`。Android 客户端 APK 会直接复制到 `dist/installers/LSYL-Tunnel-Android.apk`；客户端分发目录和 Windows 客户端安装包已经包含 Win7 轻量客户端。现场改 `dist/LSYL Tunnel Client` 下的配置和证书后重新生成客户端安装包即可，不需要改轻量客户端 exe。
+完整发布包默认不再生成单独的 `dist/LSYL Tunnel Lightweight Clients`。`release.cmd` 会在临时工作目录 `build/tmp/dist-work` 中调用 Gradle 重新构建 Android APK，再放入 `dist/installers/LSYL-Tunnel-Android.apk`；没有 Gradle 环境时可以设置 `MOBILE_APK` 指向已有 APK，否则发布失败且不会默认复用历史 APK。客户端安装包已经包含 Win7 轻量客户端。最终 `dist` 默认保留 `dist/LSYL Tunnel Client`，用于现场改配置和证书后重新生成客户端安装包；只有使用 `release.cmd /no-client-kit` 时才不保留。
 
-如果需要 Android APK 和独立 Win7 轻量客户端放在同一个直发目录，可手动运行 `deploy\windows\app\package-light-clients.cmd` 生成可选交付目录，其中 `android/lsyl-tunnel-mobile.apk` 是 Android 移动端，`windows-win7/lsyl-tunnel-client-lite.exe` 是 Win7 友好的 32 位轻量客户端，`profiles/` 可用于现场放置按用户导出的 `.lsylprofile`。
+Win7 轻量客户端随普通客户端安装包和默认客户端 kit 目录一起交付；不再生成独立轻量客户端直发目录。
 
 客户端安装、升级和卸载前，安装器会先调用客户端内置 `/quit` 命令请求正在运行的 GUI 温和退出。退出失败时安装器会停止并提示用户从托盘手动退出，不使用 `taskkill /F` 强制结束进程。
 
@@ -113,8 +116,8 @@ cert/server.crt
 覆盖前会备份为：
 
 ```text
-conf/client.yaml.bak
-cert/server.crt.bak
+conf/client.<旧服务地址>.yaml
+cert/server.<旧服务地址>.crt
 ```
 
 这样新安装包中的服务端地址、端口映射和证书会真正生效，避免旧证书或旧 `saved_credential` 残留导致连接失败。
@@ -123,7 +126,7 @@ cert/server.crt.bak
 
 ## 4. 服务端分发
 
-生成服务端分发目录：
+调试服务端分发目录：
 
 ```powershell
 cmd /c deploy\windows\app\package-server.cmd
@@ -132,8 +135,10 @@ cmd /c deploy\windows\app\package-server.cmd
 输出目录：
 
 ```text
-dist/LSYL Tunnel Server
+build/tmp/dist-work/LSYL Tunnel Server
 ```
+
+服务端分发目录是发布构建中间产物，完整发布不会把它保留到最终 `dist`。
 
 服务端安装器会：
 
@@ -142,7 +147,7 @@ dist/LSYL Tunnel Server
 - 注册 `LSYLTunnelServer` Windows 服务，默认启动类型为手动；安装向导中明确勾选后才设置为开机自启动。
 - 创建服务端 GUI 快捷方式。
 - 保留已存在的 `conf/server.yaml`。
-- 覆盖安装前检查已安装 `conf/server.yaml` 与安装包默认配置的结构是否兼容；配置项数量或层级不一致时停止安装，避免新程序使用旧结构配置启动。
+- 覆盖安装前执行 `config-compat-check` 版本兼容检查；当已安装配置要求更高版本程序或配置版本不被当前程序支持时停止安装。
 
 默认安装路径：
 
@@ -169,15 +174,43 @@ logs/
 cmd /c release.cmd
 ```
 
+脚本命令总览见：
+
+```text
+deploy/windows/README.md
+```
+
+打包命令边界：
+
+| 命令 | 使用场景 | 结果 |
+| --- | --- | --- |
+| `release.cmd` | 正常完整发布 | 从源码生成 `build\tmp\dist-work`，再通过 `dist.stage` 生成最终 `dist`、三端安装产物和客户端 kit |
+| `release.cmd /no-client-kit` | 精简完整发布 | 最终 `dist` 不保留 `dist\LSYL Tunnel Client` 和 `dist\make-installers.cmd` |
+| `release.cmd /bundle-inno` | 正常完整发布，并内置 Inno 编译器 | 在默认客户端 kit 旁额外生成 `dist\tools\inno` |
+| `release.cmd /keep-work` | 调试发布临时包 | 成功后保留 `build\tmp\dist-work` 供检查，不作为交付目录 |
+| `dist\make-installers.cmd` | 实施侧按现场配置重新出客户端安装器 | 默认 `dist` 中存在，只重新生成客户端安装器 |
+| `dist\LSYL Tunnel Client\make-installer.cmd` | 只用当前客户端分发目录生成客户端安装器 | 不重新打包源码，不覆盖 `dist\LSYL Tunnel Client` |
+
+完整发布的核心链路是：
+
+```text
+release.cmd
+  -> build\tmp\dist-work
+  -> dist.stage
+  -> dist
+```
+
+因此，`build\tmp\dist-work` 是发布构建的临时工作目录；`dist` 是实施交付目录。两者不能混用：临时目录可以保留客户端、服务端打包目录和 Android APK，最终默认 `dist` 保留已经生成好的安装产物、清单和客户端分发目录。只有显式使用 `release.cmd /no-client-kit` 时，最终 `dist` 才不保留客户端分发目录；只有再加 `/bundle-inno` 时，才把 Inno 工具放进 `dist\tools\inno`。
+
 这个命令会按顺序完成：
 
 - 检查/同步客户端需要信任的服务端公开证书。
-- 执行 `go test ./...`。
+- 执行 `go test ./src/...`。
 - 使用 Go 官方构建参数 `-trimpath -ldflags "-s -w"` 生成低风险瘦身二进制，不使用混淆器或压缩壳。
-- 生成客户端分发目录和服务端安装器中间目录。
-- 编译 Inno 安装器。
+- 生成 `build\tmp\dist-work` 临时工作目录，其中包含客户端临时包、服务端临时包和本次 Gradle 构建出的 Android APK。
+- 根据临时工作目录组装 `dist.stage`，生成客户端、服务端和 Android 安装产物；全部成功后再替换最终 `dist`。
 - 对分发包内 exe 和安装器执行签名。
-- 完整发布完成后删除 `dist/LSYL Tunnel Server`，服务端在最终 `dist` 中只保留安装包。
+- 默认最终 `dist` 保留三端安装产物、发布清单和客户端 kit；服务端在最终 `dist` 中只保留安装包。
 - 校验最终产物是否存在以及签名是否有效。
 
 如果需要发布前重新生成服务端 TLS 公开证书，并同步到客户端打包输入目录：
@@ -186,17 +219,13 @@ cmd /c release.cmd
 cmd /c release.cmd /hosts "vpn.example.com,203.0.113.10"
 ```
 
-如果只想生成分发目录，不编译 Inno 安装器：
+默认完整发布会在最终 `dist` 中保留 `LSYL Tunnel Client`，用于现场调整 `conf/client.yaml`、`cert/server.crt` 后重新生成客户端安装器。开发机已安装 Inno Setup 6 且确实需要把编译器一起给现场时，使用：
 
 ```powershell
-cmd /c release.cmd /package-only
+cmd /c release.cmd /bundle-inno
 ```
 
-这个命令用于开发交付实施：它会生成自包含的 `dist` 目录，并清理旧的 `dist/installers`，避免把过期安装器一起交出去。开发机已安装 Inno Setup 6 时，会同时内置命令行编译器到：
-
-```text
-dist/tools/inno/
-```
+此时会额外生成 `dist/tools/inno/`。
 
 实施人员拿到完整发布的 `dist` 后，三端安装包在：
 
@@ -206,7 +235,7 @@ dist/installers/LSYL-Tunnel-Server-Setup.exe
 dist/installers/LSYL-Tunnel-Android.apk
 ```
 
-Windows 客户端如果需要按现场修改地址、证书或预置配置，不需要源码和 `deploy` 目录，通常也不需要单独安装 Inno Setup 6，直接运行：
+Windows 客户端如果需要按现场修改地址、证书或预置配置，使用默认带客户端 kit 的 `dist`。修改后直接运行：
 
 ```cmd
 dist\make-installers.cmd
@@ -263,15 +292,23 @@ dist/installers/
 ```text
 LSYL-Tunnel-Client-Setup.exe
 LSYL-Tunnel-Server-Setup.exe
+LSYL-Tunnel-Android.apk
 ```
 
-安装器生成脚本查找 `ISCC.exe` 的顺序是：
+安装器生成脚本查找 `ISCC.exe` 的顺序是：显式 `INNO_SETUP_ISCC`、PATH、项目 `tool` 目录、`dist\tools\inno`，最后才尝试常见安装目录。项目本地工具目录可放：
+
+```text
+tool\inno\ISCC.exe
+tool\Inno Setup 6\ISCC.exe
+```
+
+带 `/bundle-inno` 的 dist 还可以使用：
 
 ```text
 dist\tools\inno\ISCC.exe
 ```
 
-然后才会尝试实施机器上的 Inno Setup 安装路径：
+最后才会尝试实施机器上的 Inno Setup 安装路径：
 
 ```text
 %LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe
@@ -340,5 +377,5 @@ cmd /c release.cmd
 
 构建脚本会先签分发包内的 exe，再编译安装器，最后签安装器。没有配置签名证书时会跳过签名，不影响开发构建。
 
-详细说明见 [签名发布指南](../release/signing-zh.md)。
+更多版本、兼容和签名规则见 [发版手册](../release/release-process-zh.md)。
 

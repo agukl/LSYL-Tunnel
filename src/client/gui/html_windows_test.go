@@ -17,10 +17,24 @@ func TestClientHTMLTextAndScriptAreIntact(t *testing.T) {
 		"连续重连失败",
 		"隐藏到托盘",
 		"退出客户端",
-		"右键导出移动端配置",
+		"右键打开配置菜单",
+		"id=\"logoMenu\"",
+		"function showLogoMenu",
+		"function installLogoMenuDismiss",
+		"id=\"mobileExportMenuBtn\"",
+		"id=\"profileDropdownBtn\"",
+		"id=\"profileDropdownList\"",
+		"function toggleProfileDropdown",
+		"function switchProfileOption",
 		"/api/mobile/export",
 		"function exportMobileProfile",
+		"id=\"versionBadge\"",
+		"function setVersion",
+		"server_version",
 		"var savedPasswordMask = '********';",
+		"var lastProfilesSignature = '';",
+		"function profileListSignature",
+		"if(signature !== lastProfilesSignature)",
 	}
 	for _, text := range required {
 		if !strings.Contains(clientHTML, text) {
@@ -39,6 +53,8 @@ func TestClientHTMLTextAndScriptAreIntact(t *testing.T) {
 		"?/" + "label",
 		"?/" + "button",
 		"?/" + "div",
+		"id=\"profileSwitchBtn\"",
+		"updateProfileSwitchButton",
 	}
 	for _, text := range forbidden {
 		if strings.Contains(clientHTML, text) {

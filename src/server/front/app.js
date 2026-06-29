@@ -1446,6 +1446,7 @@
 
   function eventKindText(kind) {
     switch (kind) {
+    case 'compatibility': return '版本兼容';
     case 'auth': return '认证';
     case 'login': return '登录';
     case 'request': return '请求';

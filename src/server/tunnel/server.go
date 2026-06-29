@@ -18,6 +18,7 @@ import (
 	"lsyltunnel/src/internal/passutil"
 	"lsyltunnel/src/internal/protocol"
 	"lsyltunnel/src/internal/transport"
+	appversion "lsyltunnel/src/internal/version"
 )
 
 type Server struct {
@@ -312,6 +313,12 @@ func (s *Server) handleConn(conn net.Conn) {
 		s.rejectEntryProtocol(conn, remoteIP, requestID, entryCodeUnsupportedRequest, "unsupported request", false, time.Since(requestStarted).Milliseconds())
 		return
 	}
+	if resp, ok := s.checkRequestCompatibility(req); !ok {
+		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "compatibility", Result: "rejected", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: req.ListenAddr, Code: resp.Code, Message: resp.Message})
+		recordRequest(req, "rejected", "not_attempted", resp, nil)
+		_ = protocol.WriteJSON(conn, resp)
+		return
+	}
 	user, ok := s.users[req.Username]
 	password, authCode, authMessage := s.passwordFromRequest(req)
 	if !ok || user.Disabled || authCode != "" || !passutil.VerifyPassword(password, user.PasswordHash) {
@@ -328,7 +335,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 	if req.Type == "health" {
-		resp := protocol.OpenResponse{OK: true, Code: "ok", Message: "server healthy"}
+		resp := serverVersionResponse(protocol.OpenResponse{OK: true, Code: "ok", Message: "server healthy"})
 		recordRequest(req, "ok", "ok", resp, nil)
 		_ = protocol.WriteJSON(conn, resp)
 		return
@@ -340,14 +347,14 @@ func (s *Server) handleConn(conn net.Conn) {
 			_ = protocol.WriteJSON(conn, resp)
 			return
 		}
-		resp := protocol.OpenResponse{OK: true, Code: "ok", Message: "forward allowed"}
+		resp := serverVersionResponse(protocol.OpenResponse{OK: true, Code: "ok", Message: "forward allowed"})
 		recordRequest(req, "ok", "ok", resp, nil)
 		_ = protocol.WriteJSON(conn, resp)
 		return
 	}
 	s.authOK.Add(1)
 	if req.Type == "login" {
-		resp := protocol.OpenResponse{OK: true, Code: "ok", Message: "login verified", CredentialKey: s.activeCredentialPublicKey()}
+		resp := serverVersionResponse(protocol.OpenResponse{OK: true, Code: "ok", Message: "login verified", CredentialKey: s.activeCredentialPublicKey()})
 		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "login", Result: "ok", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, Code: "ok"})
 		recordRequest(req, "ok", "ok", resp, nil)
 		_ = protocol.WriteJSON(conn, resp)
@@ -362,7 +369,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			_ = protocol.WriteJSON(conn, resp)
 			return
 		}
-		recordRequest(req, "ok", "ok", protocol.OpenResponse{OK: true, Code: "ok", Message: "reverse listen activated", CredentialKey: s.activeCredentialPublicKey()}, nil)
+		recordRequest(req, "ok", "ok", serverVersionResponse(protocol.OpenResponse{OK: true, Code: "ok", Message: "reverse listen activated", CredentialKey: s.activeCredentialPublicKey()}), nil)
 		closeConn = false
 		return
 	}
@@ -385,7 +392,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			_ = protocol.WriteJSON(conn, resp)
 			return
 		}
-		recordRequest(req, "ok", "ok", protocol.OpenResponse{OK: true, Code: "ok", Message: "connected"}, nil)
+		recordRequest(req, "ok", "ok", serverVersionResponse(protocol.OpenResponse{OK: true, Code: "ok", Message: "connected"}), nil)
 		closeConn = false
 		return
 	}
@@ -427,7 +434,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 	defer targetConn.Close()
-	resp := protocol.OpenResponse{OK: true, Code: "ok", Message: "connected", CredentialKey: s.activeCredentialPublicKey()}
+	resp := serverVersionResponse(protocol.OpenResponse{OK: true, Code: "ok", Message: "connected", CredentialKey: s.activeCredentialPublicKey()})
 	recordRequest(req, "ok", "ok", resp, nil)
 	if err := protocol.WriteJSON(conn, resp); err != nil {
 		return
@@ -451,6 +458,72 @@ func (s *Server) handleConn(conn net.Conn) {
 
 func (s *Server) proxyOptions() transport.ProxyOptions {
 	return transport.ProxyOptions{RateLimitBytesPerSec: s.cfg.Security.StreamRateLimitBytesPerSec}
+}
+
+func serverVersionResponse(resp protocol.OpenResponse) protocol.OpenResponse {
+	if resp.OK && strings.TrimSpace(resp.ServerVersion) == "" {
+		resp.ServerVersion = appversion.AppVersion
+	}
+	return resp
+}
+
+func (s *Server) checkRequestCompatibility(req protocol.OpenRequest) (protocol.OpenResponse, bool) {
+	serverProtocol := s.cfg.Compatibility.ProtocolVersion
+	if serverProtocol == 0 {
+		serverProtocol = appversion.ProtocolVersion
+	}
+	requestProtocol := req.ProtocolVersion
+	if requestProtocol == 0 {
+		requestProtocol = appversion.LegacyProtocolVersion
+	}
+	if requestProtocol != serverProtocol {
+		return protocol.OpenResponse{
+			OK:      false,
+			Code:    "protocol_version_unsupported",
+			Message: fmt.Sprintf("protocol_version %d is not supported by this server; required protocol_version is %d", requestProtocol, serverProtocol),
+		}, false
+	}
+
+	clientVersion := strings.TrimSpace(req.ClientVersion)
+	if clientVersion == "" {
+		clientVersion = appversion.LegacyClientVersion
+	}
+	if err := appversion.Validate(clientVersion); err != nil {
+		return protocol.OpenResponse{
+			OK:      false,
+			Code:    "client_version_unsupported",
+			Message: fmt.Sprintf("client_version %q is invalid", clientVersion),
+		}, false
+	}
+	minClientVersion := strings.TrimSpace(s.cfg.Compatibility.MinClientVersion)
+	if minClientVersion != "" {
+		less, err := appversion.Less(clientVersion, minClientVersion)
+		if err != nil {
+			return protocol.OpenResponse{OK: false, Code: "client_version_unsupported", Message: err.Error()}, false
+		}
+		if less {
+			return protocol.OpenResponse{
+				OK:      false,
+				Code:    "client_version_unsupported",
+				Message: fmt.Sprintf("client_version %s is not supported by this server; minimum client_version is %s", clientVersion, minClientVersion),
+			}, false
+		}
+	}
+	maxClientVersion := strings.TrimSpace(s.cfg.Compatibility.MaxClientVersion)
+	if maxClientVersion != "" {
+		greater, err := appversion.Greater(clientVersion, maxClientVersion)
+		if err != nil {
+			return protocol.OpenResponse{OK: false, Code: "client_version_unsupported", Message: err.Error()}, false
+		}
+		if greater {
+			return protocol.OpenResponse{
+				OK:      false,
+				Code:    "client_version_unsupported",
+				Message: fmt.Sprintf("client_version %s is not supported by this server; maximum client_version is %s", clientVersion, maxClientVersion),
+			}, false
+		}
+	}
+	return protocol.OpenResponse{}, true
 }
 
 func (s *Server) flowTrafficEntry(requestID, event, kind, result, remoteIP string, req protocol.OpenRequest) FlowTrafficLogEntry {

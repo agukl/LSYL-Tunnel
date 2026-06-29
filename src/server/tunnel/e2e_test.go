@@ -19,6 +19,7 @@ import (
 
 	"lsyltunnel/src/client/tunnel"
 	"lsyltunnel/src/internal/protocol"
+	appversion "lsyltunnel/src/internal/version"
 )
 
 func TestAccountTunnelForwarding(t *testing.T) {
@@ -236,14 +237,14 @@ func TestReverseControlHeartbeatReleasesStaleActivation(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		fresh := dialTLSForTest(t, server.Addr(), certFile)
-		err := protocol.WriteJSON(fresh, protocol.OpenRequest{
+		err := protocol.WriteJSON(fresh, currentTestRequest(protocol.OpenRequest{
 			Type:       "reverse_listen",
 			Username:   "alice",
 			Password:   "secret",
 			ClientID:   "fresh-client",
 			ListenAddr: reverseAddr,
 			Target:     echoLn.Addr().String(),
-		})
+		}))
 		if err != nil {
 			_ = fresh.Close()
 			t.Fatal(err)
@@ -349,14 +350,14 @@ func TestServerRejectsUnconfiguredReverseActivation(t *testing.T) {
 
 	conn := dialTLSForTest(t, server.Addr(), certFile)
 	defer conn.Close()
-	if err := protocol.WriteJSON(conn, protocol.OpenRequest{
+	if err := protocol.WriteJSON(conn, currentTestRequest(protocol.OpenRequest{
 		Type:       "reverse_listen",
 		Username:   "alice",
 		Password:   "secret",
 		ClientID:   "rogue-reverse-client",
 		ListenAddr: reverseAddr,
 		Target:     echoLn.Addr().String(),
-	}); err != nil {
+	})); err != nil {
 		t.Fatal(err)
 	}
 	var resp protocol.OpenResponse
@@ -389,7 +390,7 @@ func TestAccountTunnelRejectsWrongPassword(t *testing.T) {
 
 	conn := dialTLSForTest(t, server.Addr(), certFile)
 	defer conn.Close()
-	if err := protocol.WriteJSON(conn, protocol.OpenRequest{Type: "open", Username: "alice", Password: "wrong", Target: echoLn.Addr().String()}); err != nil {
+	if err := protocol.WriteJSON(conn, currentTestRequest(protocol.OpenRequest{Type: "open", Username: "alice", Password: "wrong", Target: echoLn.Addr().String()})); err != nil {
 		t.Fatal(err)
 	}
 	var resp protocol.OpenResponse
@@ -583,7 +584,7 @@ func TestAccountTunnelRejectsDeniedTarget(t *testing.T) {
 
 	conn := dialTLSForTest(t, server.Addr(), certFile)
 	defer conn.Close()
-	if err := protocol.WriteJSON(conn, protocol.OpenRequest{Type: "open", Username: "alice", Password: "secret", Target: echoLn.Addr().String()}); err != nil {
+	if err := protocol.WriteJSON(conn, currentTestRequest(protocol.OpenRequest{Type: "open", Username: "alice", Password: "secret", Target: echoLn.Addr().String()})); err != nil {
 		t.Fatal(err)
 	}
 	var resp protocol.OpenResponse
@@ -862,14 +863,14 @@ func openTargetForTest(t *testing.T, serverAddr, caFile, username, password, for
 	t.Helper()
 	conn := dialTLSForTest(t, serverAddr, caFile)
 	defer conn.Close()
-	if err := protocol.WriteJSON(conn, protocol.OpenRequest{
+	if err := protocol.WriteJSON(conn, currentTestRequest(protocol.OpenRequest{
 		Type:        "open",
 		Username:    username,
 		Password:    password,
 		ForwardName: forwardName,
 		Direction:   DirectionClientToServer,
 		Target:      target,
-	}); err != nil {
+	})); err != nil {
 		t.Fatal(err)
 	}
 	var resp protocol.OpenResponse
@@ -882,14 +883,14 @@ func openTargetForTest(t *testing.T, serverAddr, caFile, username, password, for
 func openTargetConnForTest(t *testing.T, serverAddr, caFile, username, password, forwardName, target string) (*tls.Conn, protocol.OpenResponse) {
 	t.Helper()
 	conn := dialTLSForTest(t, serverAddr, caFile)
-	if err := protocol.WriteJSON(conn, protocol.OpenRequest{
+	if err := protocol.WriteJSON(conn, currentTestRequest(protocol.OpenRequest{
 		Type:        "open",
 		Username:    username,
 		Password:    password,
 		ForwardName: forwardName,
 		Direction:   DirectionClientToServer,
 		Target:      target,
-	}); err != nil {
+	})); err != nil {
 		_ = conn.Close()
 		t.Fatal(err)
 	}
@@ -905,7 +906,7 @@ func checkForwardForTest(t *testing.T, serverAddr, caFile, username, password, f
 	t.Helper()
 	conn := dialTLSForTest(t, serverAddr, caFile)
 	defer conn.Close()
-	if err := protocol.WriteJSON(conn, protocol.OpenRequest{
+	if err := protocol.WriteJSON(conn, currentTestRequest(protocol.OpenRequest{
 		Type:        "forward_check",
 		Username:    username,
 		Password:    password,
@@ -913,7 +914,7 @@ func checkForwardForTest(t *testing.T, serverAddr, caFile, username, password, f
 		Direction:   direction,
 		ListenAddr:  listenAddr,
 		Target:      target,
-	}); err != nil {
+	})); err != nil {
 		t.Fatal(err)
 	}
 	var resp protocol.OpenResponse
@@ -1037,14 +1038,14 @@ func assertTCPListenFails(t *testing.T, addr string) {
 func activateReverseControlForTest(t *testing.T, serverAddr, caFile, clientID, listenAddr, target string) *tls.Conn {
 	t.Helper()
 	conn := dialTLSForTest(t, serverAddr, caFile)
-	if err := protocol.WriteJSON(conn, protocol.OpenRequest{
+	if err := protocol.WriteJSON(conn, currentTestRequest(protocol.OpenRequest{
 		Type:       "reverse_listen",
 		Username:   "alice",
 		Password:   "secret",
 		ClientID:   clientID,
 		ListenAddr: listenAddr,
 		Target:     target,
-	}); err != nil {
+	})); err != nil {
 		_ = conn.Close()
 		t.Fatal(err)
 	}
@@ -1079,6 +1080,16 @@ func dialTLSForTest(t *testing.T, addr, caFile string) *tls.Conn {
 		t.Fatal(err)
 	}
 	return conn
+}
+
+func currentTestRequest(req protocol.OpenRequest) protocol.OpenRequest {
+	if req.ClientVersion == "" {
+		req.ClientVersion = appversion.AppVersion
+	}
+	if req.ProtocolVersion == 0 {
+		req.ProtocolVersion = appversion.ProtocolVersion
+	}
+	return req
 }
 
 func writeTestCertificate(t *testing.T) (string, string) {

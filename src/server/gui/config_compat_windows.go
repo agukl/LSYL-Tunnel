@@ -14,10 +14,9 @@ import (
 )
 
 type configCompatOptions struct {
-	Check           bool
-	ConfigPath      string
-	ReferenceConfig string
-	ResultFile      string
+	Check      bool
+	ConfigPath string
+	ResultFile string
 }
 
 func parseConfigCompatArgs(args []string) (configCompatOptions, bool, error) {
@@ -37,7 +36,6 @@ func parseConfigCompatArgs(args []string) (configCompatOptions, bool, error) {
 	fs.SetOutput(io.Discard)
 	fs.BoolVar(&opts.Check, "config-compat-check", false, "check server config compatibility")
 	fs.StringVar(&opts.ConfigPath, "config", "", "installed server config")
-	fs.StringVar(&opts.ReferenceConfig, "reference-config", "", "package server config")
 	fs.StringVar(&opts.ResultFile, "result-file", "", "write compatibility error to file")
 	if err := fs.Parse(args); err != nil {
 		return opts, true, err
@@ -45,14 +43,11 @@ func parseConfigCompatArgs(args []string) (configCompatOptions, bool, error) {
 	if strings.TrimSpace(opts.ConfigPath) == "" {
 		return opts, true, fmt.Errorf("missing -config")
 	}
-	if strings.TrimSpace(opts.ReferenceConfig) == "" {
-		return opts, true, fmt.Errorf("missing -reference-config")
-	}
 	return opts, true, nil
 }
 
 func runConfigCompatCheck(opts configCompatOptions) error {
-	return tunnel.CheckConfigShapeCompatible(opts.ConfigPath, opts.ReferenceConfig)
+	return tunnel.CheckConfigUpgradeCompatible(opts.ConfigPath)
 }
 
 func writeConfigCompatResult(path string, err error) {

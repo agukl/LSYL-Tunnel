@@ -10,17 +10,21 @@ import (
 	"time"
 
 	"lsyltunnel/src/client/tunnel"
+	appversion "lsyltunnel/src/internal/version"
 )
 
 type apiState struct {
-	Running     bool               `json:"running"`
-	Config      loginForm          `json:"config"`
-	Route       string             `json:"route"`
-	Stats       tunnel.ClientStats `json:"stats"`
-	RunStatus   string             `json:"run_status"`
-	HasPassword bool               `json:"has_password"`
-	Notice      string             `json:"notice,omitempty"`
-	NoticeBad   bool               `json:"notice_bad,omitempty"`
+	Running       bool               `json:"running"`
+	Version       string             `json:"version"`
+	ServerVersion string             `json:"server_version,omitempty"`
+	Config        loginForm          `json:"config"`
+	Profiles      []clientProfile    `json:"profiles"`
+	Route         string             `json:"route"`
+	Stats         tunnel.ClientStats `json:"stats"`
+	RunStatus     string             `json:"run_status"`
+	HasPassword   bool               `json:"has_password"`
+	Notice        string             `json:"notice,omitempty"`
+	NoticeBad     bool               `json:"notice_bad,omitempty"`
 }
 
 type apiResult struct {
@@ -33,6 +37,10 @@ type loginForm struct {
 	ServerAddr string `json:"server_addr"`
 	Username   string `json:"username"`
 	Password   string `json:"password"`
+}
+
+type profileSwitchRequest struct {
+	ID string `json:"id"`
 }
 
 func (a *App) handleHome(w http.ResponseWriter, r *http.Request) {
@@ -54,14 +62,17 @@ func (a *App) currentAPIState() apiState {
 	stats := a.clientStats()
 	notice, noticeBad := a.noticeSnapshot()
 	return apiState{
-		Running:     a.isRunning(),
-		Config:      a.currentLoginForm(),
-		Route:       a.routeSummary(),
-		Stats:       stats,
-		RunStatus:   status,
-		HasPassword: a.hasPasswordState(),
-		Notice:      notice,
-		NoticeBad:   noticeBad,
+		Running:       a.isRunning(),
+		Version:       appversion.AppVersion,
+		ServerVersion: stats.ServerVersion,
+		Config:        a.currentLoginForm(),
+		Profiles:      a.clientProfiles(),
+		Route:         a.routeSummary(),
+		Stats:         stats,
+		RunStatus:     status,
+		HasPassword:   a.hasPasswordState(),
+		Notice:        notice,
+		NoticeBad:     noticeBad,
 	}
 }
 
@@ -149,7 +160,7 @@ func (a *App) handleStart(w http.ResponseWriter, r *http.Request) {
 		a.writeJSON(w, apiResult{OK: false, Message: friendlyError(err)})
 		return
 	}
-	if err := a.startClient(cfg); err != nil {
+	if err := a.startClient(cfg, resp.ServerVersion); err != nil {
 		a.appendLog("启动连接失败: " + err.Error())
 		a.writeJSON(w, apiResult{OK: false, Message: friendlyError(err)})
 		return
@@ -164,6 +175,31 @@ func (a *App) handleStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.writeJSON(w, apiResult{OK: true, Message: "连接已停止"})
+}
+
+func (a *App) handleProfileSwitch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		a.writeJSON(w, apiResult{OK: false, Message: "请求方法不支持", State: ptrAPIState(a.currentAPIState())})
+		return
+	}
+	defer r.Body.Close()
+	var req profileSwitchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		a.writeJSON(w, apiResult{OK: false, Message: "请求格式不正确", State: ptrAPIState(a.currentAPIState())})
+		return
+	}
+	if a.isRunning() {
+		a.writeJSON(w, apiResult{OK: false, Message: "请先断开当前连接，再切换客户端配置。", State: ptrAPIState(a.currentAPIState())})
+		return
+	}
+	if err := a.switchClientProfile(req.ID); err != nil {
+		a.appendLog("切换客户端配置失败: " + err.Error())
+		a.writeJSON(w, apiResult{OK: false, Message: profileSwitchFriendlyError(err), State: ptrAPIState(a.currentAPIState())})
+		return
+	}
+	a.setNotice("已切换客户端配置，请确认账号密码后连接。", false)
+	a.appendLog("已切换客户端配置")
+	a.writeJSON(w, apiResult{OK: true, Message: "已切换客户端配置", State: ptrAPIState(a.currentAPIState())})
 }
 
 func (a *App) handleHide(w http.ResponseWriter, r *http.Request) {

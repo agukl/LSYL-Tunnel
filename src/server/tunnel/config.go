@@ -7,8 +7,20 @@ import (
 	"strings"
 	"time"
 
+	appversion "lsyltunnel/src/internal/version"
+
 	"gopkg.in/yaml.v3"
 )
+
+type RequiresConfig struct {
+	MinServerVersion string `yaml:"min_server_version"`
+}
+
+type CompatibilityConfig struct {
+	MinClientVersion string `yaml:"min_client_version"`
+	MaxClientVersion string `yaml:"max_client_version"`
+	ProtocolVersion  int    `yaml:"protocol_version"`
+}
 
 type TLSConfig struct {
 	CertFile   string `yaml:"cert_file"`
@@ -80,6 +92,9 @@ type AuthConfig struct {
 
 type Config struct {
 	ConfigPath     string               `yaml:"-"`
+	ConfigVersion  int                  `yaml:"config_version"`
+	Requires       RequiresConfig       `yaml:"requires"`
+	Compatibility  CompatibilityConfig  `yaml:"compatibility"`
 	ListenAddr     string               `yaml:"listen_addr"`
 	MonitorAddr    string               `yaml:"monitor_addr"`
 	LogLevel       string               `yaml:"log_level"`
@@ -147,6 +162,7 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func SaveConfig(path string, cfg Config) error {
+	ApplyDefaults(&cfg)
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
@@ -158,6 +174,18 @@ func SaveConfig(path string, cfg Config) error {
 }
 
 func ApplyDefaults(cfg *Config) {
+	if cfg.ConfigVersion == 0 {
+		cfg.ConfigVersion = appversion.ServerConfigVersion
+	}
+	if strings.TrimSpace(cfg.Requires.MinServerVersion) == "" {
+		cfg.Requires.MinServerVersion = appversion.ServerConfigRequiresServerVersion
+	}
+	if cfg.Compatibility.ProtocolVersion == 0 {
+		cfg.Compatibility.ProtocolVersion = appversion.ProtocolVersion
+	}
+	if strings.TrimSpace(cfg.Compatibility.MinClientVersion) == "" {
+		cfg.Compatibility.MinClientVersion = appversion.MinCompatibleClientVersion
+	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = DefaultListenAddr
 	}
@@ -209,6 +237,9 @@ func ApplyDefaults(cfg *Config) {
 }
 
 func ValidateConfig(cfg Config) error {
+	if err := ValidateConfigVersion(cfg); err != nil {
+		return err
+	}
 	if strings.TrimSpace(cfg.TLS.CertFile) == "" || strings.TrimSpace(cfg.TLS.KeyFile) == "" {
 		return fmt.Errorf("server TLS identity cert_file and key_file are required")
 	}
@@ -252,6 +283,48 @@ func ValidateConfig(cfg Config) error {
 	}
 	if activeKeys > 1 {
 		return fmt.Errorf("only one credential seal key can be active")
+	}
+	return nil
+}
+
+func ValidateConfigVersion(cfg Config) error {
+	if cfg.ConfigVersion < 0 {
+		return fmt.Errorf("server config_version must be >= 0")
+	}
+	if cfg.ConfigVersion > appversion.ServerConfigVersion {
+		return fmt.Errorf("server config_version %d requires a newer server; current server supports config_version %d", cfg.ConfigVersion, appversion.ServerConfigVersion)
+	}
+	if err := appversion.CheckMin(appversion.AppVersion, cfg.Requires.MinServerVersion, "server config"); err != nil {
+		return err
+	}
+	protocolVersion := cfg.Compatibility.ProtocolVersion
+	if protocolVersion == 0 {
+		protocolVersion = appversion.ProtocolVersion
+	}
+	if protocolVersion < 0 {
+		return fmt.Errorf("server compatibility.protocol_version must be >= 0")
+	}
+	if protocolVersion != appversion.ProtocolVersion {
+		return fmt.Errorf("server compatibility.protocol_version %d is not supported by this server; current protocol_version is %d", protocolVersion, appversion.ProtocolVersion)
+	}
+	if strings.TrimSpace(cfg.Compatibility.MinClientVersion) != "" {
+		if err := appversion.Validate(cfg.Compatibility.MinClientVersion); err != nil {
+			return fmt.Errorf("server compatibility.min_client_version is invalid: %w", err)
+		}
+	}
+	if strings.TrimSpace(cfg.Compatibility.MaxClientVersion) != "" {
+		if err := appversion.Validate(cfg.Compatibility.MaxClientVersion); err != nil {
+			return fmt.Errorf("server compatibility.max_client_version is invalid: %w", err)
+		}
+	}
+	if strings.TrimSpace(cfg.Compatibility.MinClientVersion) != "" && strings.TrimSpace(cfg.Compatibility.MaxClientVersion) != "" {
+		greater, err := appversion.Greater(cfg.Compatibility.MinClientVersion, cfg.Compatibility.MaxClientVersion)
+		if err != nil {
+			return fmt.Errorf("server compatibility client version range is invalid: %w", err)
+		}
+		if greater {
+			return fmt.Errorf("server compatibility min_client_version must be <= max_client_version")
+		}
 	}
 	return nil
 }

@@ -1,6 +1,8 @@
 # Build outputs
 /build/
 /dist/
+/tool/*
+!/tool/README.md
 
 # Runtime and test artifacts
 /runtime/
@@ -40,7 +42,7 @@ Thumbs.db
 .DS_Store
 
 .idea/
-src/client/cert
-src/client/conf
-src/server/conf
-src/server/logs
+/src/client/cert/
+/src/client/conf/
+/src/server/conf/
+/src/server/logs/

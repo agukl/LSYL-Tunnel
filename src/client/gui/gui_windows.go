@@ -68,6 +68,14 @@ func Run() error {
 }
 
 func RunFromArgs(args []string) error {
+	if opts, ok, err := parseClientConfigCompatArgs(args); ok || err != nil {
+		if err != nil {
+			return err
+		}
+		err := runClientConfigCompatCheck(opts)
+		writeClientConfigCompatResult(opts.ResultFile, err)
+		return err
+	}
 	if IsQuitCommand(args) {
 		return requestQuitRunningInstance()
 	}
@@ -135,6 +143,7 @@ func (a *App) run() error {
 	mux.HandleFunc("/api/health/check", a.handleHealthCheck)
 	mux.HandleFunc("/api/start", a.handleStart)
 	mux.HandleFunc("/api/stop", a.handleStop)
+	mux.HandleFunc("/api/profile/switch", a.handleProfileSwitch)
 	mux.HandleFunc("/api/mobile/export", a.handleMobileExport)
 	mux.HandleFunc("/api/hide", a.handleHide)
 	mux.HandleFunc("/api/quit", a.handleQuit)

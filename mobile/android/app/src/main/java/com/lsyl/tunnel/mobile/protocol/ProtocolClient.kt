@@ -7,6 +7,9 @@ import org.json.JSONObject
 import java.io.IOException
 import javax.net.ssl.SSLSocket
 
+private const val CLIENT_VERSION = "2.0.0"
+private const val PROTOCOL_VERSION = 2
+
 data class OpenResponse(
     val ok: Boolean,
     val code: String,
@@ -66,6 +69,8 @@ class ProtocolClient(
         put("username", profile.username)
         put("credential", profile.savedCredential.toJson())
         put("client_id", profile.clientId)
+        put("client_version", CLIENT_VERSION)
+        put("protocol_version", PROTOCOL_VERSION)
         if (forward != null) {
             put("forward_name", forward.displayName())
             put("direction", forward.direction)

@@ -14,7 +14,7 @@ import (
 func main() {
 	if err := gui.RunFromArgs(os.Args[1:]); err != nil {
 		log.Print(err)
-		if !gui.IsQuitCommand(os.Args[1:]) {
+		if !gui.IsNonInteractiveCommand(os.Args[1:]) {
 			walk.MsgBox(nil, "LSYL Tunnel Client", err.Error(), walk.MsgBoxIconError)
 		}
 		os.Exit(1)

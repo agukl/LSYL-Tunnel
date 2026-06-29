@@ -139,13 +139,13 @@ password_file: ../../secrets/client-password.txt
 cmd /c release.cmd
 ```
 
-只生成分发目录、不编译安装器：
+如需保留内部临时构建目录用于排查：
 
 ```powershell
-cmd /c release.cmd /package-only
+cmd /c release.cmd /keep-work
 ```
 
-分发目录：
+默认执行 `release.cmd` 后会保留客户端分发目录：
 
 ```text
 dist\LSYL Tunnel Client
@@ -157,17 +157,19 @@ dist\LSYL Tunnel Client
 dist\LSYL Tunnel Client\make-installer.cmd
 ```
 
-如果开发机已安装 Inno Setup 6，`release.cmd /package-only` 会把安装器编译器内置到 `dist\tools\inno`，实施机器通常不需要再安装 Inno。
+如果执行 `release.cmd /bundle-inno`，发布脚本会把安装器编译器内置到 `dist\tools\inno`，实施机器通常不需要再安装 Inno。
 
-如果要同时生成客户端和服务端安装器：
+也可以从 `dist` 根目录重新生成客户端安装器：
 
 ```cmd
 dist\make-installers.cmd
 ```
 
+服务端和 Android 安装产物在完整发布组装 `dist` 时生成，最终以 `dist\installers` 中的文件为准。
+
 生成安装器后，把 `dist\installers\LSYL-Tunnel-Client-Setup.exe` 复制到用户机器并以管理员身份运行。安装器会复制 GUI、配置、图标和 `cert\server.crt`，客户端不提供 Windows 服务模式。
 
-安装或升级会覆盖安装目录中的 `conf\client.yaml` 和 `cert\server.crt`，并先备份为 `client.yaml.bak`、`server.crt.bak`。如果管理员重新下发了服务端地址、端口映射或证书，重装后会立即使用新配置。
+安装或升级会覆盖安装目录中的 `conf\client.yaml` 和 `cert\server.crt`，并先按旧配置的服务端地址归档为 `conf\client.<旧服务地址>.yaml`、`cert\server.<旧服务地址>.crt`。如果同名归档已经存在，会被最近一次覆盖安装的旧配置覆盖。重装后原名文件立即使用新配置，用户也可以在客户端登录页切回已归档的旧配置。
 
 安装器会先请求正在运行的客户端温和退出；如果退出失败，会清理本次临时文件并提示用户从托盘退出后重试。安装中断时会尽量恢复原配置和原服务端证书，不默认强杀客户端进程。
 

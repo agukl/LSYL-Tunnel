@@ -98,6 +98,42 @@ button, input { font-family:"Microsoft YaHei UI", "Segoe UI", sans-serif; }
   transform:skewX(-18deg);
   border-radius:2px;
 }
+.logo-menu {
+  display:none;
+  position:absolute;
+  left:16px;
+  top:51px;
+  z-index:60;
+  width:330px;
+  padding:11px;
+  border-radius:14px;
+  color:#163944;
+  background:#fff;
+  border:1px solid rgba(130,174,180,.42);
+  box-shadow:0 14px 30px rgba(19,72,82,.22);
+}
+.logo-menu.open { display:block; }
+.logo-menu-title {
+  margin:0 0 8px;
+  color:#57717b;
+  font-size:12px;
+  line-height:16px;
+  font-weight:900;
+}
+.logo-menu .menu-action {
+  width:100%;
+  height:36px;
+  margin-top:8px;
+  border-radius:10px;
+  font-size:12px;
+}
+.logo-menu-empty {
+  display:none;
+  color:#6a818d;
+  font-size:12px;
+  font-weight:800;
+  line-height:18px;
+}
 .title-actions {
   float:right;
   height:60px;
@@ -276,7 +312,8 @@ label {
   font-size:13px;
   font-weight:900;
 }
-input {
+input,
+select {
   width:100%;
   height:43px;
   padding:0 13px;
@@ -288,9 +325,14 @@ input {
   font-size:15px;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.8);
 }
-input:focus {
+input:focus,
+select:focus {
   border-color:#10998c;
   box-shadow:0 0 0 4px rgba(16,153,140,.12);
+}
+select {
+  appearance:none;
+  -webkit-appearance:none;
 }
 button {
   border:0;
@@ -317,6 +359,134 @@ button:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:no
   background:#edf6f7;
 }
 .secondary:hover { background:#e4f0f2; }
+.profile-switch {
+  display:none;
+  margin-top:0;
+  overflow:visible;
+  position:relative;
+}
+.profile-dropdown {
+  position:relative;
+}
+.profile-dropdown-btn {
+  position:relative;
+  width:100%;
+  height:40px;
+  padding:0 38px 0 12px;
+  border:1px solid #c6dadd;
+  border-radius:12px;
+  color:#173a46;
+  background:linear-gradient(180deg, #ffffff 0%, #f3fbfc 100%);
+  font-size:13px;
+  font-weight:900;
+  text-align:left;
+  box-shadow:0 8px 18px rgba(33,91,101,.08), inset 0 1px 0 rgba(255,255,255,.9);
+}
+.profile-dropdown-btn:hover {
+  background:linear-gradient(180deg, #ffffff 0%, #edf8f9 100%);
+  transform:none;
+}
+.profile-dropdown-btn:active {
+  transform:none;
+}
+.profile-dropdown-btn:after {
+  content:"";
+  position:absolute;
+  right:14px;
+  top:15px;
+  width:8px;
+  height:8px;
+  border-right:2px solid #2f6a74;
+  border-bottom:2px solid #2f6a74;
+  transform:rotate(45deg);
+}
+.profile-dropdown.open .profile-dropdown-btn {
+  border-color:#10998c;
+  box-shadow:0 0 0 4px rgba(16,153,140,.12), 0 10px 18px rgba(33,91,101,.11);
+}
+.profile-dropdown.open .profile-dropdown-btn:after {
+  top:18px;
+  transform:rotate(225deg);
+}
+.profile-dropdown-btn-text {
+  display:block;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+}
+.profile-dropdown-list {
+  display:none;
+  position:absolute;
+  left:0;
+  right:0;
+  top:44px;
+  z-index:75;
+  max-height:168px;
+  overflow:auto;
+  padding:5px;
+  border:1px solid rgba(133,177,184,.55);
+  border-radius:12px;
+  background:#ffffff;
+  box-shadow:0 16px 30px rgba(24,75,84,.18);
+}
+.profile-dropdown.open .profile-dropdown-list {
+  display:block;
+}
+.profile-option {
+  display:block;
+  width:100%;
+  height:auto;
+  min-height:42px;
+  margin:0;
+  padding:7px 9px;
+  border-radius:9px;
+  color:#173a46;
+  background:transparent;
+  box-shadow:none;
+  text-align:left;
+}
+.profile-option + .profile-option {
+  margin-top:3px;
+}
+.profile-option:hover {
+  background:#eef8f9;
+  transform:none;
+}
+.profile-option.current {
+  background:#e6f6f3;
+  color:#0a7069;
+}
+.profile-option:disabled {
+  opacity:.62;
+  cursor:not-allowed;
+}
+.profile-option-main,
+.profile-option-meta {
+  display:block;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+}
+.profile-option-main {
+  font-size:13px;
+  line-height:18px;
+  font-weight:900;
+}
+.profile-option-meta {
+  margin-top:1px;
+  color:#6a818d;
+  font-size:11px;
+  line-height:15px;
+  font-weight:800;
+}
+.profile-hint {
+  clear:both;
+  padding-top:7px;
+  color:#6a818d;
+  font-size:12px;
+  font-weight:800;
+  line-height:1.45;
+}
 .danger {
   color:#915f00;
   background:#fff8e8;
@@ -379,6 +549,19 @@ button:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:no
   background:#fffaf0;
   border-color:#f1d391;
 }
+.version-badge {
+  position:absolute;
+  right:10px;
+  bottom:7px;
+  z-index:25;
+  color:rgba(65,91,102,.45);
+  font-size:10px;
+  font-weight:600;
+  line-height:14px;
+  letter-spacing:0;
+  pointer-events:none;
+  text-shadow:0 1px 0 rgba(255,255,255,.75);
+}
 @keyframes pulseGreen {
   0% { box-shadow:0 0 0 0 rgba(34,197,94,.34); }
   70% { box-shadow:0 0 0 9px rgba(34,197,94,0); }
@@ -389,13 +572,27 @@ button:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:no
 <body scroll="no" oncontextmenu="return false">
 <div id="app" class="app">
   <div id="titlebar" class="titlebar" onmousedown="return beginDrag(event)">
-    <div class="title-left"><span id="mobileExportLogo" class="mini-logo" title="右键导出移动端配置" oncontextmenu="return exportMobileProfile(event)"></span>LSYL Tunnel</div>
+    <div class="title-left"><span id="mobileExportLogo" class="mini-logo" title="右键打开配置菜单" oncontextmenu="return showLogoMenu(event)"></span>LSYL Tunnel</div>
     <div class="title-actions">
       <span id="topStatus" class="top-status off"><i></i><span id="topStatusText">未连接</span></span>
       <button class="top-refresh" title="刷新状态" aria-label="刷新状态" onclick="refreshHealth(true)"><svg class="window-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 7.8A6.8 6.8 0 0 1 18.4 10" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/><path d="M18.4 5.8V10h-4.2" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.8 16.2A6.8 6.8 0 0 1 5.6 14" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.6 18.2V14h4.2" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button class="win-btn minimize" title="最小化" onclick="return minimizeWindow(event)"><svg class="window-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 12h10" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round"/></svg></button>
       <button id="closeBtn" class="win-btn close" title="关闭" onclick="return closeWindow(event)"><svg class="window-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8l8 8M16 8l-8 8" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round"/></svg></button>
     </div>
+  </div>
+  <div id="logoMenu" class="logo-menu">
+    <div id="profileSwitch" class="profile-switch">
+      <div class="logo-menu-title">切换客户端配置</div>
+      <div id="profileDropdown" class="profile-dropdown">
+        <button id="profileDropdownBtn" class="profile-dropdown-btn" onclick="return toggleProfileDropdown(event)" type="button">
+          <span id="profileDropdownText" class="profile-dropdown-btn-text">当前配置</span>
+        </button>
+        <div id="profileDropdownList" class="profile-dropdown-list"></div>
+      </div>
+      <div id="profileHint" class="profile-hint"></div>
+    </div>
+    <button id="mobileExportMenuBtn" class="secondary menu-action" onclick="return exportMobileProfile(event)">导出移动端配置</button>
+    <div id="logoMenuEmpty" class="logo-menu-empty">暂无可切换配置</div>
   </div>
 
   <div class="content">
@@ -441,12 +638,17 @@ button:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:no
       </div>
     </div>
   </div>
+  <div id="versionBadge" class="version-badge"></div>
 </div>
 <script>
 var busy = false;
 var lastRunning = null;
 var lastState = null;
+var forceNextForm = false;
 var savedPasswordMask = '********';
+var lastProfilesSignature = '';
+var logoMenuOpen = false;
+var profileDropdownOpen = false;
 function el(id){ return document.getElementById(id); }
 function now(){ return new Date().getTime(); }
 function stopEvent(evt){
@@ -479,6 +681,14 @@ function isLogoTarget(target){
   while(target){
     if(target.id === 'mobileExportLogo') return true;
     if(target.className && String(target.className).indexOf('mini-logo') >= 0) return true;
+    target = target.parentNode;
+  }
+  return false;
+}
+function isLogoMenuTarget(target){
+  while(target){
+    if(target.id === 'logoMenu') return true;
+    if(target.id === 'mobileExportLogo') return true;
     target = target.parentNode;
   }
   return false;
@@ -525,8 +735,15 @@ function formData(){
     password: password
   };
 }
-function setForm(f){
+function setForm(f, force){
   f = f || {};
+  if(force){
+    el('server_addr').value = f.server_addr || '';
+    el('username').value = f.username || '';
+    el('password').value = f.password || '';
+    el('password').setAttribute('data-saved', '0');
+    return;
+  }
   if(!el('server_addr').value) el('server_addr').value = f.server_addr || '';
   if(!el('username').value) el('username').value = f.username || '';
   if(!el('password').value) el('password').value = f.password || '';
@@ -556,6 +773,55 @@ function clearMessages(){
   el('runMsg').className = 'inline-message';
   el('runMsg').innerText = '';
 }
+function closeProfileDropdown(){
+  profileDropdownOpen = false;
+  var drop = el('profileDropdown');
+  if(drop) drop.className = 'profile-dropdown';
+}
+function hideLogoMenu(){
+  logoMenuOpen = false;
+  closeProfileDropdown();
+  var menu = el('logoMenu');
+  if(menu) menu.className = 'logo-menu';
+}
+function syncLogoMenu(state, running){
+  var exportBtn = el('mobileExportMenuBtn');
+  var empty = el('logoMenuEmpty');
+  var profiles = (state && state.profiles) || [];
+  var canSwitch = !running && profiles.length >= 2;
+  if(exportBtn) exportBtn.style.display = running ? 'block' : 'none';
+  if(empty) empty.style.display = (!running && !canSwitch) ? 'block' : 'none';
+}
+function toggleProfileDropdown(evt){
+  stopEvent(evt);
+  var btn = el('profileDropdownBtn');
+  if(!btn || btn.disabled) return false;
+  profileDropdownOpen = !profileDropdownOpen;
+  var drop = el('profileDropdown');
+  if(drop) drop.className = profileDropdownOpen ? 'profile-dropdown open' : 'profile-dropdown';
+  return false;
+}
+function showLogoMenu(evt){
+  stopEvent(evt);
+  var state = lastState || {};
+  var running = !!state.running;
+  closeProfileDropdown();
+  renderProfiles(state, running);
+  syncLogoMenu(state, running);
+  logoMenuOpen = true;
+  var menu = el('logoMenu');
+  if(menu) menu.className = 'logo-menu open';
+  return false;
+}
+function handleLogoMenuMouseDown(evt){
+  evt = evt || window.event;
+  var target = evt.target || evt.srcElement;
+  if(!isLogoMenuTarget(target)) hideLogoMenu();
+}
+function installLogoMenuDismiss(){
+  if(document.addEventListener) document.addEventListener('mousedown', handleLogoMenuMouseDown, true);
+  else if(document.attachEvent) document.attachEvent('onmousedown', handleLogoMenuMouseDown);
+}
 function showMessage(message, bad){
   var running = el('app').className.indexOf('running') >= 0;
   var target = running ? el('runMsg') : el('loginMsg');
@@ -572,6 +838,13 @@ function setStatus(running, state){
   el('statusReconnect').className = 'status-chip ' + cls;
   el('statusReconnect').innerText = text;
   el('closeBtn').title = running ? '关闭到托盘，继续后台值守' : '关闭客户端';
+}
+function setVersion(state){
+  var clientVersion = (state && state.version) || '';
+  var serverVersion = (state && state.server_version) || '';
+  var text = clientVersion ? ('C v' + clientVersion) : '';
+  if(serverVersion) text += (text ? '  ' : '') + 'S v' + serverVersion;
+  el('versionBadge').innerText = text;
 }
 function statusClass(running, stats){
   if(!running) return 'off';
@@ -686,16 +959,134 @@ function renderState(state){
   var reconnecting = running && isReconnecting(state.stats || {});
   el('app').className = running ? (reconnecting ? 'app running reconnecting' : 'app running') : 'app';
   setStatus(running, state);
+  setVersion(state);
   if(changed) clearMessages();
   lastRunning = running;
   el('loginBtn').disabled = running || busy;
   el('route').innerHTML = routeHTML(state);
   el('reconnectInfo').innerText = reconnectText(state);
-  setForm(state.config);
+  setForm(state.config, forceNextForm);
+  forceNextForm = false;
   setSavedPasswordMask(!!state.has_password);
+  renderProfiles(state, running);
+  syncLogoMenu(state, running);
   if(!running && state.notice){
     showMessage(state.notice, !!state.notice_bad);
   }
+}
+function profileListSignature(profiles){
+  var parts = [];
+  for(var i=0;i<profiles.length;i++){
+    var p = profiles[i] || {};
+    parts.push([
+      p.id || '',
+      p.label || '',
+      p.server_addr || '',
+      p.current ? '1' : '0',
+      p.available ? '1' : '0',
+      p.message || ''
+    ].join('|'));
+  }
+  return parts.join('||');
+}
+function renderProfiles(state, running){
+  var box = el('profileSwitch');
+  var btn = el('profileDropdownBtn');
+  var btnText = el('profileDropdownText');
+  var list = el('profileDropdownList');
+  var hint = el('profileHint');
+  var profiles = (state && state.profiles) || [];
+  if(!box) return;
+  if(running || profiles.length < 2){
+    box.style.display = 'none';
+    lastProfilesSignature = '';
+    closeProfileDropdown();
+    if(btn) btn.disabled = true;
+    if(list) list.innerHTML = '';
+    return;
+  }
+  box.style.display = 'block';
+  var currentText = '';
+  for(var currentIndex=0;currentIndex<profiles.length;currentIndex++){
+    var currentProfile = profiles[currentIndex] || {};
+    if(currentProfile.current){
+      currentText = currentProfile.label || currentProfile.server_addr || currentProfile.id || '';
+    }
+  }
+  if(btnText) btnText.innerText = currentText || '当前配置';
+  var signature = profileListSignature(profiles);
+  if(signature !== lastProfilesSignature){
+    if(list) list.innerHTML = '';
+    for(var i=0;i<profiles.length;i++){
+      var p = profiles[i] || {};
+      var item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'profile-option' + (p.current ? ' current' : '');
+      item.setAttribute('data-profile-id', p.id || '');
+      item.setAttribute('data-profile-current', p.current ? '1' : '0');
+      item.setAttribute('data-profile-available', p.available ? '1' : '0');
+      item.onclick = switchProfileOption;
+      item.disabled = !p.available || p.current || busy;
+      var main = document.createElement('span');
+      main.className = 'profile-option-main';
+      main.innerText = profileOptionMainText(p);
+      var meta = document.createElement('span');
+      meta.className = 'profile-option-meta';
+      meta.innerText = profileOptionMetaText(p);
+      item.appendChild(main);
+      item.appendChild(meta);
+      if(list) list.appendChild(item);
+    }
+    lastProfilesSignature = signature;
+  }
+  if(hint) hint.innerText = currentText ? ('当前使用：' + currentText) : '';
+  if(btn) btn.disabled = running || busy || profiles.length < 2;
+  if(list){
+    var buttons = list.getElementsByTagName('button');
+    for(var j=0;j<buttons.length;j++){
+      var b = buttons[j];
+      b.disabled = running || busy || b.getAttribute('data-profile-current') === '1' || b.getAttribute('data-profile-available') !== '1';
+    }
+  }
+}
+function profileOptionMainText(profile){
+  return profile.label || profile.server_addr || profile.id || '未命名配置';
+}
+function profileOptionMetaText(profile){
+  if(!profile.available && profile.message) return profile.message;
+  if(profile.current) return profile.server_addr ? ('当前使用 · ' + profile.server_addr) : '当前使用';
+  return profile.server_addr || '可切换配置';
+}
+function switchProfileOption(evt){
+  stopEvent(evt);
+  var target = evt ? (evt.target || evt.srcElement) : null;
+  while(target && !target.getAttribute('data-profile-id')) target = target.parentNode;
+  if(!target || target.disabled) return false;
+  return switchProfile(target.getAttribute('data-profile-id'));
+}
+function switchProfile(profileID){
+  if(!profileID || profileID === '__current__') return false;
+  busy = true;
+  var btn = el('profileDropdownBtn');
+  if(btn) btn.disabled = true;
+  closeProfileDropdown();
+  hideLogoMenu();
+  showMessage('正在切换客户端配置。', false);
+  api('/api/profile/switch', { id: profileID }, function(r){
+    busy = false;
+    lastProfilesSignature = '';
+    if(r.ok){
+      forceNextForm = true;
+      clearMessages();
+      if(r.state) renderState(r.state);
+      showMessage(r.message || '已切换客户端配置。', false);
+    } else {
+      if(r.state) renderState(r.state);
+      showMessage(r.message || '切换失败，请检查配置文件和证书。', true);
+    }
+    refresh();
+  });
+  return false;
 }
 function refresh(){ api('/api/state', null, renderState); }
 function refreshHealth(quiet){
@@ -738,6 +1129,7 @@ function quitApp(){
 }
 function exportMobileProfile(evt){
   stopEvent(evt);
+  hideLogoMenu();
   if(!lastState || !lastState.running){
     showMessage('请先登录成功后再导出移动端配置。', true);
     return false;
@@ -753,6 +1145,7 @@ function exportMobileProfile(evt){
   return false;
 }
 suppressContextMenu();
+installLogoMenuDismiss();
 refresh();
 setInterval(refresh, 2500);
 </script>

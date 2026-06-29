@@ -76,7 +76,7 @@ cmd /c deploy\windows\run.cmd client-gui
 cmd /c deploy\windows\test\selfcheck.cmd
 ```
 
-自检会执行 Go 测试、构建、密码工具、TLS 工具、客户端/服务端卸载脚本、分发包结构和精简运行目录检查。涉及 Windows 服务安装/启动/停止/卸载的动作需要管理员授权，普通自检不会主动申请 UAC。
+自检会执行 Go 测试、构建、密码工具、TLS 工具、分发包结构、发布脚本入口和精简运行目录检查。涉及 Windows 服务安装/启动/停止/卸载的动作需要管理员授权，普通自检不会主动申请 UAC。
 
 ## 6. 生成分发包和安装器
 
@@ -100,13 +100,13 @@ cmd /c release.cmd /hosts "vpn.example.com,203.0.113.10"
 cmd /c release.cmd /local-sign
 ```
 
-只生成客户端/服务端分发目录、不编译 Inno 安装器：
+默认发布会保留客户端现场重打包目录。如需生成不带客户端 kit 的精简 `dist`：
 
 ```powershell
-cmd /c release.cmd /package-only
+cmd /c release.cmd /no-client-kit
 ```
 
 生产环境服务端安装时会生成自签 TLS 文件。客户端实际连接的域名或 IP 应写入服务端安装向导，或者用于发布前的 `/hosts` 参数。
 
-`release.cmd /package-only` 会在开发机已安装 Inno Setup 6 时，把命令行编译器带入 `dist\tools\inno`。实施人员拿到 `dist` 后通常可以直接运行 `dist\make-installers.cmd`；如果没有内置编译器，再安装 Inno Setup 6 或设置 `INNO_SETUP_ISCC`。服务端安装向导会询问证书主机名/IP。
+完整 `release.cmd` 会从源码生成临时工作目录 `build\tmp\dist-work`，再组装 `dist.stage`，所有安装产物生成成功后才替换最终 `dist`。生成过程中会调用 Gradle 构建 Android APK；如果 Gradle 不在 `PATH`，需要设置 `GRADLE_EXE`，把 Gradle 放到 `tool\gradle-8.9`，或设置 `MOBILE_APK` 指向已有 APK。脚本不会默认复用 `mobile\android\app\build` 下残留的旧 APK。默认最终 `dist` 保留三端安装产物、发布清单、`dist\LSYL Tunnel Client` 和 `dist\make-installers.cmd`，用于现场重新生成客户端安装包。服务端和 Android 安装产物以 `dist\installers` 中的文件为准。
 

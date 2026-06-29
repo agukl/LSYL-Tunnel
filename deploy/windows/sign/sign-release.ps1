@@ -6,6 +6,7 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $workspace = Resolve-Path (Join-Path $scriptDir "..\..\..")
 Set-Location $workspace
+$toolDir = Join-Path $workspace "tool"
 
 if (-not $env:LSYL_SIGN_CERT_PFX -and -not $env:LSYL_SIGN_CERT_SHA1) {
     $thumbFile = Join-Path $workspace "certs\codesign-thumbprint.txt"
@@ -31,6 +32,12 @@ function Get-SignToolPath {
     }
     $cmd = Get-Command signtool.exe -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
+    foreach ($candidate in @(
+        (Join-Path $toolDir "signtool\signtool.exe"),
+        (Join-Path $toolDir "windows-sdk\signtool.exe")
+    )) {
+        if (Test-Path $candidate) { return (Resolve-Path $candidate).Path }
+    }
     $kits = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
     if (Test-Path $kits) {
         $found = Get-ChildItem $kits -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
@@ -40,16 +47,18 @@ function Get-SignToolPath {
 }
 
 function Get-Targets([string]$scope) {
-    $serverPackageRoot = "dist\LSYL Tunnel Server"
+    $clientPackageRoot = "dist\LSYL Tunnel Client"
+    if ($env:LSYL_CLIENT_PACKAGE_DIR) {
+        $clientPackageRoot = $env:LSYL_CLIENT_PACKAGE_DIR
+    }
+    $serverPackageRoot = "build\tmp\dist-work\LSYL Tunnel Server"
     if ($env:LSYL_SERVER_PACKAGE_DIR) {
         $serverPackageRoot = $env:LSYL_SERVER_PACKAGE_DIR
     }
     $clientPackage = @(
-        "dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-gui.exe",
-        "dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-lite.exe"
+        (Join-Path $clientPackageRoot "bin\lsyl-tunnel-client-gui.exe"),
+        (Join-Path $clientPackageRoot "bin\lsyl-tunnel-client-lite.exe")
     )
-    $lightweightPackage = @("dist\LSYL Tunnel Lightweight Clients\windows-win7\lsyl-tunnel-client-lite.exe")
-    $profilePackage = @("dist\LSYL Tunnel Profile Tool\bin\lsyl-tunnel-profile.exe")
     $serverPackage = @(
         (Join-Path $serverPackageRoot "bin\lsyl-tunnel-server.exe"),
         (Join-Path $serverPackageRoot "bin\lsyl-tunnel-server-svc.exe"),
@@ -57,15 +66,17 @@ function Get-Targets([string]$scope) {
         (Join-Path $serverPackageRoot "bin\lsyl-tunnel-passwd.exe"),
         (Join-Path $serverPackageRoot "bin\lsyl-tunnel-cert.exe")
     )
-    $clientInstaller = @("dist\installers\LSYL-Tunnel-Client-Setup.exe")
-    $serverInstaller = @("dist\installers\LSYL-Tunnel-Server-Setup.exe")
+    $installerRoot = "dist\installers"
+    if ($env:LSYL_INSTALLERS_DIR) {
+        $installerRoot = $env:LSYL_INSTALLERS_DIR
+    }
+    $clientInstaller = @((Join-Path $installerRoot "LSYL-Tunnel-Client-Setup.exe"))
+    $serverInstaller = @((Join-Path $installerRoot "LSYL-Tunnel-Server-Setup.exe"))
 
     switch ($scope.ToLowerInvariant()) {
-        "all" { return @($clientPackage + $profilePackage + $serverPackage + $clientInstaller + $serverInstaller) }
-        "package" { return @($clientPackage + $profilePackage + $serverPackage) }
+        "all" { return @($clientPackage + $serverPackage + $clientInstaller + $serverInstaller) }
+        "package" { return @($clientPackage + $serverPackage) }
         "client-package" { return $clientPackage }
-        "lightweight-package" { return $lightweightPackage }
-        "profile-package" { return $profilePackage }
         "server-package" { return $serverPackage }
         "installers" { return @($clientInstaller + $serverInstaller) }
         "client-installer" { return $clientInstaller }

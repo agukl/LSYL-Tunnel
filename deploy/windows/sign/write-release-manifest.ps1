@@ -1,6 +1,6 @@
 param(
     [string]$OutputDir = "dist",
-    [switch]$PackageOnly,
+    [string]$DistDir = "dist",
     [string[]]$Files
 )
 
@@ -11,47 +11,39 @@ Set-Location $workspace
 
 function Resolve-ExistingFile([string]$path) {
     if ([string]::IsNullOrWhiteSpace($path)) { return $null }
-    if (Test-Path $path -PathType Leaf) {
-        return (Resolve-Path $path).Path
-    }
+    if (Test-Path $path -PathType Leaf) { return (Resolve-Path $path).Path }
     return $null
 }
 
-function Get-DefaultReleaseFiles {
-    $targets = @(
-        "dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-gui.exe",
-        "dist\LSYL Tunnel Client\bin\lsyl-tunnel-client-lite.exe",
-        "dist\LSYL Tunnel Profile Tool\bin\lsyl-tunnel-profile.exe"
-    )
-    if ($PackageOnly) {
-        $targets += @(
-            "dist\LSYL Tunnel Server\bin\lsyl-tunnel-server.exe",
-            "dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-svc.exe",
-            "dist\LSYL Tunnel Server\bin\lsyl-tunnel-server-gui.exe",
-            "dist\LSYL Tunnel Server\bin\lsyl-tunnel-passwd.exe",
-            "dist\LSYL Tunnel Server\bin\lsyl-tunnel-cert.exe"
-        )
-    } else {
-        $targets += @(
-            "dist\installers\LSYL-Tunnel-Client-Setup.exe",
-            "dist\installers\LSYL-Tunnel-Server-Setup.exe",
-            "dist\installers\LSYL-Tunnel-Android.apk"
-        )
+function Get-DefaultReleaseFiles([string]$root) {
+    @(
+        (Join-Path $root "LSYL Tunnel Client\bin\lsyl-tunnel-client-gui.exe"),
+        (Join-Path $root "LSYL Tunnel Client\bin\lsyl-tunnel-client-lite.exe"),
+        (Join-Path $root "installers\LSYL-Tunnel-Client-Setup.exe"),
+        (Join-Path $root "installers\LSYL-Tunnel-Server-Setup.exe"),
+        (Join-Path $root "installers\LSYL-Tunnel-Android.apk")
+    ) | Where-Object { Test-Path $_ -PathType Leaf }
+}
+
+function Get-RelativeToRoot([string]$path, [string]$root) {
+    $full = (Resolve-Path $path).Path
+    $prefix = (Resolve-Path $root).Path.TrimEnd('\') + '\'
+    if ($full.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $full.Substring($prefix.Length)
     }
-    return $targets
+    $relative = Resolve-Path -Relative $full
+    return ($relative -replace '^[.][\\/]','')
 }
 
 if (-not $Files -or $Files.Count -eq 0) {
-    $Files = Get-DefaultReleaseFiles
+    $Files = Get-DefaultReleaseFiles $DistDir
 }
 
 $expandedFiles = @()
 foreach ($file in $Files) {
     foreach ($part in ([string]$file -split ',')) {
         $part = $part.Trim()
-        if ($part) {
-            $expandedFiles += $part
-        }
+        if ($part) { $expandedFiles += $part }
     }
 }
 $Files = $expandedFiles
@@ -59,13 +51,11 @@ $Files = $expandedFiles
 $resolvedFiles = @()
 foreach ($file in $Files) {
     $resolved = Resolve-ExistingFile $file
-    if ($resolved) {
-        $resolvedFiles += $resolved
-    }
+    if ($resolved) { $resolvedFiles += $resolved }
 }
 
 if ($resolvedFiles.Count -eq 0) {
-    throw "No release files found. Build dist packages or installers before writing the release manifest."
+    throw "No release files found. Build dist before writing the release manifest."
 }
 
 if (-not (Test-Path $OutputDir)) {
@@ -75,8 +65,7 @@ if (-not (Test-Path $OutputDir)) {
 $buildTime = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
 $entries = foreach ($file in $resolvedFiles) {
     $item = Get-Item $file
-    $relative = Resolve-Path -Relative $file
-    $relative = $relative -replace '^[.][\\/]',''
+    $relative = Get-RelativeToRoot $file $DistDir
     $hash = Get-FileHash -Algorithm SHA256 -Path $file
     $isApk = $item.Extension -ieq ".apk"
     if ($isApk) {
@@ -107,7 +96,7 @@ $manifest = [ordered]@{
     product = "LSYL Tunnel"
     build_time = $buildTime
     workspace = $workspace.Path
-    package_only = [bool]$PackageOnly
+    dist_dir = (Resolve-Path $DistDir).Path
     binary_build = [ordered]@{
         stripped = $true
         go_build_flags = "-trimpath -ldflags '-s -w'"
@@ -120,9 +109,9 @@ $manifest = [ordered]@{
         description = "LSYL Tunnel Server provides account-authenticated TLS tunnel and port forwarding. Manual start. Logs are written under logs."
     }
     notes = @(
-        "The client does not register a Windows service.",
-        "The server registers the fixed LSYLTunnelServer service with manual start.",
-        "Full release dist keeps the server as the signed installer only; dist\LSYL Tunnel Server is an intermediate/package-only directory.",
+        "Final dist is generated directly from source through build\tmp\dist-work and dist.stage.",
+        "The server is delivered as installers\LSYL-Tunnel-Server-Setup.exe only.",
+        "The client kit directory is included by default and omitted only when release.cmd /no-client-kit is used.",
         "Server uninstall keeps conf, certs, data, and logs by default.",
         "Formal releases should use a public code signing certificate. Self-signed certificates are for development or internal testing only."
     )
@@ -137,7 +126,7 @@ $manifest | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 -Path $jsonPath
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add("LSYL Tunnel Release Manifest")
 $lines.Add("Build time: $buildTime")
-$lines.Add("Package only: $([bool]$PackageOnly)")
+$lines.Add("Dist: $((Resolve-Path $DistDir).Path)")
 $lines.Add("Binary symbol stripping: True")
 $lines.Add("  Go flags: -trimpath -ldflags '-s -w'")
 $lines.Add("  Note: Go official symbol stripping only; no obfuscation or executable packing.")
@@ -146,7 +135,6 @@ $lines.Add("Windows service:")
 $lines.Add("  Name: LSYLTunnelServer")
 $lines.Add("  Display name: LSYL Tunnel Server")
 $lines.Add("  Start type: manual")
-$lines.Add("  Description: LSYL Tunnel Server provides account-authenticated TLS tunnel and port forwarding. Manual start. Logs are written under logs.")
 $lines.Add("")
 $lines.Add("Files:")
 foreach ($entry in $entries) {
@@ -154,20 +142,14 @@ foreach ($entry in $entries) {
     $lines.Add("    SHA256: $($entry.sha256)")
     $lines.Add("    Size: $($entry.size_bytes)")
     $lines.Add("    Signature: $($entry.signature_status)")
-    if ($entry.signer_subject) {
-        $lines.Add("    Signer: $($entry.signer_subject)")
-    }
+    if ($entry.signer_subject) { $lines.Add("    Signer: $($entry.signer_subject)") }
     $lines.Add("    Product: $($entry.product_name)")
     $lines.Add("    Description: $($entry.file_description)")
     $lines.Add("    Version: $($entry.file_version)")
 }
 $lines.Add("")
 $lines.Add("Notes:")
-$lines.Add("  The client does not register a Windows service.")
-$lines.Add("  The server registers the fixed LSYLTunnelServer service with manual start.")
-$lines.Add("  Full release dist keeps the server as the signed installer only; dist\LSYL Tunnel Server is an intermediate/package-only directory.")
-$lines.Add("  Server uninstall keeps conf, certs, data, and logs by default.")
-$lines.Add("  Formal releases should use a public code signing certificate. Self-signed certificates are for development or internal testing only.")
+foreach ($note in $manifest.notes) { $lines.Add("  $note") }
 $lines | Set-Content -Encoding UTF8 -Path $txtPath
 
 Write-Host "[INFO] Release manifest written:"

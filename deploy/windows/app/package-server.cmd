@@ -2,23 +2,18 @@
 setlocal EnableExtensions DisableDelayedExpansion
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..\..\..") do set "WORKSPACE=%%~fI"
-set "PACKAGE_DIR=%WORKSPACE%\dist\LSYL Tunnel Server"
+set "PACKAGE_DIR=%WORKSPACE%\build\tmp\dist-work\LSYL Tunnel Server"
 if not "%~1"=="" set "PACKAGE_DIR=%~1"
 cd /d "%WORKSPACE%"
-call "%SCRIPT_DIR%..\build.cmd" server || exit /b 1
 if exist "%PACKAGE_DIR%" (
   rmdir /s /q "%PACKAGE_DIR%" 2>nul
   if exist "%PACKAGE_DIR%" (
-    echo [WARN] Cannot remove package directory completely; refreshing files in place:
+    echo [ERROR] Cannot remove old server package directory:
     echo   %PACKAGE_DIR%
-    if exist "%PACKAGE_DIR%\install-server-app.cmd" del /f /q "%PACKAGE_DIR%\install-server-app.cmd" >nul 2>nul
-    if exist "%PACKAGE_DIR%\uninstall-server-app.cmd" del /f /q "%PACKAGE_DIR%\uninstall-server-app.cmd" >nul 2>nul
-    if exist "%PACKAGE_DIR%\uninstall-server-app.ps1" del /f /q "%PACKAGE_DIR%\uninstall-server-app.ps1" >nul 2>nul
-    if exist "%PACKAGE_DIR%\install-server-app.cmd" (echo [ERROR] Cannot remove obsolete install-server-app.cmd & exit /b 1)
-    if exist "%PACKAGE_DIR%\uninstall-server-app.cmd" (echo [ERROR] Cannot remove obsolete uninstall-server-app.cmd & exit /b 1)
-    if exist "%PACKAGE_DIR%\uninstall-server-app.ps1" (echo [ERROR] Cannot remove obsolete uninstall-server-app.ps1 & exit /b 1)
+    exit /b 1
   )
 )
+call "%SCRIPT_DIR%..\build.cmd" server || exit /b 1
 if not exist "%PACKAGE_DIR%" mkdir "%PACKAGE_DIR%" || exit /b 1
 if not exist "%PACKAGE_DIR%\bin" mkdir "%PACKAGE_DIR%\bin" || exit /b 1
 if not exist "%PACKAGE_DIR%\conf" mkdir "%PACKAGE_DIR%\conf" || exit /b 1
@@ -55,6 +50,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$t=$t.Replace('../../logs/','../logs/').Replace('..\..\logs\','..\logs\');" ^
   "[IO.File]::WriteAllText($p,$t,[Text.UTF8Encoding]::new($false))" || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\make-server-installer.cmd" "%PACKAGE_DIR%\make-installer.cmd" >nul || exit /b 1
+copy /y "%SCRIPT_DIR%..\inno\verify-installer-version.ps1" "%PACKAGE_DIR%\verify-installer-version.ps1" >nul || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\package-server.iss" "%PACKAGE_DIR%\installer\server.iss" >nul || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\Languages\ChineseSimplified.isl" "%PACKAGE_DIR%\installer\Languages\ChineseSimplified.isl" >nul || exit /b 1
 > "%PACKAGE_DIR%\README.txt" (
@@ -63,7 +59,7 @@ copy /y "%SCRIPT_DIR%..\inno\Languages\ChineseSimplified.isl" "%PACKAGE_DIR%\ins
   echo Build installer from this package:
   echo   make-installer.cmd
   echo.
-  echo The package builder first uses ..\tools\inno\ISCC.exe when dist includes it.
+  echo The package builder first uses PATH, then project tool\inno, then dist tools when present.
   echo Otherwise install Inno Setup 6 or set INNO_SETUP_ISCC.
   echo.
   echo Generated installer:
@@ -82,6 +78,6 @@ copy /y "%SCRIPT_DIR%..\inno\Languages\ChineseSimplified.isl" "%PACKAGE_DIR%\ins
   echo Existing conf, certs, data and logs are preserved during install and default uninstall.
   echo Server logs are grouped under logs\request, logs\business, logs\entry-traffic, logs\flow-traffic and logs\service.
 )
-echo Server app package created:
+echo Server package created:
 echo   %PACKAGE_DIR%
 endlocal

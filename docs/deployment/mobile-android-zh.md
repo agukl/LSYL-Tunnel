@@ -1,10 +1,10 @@
-﻿# Android 移动端一期方案
+﻿# Android 客户端说明
 
 ## 产品边界
 
 LSYL Tunnel Mobile 是安全隧道 / 应用代理客户端，不是系统级 VPN。
 
-一期明确不做：
+当前明确不做：
 
 - 系统级 VPN / TUN
 - 反向代理 `server_to_client`
@@ -13,13 +13,10 @@ LSYL Tunnel Mobile 是安全隧道 / 应用代理客户端，不是系统级 VPN
 - 动态目标代理
 - 监听 `0.0.0.0`
 
-## 技术决策
+## 运行边界
 
-- 语言：Kotlin 原生
 - 最低版本：Android 10 / API 29
-- TLS：Android 平台 `SSLSocket`
 - TLS 版本：强制 `TLSv1.3`
-- 协议：Kotlin 原生实现 LSYL 4 字节 big-endian frame + JSON
 - 证书：Profile 内 `server.crt` 精确 Pin
 - 认证：只发送 `saved_credential`
 - 后台：Foreground Service
@@ -40,23 +37,11 @@ server.crt
 <用户名>_<凭据到期日期>.lsylprofile
 ```
 
-也可以在客户端安装目录或分发包中用命令行生成：
-
-```powershell
-bin\lsyl-tunnel-profile.exe export-mobile -out .\mobile.lsylprofile
-```
-
-如果需要从某个已导入的客户端 profile 生成：
-
-```powershell
-bin\lsyl-tunnel-profile.exe export-mobile -profile PROFILE_NAME -out .\mobile.lsylprofile
-```
-
-输出文件已存在时需要加 `-force`。生成过程会校验：客户端必须已有 `saved_credential`，TLS 不允许跳过校验，转发只允许 `client_to_server`，移动端本地监听会规范为 `127.0.0.1:<port>`，且端口必须大于等于 `1024`。
+分发包不再包含独立命令行 Profile 工具。GUI 导出过程会校验：客户端必须已有 `saved_credential`，TLS 不允许跳过校验，转发只允许 `client_to_server`，移动端本地监听会规范为 `127.0.0.1:<port>`，且端口必须大于等于 `1024`。
 
 同一个 `.lsylprofile` 也可以导入 Win7 轻量客户端 `lsyl-tunnel-client-lite.exe`。轻量客户端复用移动端的安全边界，只提供导入、连接、断开，不做托盘值守。
 
-完整发布默认把移动端 APK 放到 `dist/installers/LSYL-Tunnel-Android.apk`，不再生成 `dist/LSYL Tunnel Lightweight Clients`。需要移动端 APK 和独立 Win7 轻量客户端放在同一个直发目录时，手动运行 `deploy\windows\app\package-light-clients.cmd` 生成可选交付目录，便于现场把两个轻量入口和用户专属 `.lsylprofile` 放在同一个目录里。
+完整发布默认把移动端 APK 放到 `dist/installers/LSYL-Tunnel-Android.apk`，不再生成 `dist/LSYL Tunnel Lightweight Clients`。发布入口会调用 Gradle 重新构建 Android APK；如果构建机没有 Gradle，需要设置 `GRADLE_EXE`，把 Gradle 放到 `tool\gradle-8.9`，或设置 `MOBILE_APK` 指向已有 APK。Win7 轻量客户端随普通客户端安装包和默认客户端 kit 目录一起交付。
 
 `profile.json` 示例：
 
@@ -140,13 +125,3 @@ health
 ```
 
 刷新不会连接目标服务，也不会创建真实业务流。
-
-## 当前代码位置
-
-```text
-mobile/android/app/src/main/java/com/lsyl/tunnel/mobile/profile
-mobile/android/app/src/main/java/com/lsyl/tunnel/mobile/security
-mobile/android/app/src/main/java/com/lsyl/tunnel/mobile/protocol
-mobile/android/app/src/main/java/com/lsyl/tunnel/mobile/tunnel
-mobile/android/app/src/main/java/com/lsyl/tunnel/mobile/service
-```

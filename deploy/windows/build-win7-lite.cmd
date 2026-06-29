@@ -2,9 +2,10 @@
 setlocal EnableExtensions DisableDelayedExpansion
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..\..") do set "WORKSPACE=%%~fI"
+set "TOOL_DIR=%WORKSPACE%\tool"
 set "GO120_VERSION=1.20.14"
 set "GO120_ARCHIVE=go%GO120_VERSION%.windows-amd64.zip"
-set "GO120_TOOLCHAIN=%WORKSPACE%\build\_toolchains\go%GO120_VERSION%"
+set "GO120_TOOLCHAIN=%TOOL_DIR%\go%GO120_VERSION%"
 set "OUT=%WORKSPACE%\build\bin\client\lsyl-tunnel-client-lite.exe"
 
 cd /d "%WORKSPACE%" || exit /b 1
@@ -16,8 +17,8 @@ if not exist ".\go.win7.mod" (
 
 call :resolve_go120 || exit /b 1
 call :verify_go120 || exit /b 1
+call "%SCRIPT_DIR%go-env.cmd" "%WORKSPACE%" "%GO120EXE%" || exit /b 1
 
-if "%GOPROXY%"=="" set "GOPROXY=https://goproxy.cn,direct"
 set "GOOS=windows"
 set "GOARCH=386"
 set "CGO_ENABLED=0"
@@ -36,18 +37,23 @@ goto :eof
 
 :resolve_go120
 if not "%GO120EXE%"=="" goto :eof
-if exist "%GO120_TOOLCHAIN%\go\bin\go.exe" (
-  set "GO120EXE=%GO120_TOOLCHAIN%\go\bin\go.exe"
-  goto :eof
-)
 for %%G in (go1.20.14.exe go1.20.exe go120.exe) do (
   for /f "delims=" %%P in ('where %%G 2^>nul') do (
     set "GO120EXE=%%P"
     goto :eof
   )
 )
-if /i "%NO_GO120_DOWNLOAD%"=="1" (
-  echo [ERROR] Go 1.20 toolchain not found. Set GO120EXE, install go1.20.14, or unset NO_GO120_DOWNLOAD to allow a local download.
+if exist "%GO120_TOOLCHAIN%\go\bin\go.exe" (
+  set "GO120EXE=%GO120_TOOLCHAIN%\go\bin\go.exe"
+  goto :eof
+)
+if exist "%TOOL_DIR%\go1.20\go\bin\go.exe" (
+  set "GO120EXE=%TOOL_DIR%\go1.20\go\bin\go.exe"
+  goto :eof
+)
+if /i not "%ALLOW_GO120_DOWNLOAD%"=="1" (
+  echo [ERROR] Go 1.20 toolchain not found from PATH or project tool directory.
+  echo [ERROR] Set GO120EXE, add go1.20.14.exe to PATH, place it under tool\go1.20.14, or set ALLOW_GO120_DOWNLOAD=1.
   exit /b 1
 )
 call :download_go120 || exit /b 1
@@ -56,13 +62,13 @@ goto :eof
 
 :download_go120
 echo [INFO] Go 1.20 toolchain not found. Downloading local toolchain for Win7 build...
-if not exist "%WORKSPACE%\build\_toolchains" mkdir "%WORKSPACE%\build\_toolchains"
+if not exist "%TOOL_DIR%" mkdir "%TOOL_DIR%"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference='Stop';" ^
   "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;" ^
   "$archive='%GO120_ARCHIVE%';" ^
   "$dst='%GO120_TOOLCHAIN%';" ^
-  "$zip=Join-Path '%WORKSPACE%\build\_toolchains' $archive;" ^
+  "$zip=Join-Path '%TOOL_DIR%' $archive;" ^
   "$urls=@(('https://go.dev/dl/{0}' -f $archive),('https://golang.google.cn/dl/{0}' -f $archive),('https://dl.google.com/go/{0}' -f $archive));" ^
   "if(Test-Path $dst){ Remove-Item -LiteralPath $dst -Recurse -Force };" ^
   "$ok=$false;" ^

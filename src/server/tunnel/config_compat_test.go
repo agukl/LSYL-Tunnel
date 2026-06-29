@@ -5,100 +5,93 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"lsyltunnel/src/internal/protocol"
+	appversion "lsyltunnel/src/internal/version"
 )
 
-func TestCheckConfigShapeCompatibleIgnoresOrderAndValues(t *testing.T) {
+func TestCheckConfigUpgradeCompatibleAcceptsLegacyConfig(t *testing.T) {
 	dir := t.TempDir()
-	reference := writeTestConfig(t, dir, "reference.yaml", `
-listen_addr: 0.0.0.0:3443
+	current := writeTestConfig(t, dir, "server.yaml", `
 tls:
   cert_file: ../certs/server.crt
   key_file: ../certs/server.key
 auth:
   users: []
-security:
-  max_handshake_bytes: 32768
-  auth_fail_threshold: 8
-`)
-	current := writeTestConfig(t, dir, "current.yaml", `
-security:
-  auth_fail_threshold: 12
-  max_handshake_bytes: 65536
-auth:
-  users:
-    - username: admin
-      password_hash: hash
-tls:
-  key_file: ../certs/custom.key
-  cert_file: ../certs/custom.crt
-listen_addr: 127.0.0.1:3443
 `)
 
-	if err := CheckConfigShapeCompatible(current, reference); err != nil {
-		t.Fatalf("expected compatible config shape, got %v", err)
+	if err := CheckConfigUpgradeCompatible(current); err != nil {
+		t.Fatalf("expected legacy config to be upgrade-compatible, got %v", err)
 	}
 }
 
-func TestCheckConfigShapeCompatibleRejectsMissingKey(t *testing.T) {
+func TestCheckConfigUpgradeCompatibleRejectsNewerConfigVersion(t *testing.T) {
 	dir := t.TempDir()
-	reference := writeTestConfig(t, dir, "reference.yaml", `
-listen_addr: 0.0.0.0:3443
-tls:
-  cert_file: ../certs/server.crt
-  key_file: ../certs/server.key
-`)
-	current := writeTestConfig(t, dir, "current.yaml", `
-listen_addr: 0.0.0.0:3443
-tls:
-  cert_file: ../certs/server.crt
-`)
-
-	err := CheckConfigShapeCompatible(current, reference)
-	if err == nil || !strings.Contains(err.Error(), "missing tls.key_file") {
-		t.Fatalf("expected missing key error, got %v", err)
-	}
-}
-
-func TestCheckConfigShapeCompatibleRejectsExtraKey(t *testing.T) {
-	dir := t.TempDir()
-	reference := writeTestConfig(t, dir, "reference.yaml", `
-listen_addr: 0.0.0.0:3443
-tls:
-  cert_file: ../certs/server.crt
-`)
-	current := writeTestConfig(t, dir, "current.yaml", `
-listen_addr: 0.0.0.0:3443
+	current := writeTestConfig(t, dir, "server.yaml", `
+config_version: 99
 tls:
   cert_file: ../certs/server.crt
   key_file: ../certs/server.key
 `)
 
-	err := CheckConfigShapeCompatible(current, reference)
-	if err == nil || !strings.Contains(err.Error(), "extra tls.key_file") {
-		t.Fatalf("expected extra key error, got %v", err)
+	err := CheckConfigUpgradeCompatible(current)
+	if err == nil || !strings.Contains(err.Error(), "requires a newer server") {
+		t.Fatalf("expected newer config_version error, got %v", err)
 	}
 }
 
-func TestCheckConfigShapeCompatibleChecksReferenceSequenceItems(t *testing.T) {
+func TestCheckConfigUpgradeCompatibleRejectsInvalidClientRange(t *testing.T) {
 	dir := t.TempDir()
-	reference := writeTestConfig(t, dir, "reference.yaml", `
-credential_seal:
-  keys:
-    - key_id: login-key
-      private_key_file: ../certs/login.key
-      public_key_file: ../certs/login.pub
-`)
-	current := writeTestConfig(t, dir, "current.yaml", `
-credential_seal:
-  keys:
-    - key_id: login-key
-      private_key_file: ../certs/login.key
-      extra_key_file: ../certs/extra.key
+	current := writeTestConfig(t, dir, "server.yaml", `
+compatibility:
+  min_client_version: "1.2.0"
+  max_client_version: "1.1.0"
+tls:
+  cert_file: ../certs/server.crt
+  key_file: ../certs/server.key
 `)
 
-	err := CheckConfigShapeCompatible(current, reference)
-	if err == nil || !strings.Contains(err.Error(), "missing credential_seal.keys[].public_key_file") || !strings.Contains(err.Error(), "extra credential_seal.keys[].extra_key_file") {
-		t.Fatalf("expected sequence item structure error, got %v", err)
+	err := CheckConfigUpgradeCompatible(current)
+	if err == nil || !strings.Contains(err.Error(), "min_client_version must be <= max_client_version") {
+		t.Fatalf("expected invalid client range error, got %v", err)
+	}
+}
+
+func TestCheckRequestCompatibilityRejectsLegacyClientBelowMinimum(t *testing.T) {
+	srv := &Server{cfg: Config{Compatibility: CompatibilityConfig{
+		MinClientVersion: appversion.MinCompatibleClientVersion,
+		ProtocolVersion:  appversion.ProtocolVersion,
+	}}}
+
+	resp, ok := srv.checkRequestCompatibility(protocol.OpenRequest{
+		Type:            "login",
+		ClientVersion:   appversion.LegacyClientVersion,
+		ProtocolVersion: appversion.ProtocolVersion,
+	})
+	if ok {
+		t.Fatal("expected legacy client to be rejected")
+	}
+	if resp.Code != "client_version_unsupported" {
+		t.Fatalf("Code = %q, want client_version_unsupported", resp.Code)
+	}
+}
+
+func TestCheckRequestCompatibilityRejectsProtocolMismatch(t *testing.T) {
+	srv := &Server{cfg: Config{Compatibility: CompatibilityConfig{
+		MinClientVersion: appversion.MinCompatibleClientVersion,
+		ProtocolVersion:  appversion.ProtocolVersion,
+	}}}
+
+	resp, ok := srv.checkRequestCompatibility(protocol.OpenRequest{
+		Type:            "login",
+		ClientVersion:   appversion.AppVersion,
+		ProtocolVersion: appversion.LegacyProtocolVersion,
+	})
+	if ok {
+		t.Fatal("expected protocol mismatch to be rejected")
+	}
+	if resp.Code != "protocol_version_unsupported" {
+		t.Fatalf("Code = %q, want protocol_version_unsupported", resp.Code)
 	}
 }
 

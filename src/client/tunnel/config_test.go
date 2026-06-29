@@ -59,3 +59,25 @@ forwards:
 		t.Fatalf("unexpected password: %q", cfg.Password)
 	}
 }
+
+func TestCheckConfigUpgradeCompatibleRejectsNewerConfigVersion(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "client.yaml")
+	data := []byte(`config_version: 99
+server_addr: 127.0.0.1:9443
+username: alice
+tls:
+  insecure_skip_verify: true
+forwards:
+  - name: echo
+    listen_addr: 127.0.0.1:0
+    server_target: 127.0.0.1:80
+`)
+	if err := os.WriteFile(cfgFile, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckConfigUpgradeCompatible(cfgFile)
+	if err == nil {
+		t.Fatal("expected newer config_version error")
+	}
+}

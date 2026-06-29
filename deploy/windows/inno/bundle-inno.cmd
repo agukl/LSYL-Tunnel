@@ -2,6 +2,7 @@
 setlocal EnableExtensions DisableDelayedExpansion
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..\..\..") do set "WORKSPACE=%%~fI"
+set "TOOL_DIR=%WORKSPACE%\tool"
 set "DIST_ROOT=%WORKSPACE%\dist"
 set "DEST_DIR=%DIST_ROOT%\tools\inno"
 if not "%~1"=="" (
@@ -62,6 +63,18 @@ if defined INNO_SETUP_ISCC (
     for %%I in ("%INNO_SETUP_ISCC%") do set "INNO_DIR=%%~dpI"
     exit /b 0
   )
+)
+for /f "delims=" %%I in ('where iscc.exe 2^>nul') do (
+  set "INNO_DIR=%%~dpI"
+  exit /b 0
+)
+if exist "%TOOL_DIR%\inno\ISCC.exe" (
+  set "INNO_DIR=%TOOL_DIR%\inno"
+  exit /b 0
+)
+if exist "%TOOL_DIR%\Inno Setup 6\ISCC.exe" (
+  set "INNO_DIR=%TOOL_DIR%\Inno Setup 6"
+  exit /b 0
 )
 if exist "%LocalAppData%\Programs\Inno Setup 6\ISCC.exe" (
   set "INNO_DIR=%LocalAppData%\Programs\Inno Setup 6"

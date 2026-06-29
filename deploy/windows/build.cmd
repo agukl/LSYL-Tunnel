@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableExtensions DisableDelayedExpansion
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..\..") do set "WORKSPACE=%%~fI"
 if "%GOEXE%"=="" set "GOEXE=go"
@@ -11,16 +11,14 @@ if /i "%TARGET%"=="win7-lite" (
   exit /b %ERRORLEVEL%
 )
 
-"%GOEXE%" version >nul 2>nul
-if errorlevel 1 (
-  echo [ERROR] Go executable not found. Install Go and add it to PATH, or set GOEXE to the full go.exe path.
-  exit /b 1
-)
-
 cd /d "%WORKSPACE%" || exit /b 1
+
+call "%SCRIPT_DIR%go-env.cmd" "%WORKSPACE%" "%GOEXE%" || exit /b 1
+"%GOEXE%" version >nul 2>nul || exit /b 1
 
 if /i "%TARGET%"=="all" goto build_all
 if /i "%TARGET%"=="client" goto build_client
+if /i "%TARGET%"=="client-package" goto build_client_package
 if /i "%TARGET%"=="win7-lite" goto build_win7_lite
 if /i "%TARGET%"=="server" goto build_server
 if /i "%TARGET%"=="profile" goto build_profile
@@ -48,6 +46,19 @@ echo [3/3] build lsyl-tunnel-client-lite.exe
 call "%SCRIPT_DIR%build-win7-lite.cmd" || exit /b 1
 
 echo Client build completed: %WORKSPACE%\build\bin\client
+goto :eof
+
+:build_client_package
+if not exist ".\build\bin\client" mkdir ".\build\bin\client"
+if exist ".\build\bin\client\lsyl-tunnel-client.exe" del /f /q ".\build\bin\client\lsyl-tunnel-client.exe" >nul 2>nul
+
+echo [1/2] build lsyl-tunnel-client-gui.exe
+"%GOEXE%" build -trimpath -ldflags "-H windowsgui -s -w" -o ".\build\bin\client\lsyl-tunnel-client-gui.exe" ".\src\client\cmd\lsyl-tunnel-client-gui" || exit /b 1
+
+echo [2/2] build lsyl-tunnel-client-lite.exe
+call "%SCRIPT_DIR%build-win7-lite.cmd" || exit /b 1
+
+echo Client package build completed: %WORKSPACE%\build\bin\client
 goto :eof
 
 :build_win7_lite
@@ -85,5 +96,5 @@ echo Profile tool build completed: %WORKSPACE%\build\bin\profile
 goto :eof
 
 :usage
-echo Usage: deploy\windows\build.cmd [all^|server^|client^|win7-lite^|profile]
+echo Usage: deploy\windows\build.cmd [all^|server^|client^|client-package^|win7-lite^|profile]
 exit /b 1

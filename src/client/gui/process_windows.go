@@ -11,11 +11,11 @@ import (
 	"lsyltunnel/src/client/tunnel"
 )
 
-func (a *App) startClient(cfg tunnel.Config) error {
-	return a.startClientEmbedded(cfg)
+func (a *App) startClient(cfg tunnel.Config, serverVersion string) error {
+	return a.startClientEmbedded(cfg, serverVersion)
 }
 
-func (a *App) startClientEmbedded(cfg tunnel.Config) error {
+func (a *App) startClientEmbedded(cfg tunnel.Config, serverVersion string) error {
 	a.mu.Lock()
 	if a.tun != nil {
 		a.mu.Unlock()
@@ -31,6 +31,7 @@ func (a *App) startClientEmbedded(cfg tunnel.Config) error {
 		cancel()
 		return err
 	}
+	client.SetServerVersion(serverVersion)
 
 	a.mu.Lock()
 	if a.tun != nil {
@@ -268,6 +269,8 @@ func friendlyErrorText(raw string) string {
 		return "当前账号没有访问该目标的权限。"
 	case strings.Contains(text, "target_unreachable") || strings.Contains(text, "target service is unreachable"):
 		return "服务端无法访问目标服务，请联系管理员检查目标服务或防火墙。"
+	case strings.Contains(text, "client_version_unsupported") || strings.Contains(text, "protocol_version_unsupported"):
+		return "client version is not compatible with this server"
 	case strings.Contains(text, "invalid tunnel request") || strings.Contains(text, "unsupported request") || strings.Contains(text, "bad_request"):
 		return "客户端和服务端协议不匹配，请确认版本一致。"
 	case strings.Contains(text, "connection refused") || strings.Contains(text, "actively refused") || strings.Contains(text, "connectex"):

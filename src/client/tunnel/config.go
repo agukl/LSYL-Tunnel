@@ -7,9 +7,14 @@ import (
 	"strings"
 
 	"lsyltunnel/src/internal/protocol"
+	appversion "lsyltunnel/src/internal/version"
 
 	"gopkg.in/yaml.v3"
 )
+
+type RequiresConfig struct {
+	MinClientVersion string `yaml:"min_client_version"`
+}
 
 type TLSConfig struct {
 	CACertFile         string `yaml:"ca_cert_file"`
@@ -35,6 +40,8 @@ const (
 )
 
 type Config struct {
+	ConfigVersion   int                       `yaml:"config_version"`
+	Requires        RequiresConfig            `yaml:"requires"`
 	ServerAddr      string                    `yaml:"server_addr"`
 	Username        string                    `yaml:"username"`
 	Password        string                    `yaml:"password"`
@@ -75,6 +82,7 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func SaveConfig(path string, cfg Config) error {
+	ApplyDefaults(&cfg)
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
@@ -86,6 +94,12 @@ func SaveConfig(path string, cfg Config) error {
 }
 
 func ApplyDefaults(cfg *Config) {
+	if cfg.ConfigVersion == 0 {
+		cfg.ConfigVersion = appversion.ClientConfigVersion
+	}
+	if strings.TrimSpace(cfg.Requires.MinClientVersion) == "" {
+		cfg.Requires.MinClientVersion = appversion.ClientConfigRequiresClientVersion
+	}
 	if strings.TrimSpace(cfg.ClientID) == "" {
 		if hostname, err := os.Hostname(); err == nil && strings.TrimSpace(hostname) != "" {
 			cfg.ClientID = strings.TrimSpace(hostname)
@@ -105,6 +119,9 @@ func ApplyDefaults(cfg *Config) {
 }
 
 func ValidateConfig(cfg Config) error {
+	if err := ValidateConfigVersion(cfg); err != nil {
+		return err
+	}
 	if strings.TrimSpace(cfg.ServerAddr) == "" {
 		return fmt.Errorf("server_addr is required")
 	}
@@ -128,6 +145,32 @@ func ValidateConfig(cfg Config) error {
 		}
 	}
 	return nil
+}
+
+func ValidateConfigVersion(cfg Config) error {
+	if cfg.ConfigVersion < 0 {
+		return fmt.Errorf("client config_version must be >= 0")
+	}
+	if cfg.ConfigVersion > appversion.ClientConfigVersion {
+		return fmt.Errorf("client config_version %d requires a newer client; current client supports config_version %d", cfg.ConfigVersion, appversion.ClientConfigVersion)
+	}
+	if err := appversion.CheckMin(appversion.AppVersion, cfg.Requires.MinClientVersion, "client config"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func CheckConfigUpgradeCompatible(path string) error {
+	var cfg Config
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return err
+	}
+	ApplyDefaults(&cfg)
+	return ValidateConfigVersion(cfg)
 }
 
 func resolveConfigPath(base, p string) string {

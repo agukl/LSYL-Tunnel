@@ -489,6 +489,8 @@ func friendlyLiteError(err error) string {
 		return "登录凭据已过期，请让客户端重新生成配置后再导入。"
 	case strings.Contains(text, "auth_failed") || strings.Contains(text, "username or password"):
 		return "登录凭据无效，请确认账号或重新导入配置。"
+	case strings.Contains(text, "client_version_unsupported") || strings.Contains(text, "protocol_version_unsupported"):
+		return "client version is not compatible with this server"
 	case strings.Contains(text, "server_sealed") || strings.Contains(text, "saved_credential"):
 		return "配置里的登录凭据不可用，请重新导出 .lsylprofile。"
 	case strings.Contains(text, "insecure_skip_verify") || strings.Contains(text, "tls.min_version"):

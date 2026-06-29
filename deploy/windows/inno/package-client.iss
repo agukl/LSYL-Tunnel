@@ -1,5 +1,5 @@
 #define AppName "LSYL Tunnel Client"
-#define AppVersion "1.1.0"
+#define AppVersion "2.0.0"
 ; This script is copied into the client distributable package:
 ;   LSYL Tunnel Client\installer\client.iss
 ; It compiles the files from that package directory, not from source.
@@ -44,6 +44,7 @@ Name: "{app}\tmp\gui"; Permissions: users-modify
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-lite.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestName: "lsyl-tunnel-client-gui-quit.exe"; Flags: dontcopy
+Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestName: "lsyl-tunnel-client-gui-check.exe"; Flags: dontcopy
 Source: "{#SourceRoot}\assets\client.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#SourceRoot}\assets\client-connected.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#SourceRoot}\conf\client.yaml"; DestDir: "{app}\conf"; Flags: ignoreversion uninsneveruninstall
@@ -69,13 +70,24 @@ var
   ClientInstallSucceeded: Boolean;
   ClientHadConfigFile: Boolean;
   ClientHadCertFile: Boolean;
+  ClientHadArchiveConfigFile: Boolean;
+  ClientHadArchiveCertFile: Boolean;
+  ClientArchiveConfigFile: String;
+  ClientArchiveCertFile: String;
   ClientRollbackConfigFile: String;
   ClientRollbackCertFile: String;
+  ClientRollbackArchiveConfigFile: String;
+  ClientRollbackArchiveCertFile: String;
   ClientQuitUseInstalledApp: Boolean;
 
 function ClientQuitHelperPath: String;
 begin
   Result := ExpandConstant('{tmp}\lsyl-tunnel-client-gui-quit.exe');
+end;
+
+function ClientConfigCheckHelperPath: String;
+begin
+  Result := ExpandConstant('{tmp}\lsyl-tunnel-client-gui-check.exe');
 end;
 
 function ClientRollbackDir: String;
@@ -88,6 +100,11 @@ begin
   DeleteFile(ClientQuitHelperPath());
 end;
 
+procedure CleanupClientConfigCheckHelper;
+begin
+  DeleteFile(ClientConfigCheckHelperPath());
+end;
+
 procedure CleanupClientRollbackFiles;
 begin
   DelTree(ClientRollbackDir(), True, True, True);
@@ -96,6 +113,7 @@ end;
 procedure CleanupClientInstallTemps;
 begin
   CleanupClientQuitHelper();
+  CleanupClientConfigCheckHelper();
   CleanupClientRollbackFiles();
 end;
 
@@ -133,22 +151,171 @@ begin
     CleanupClientQuitHelper();
 end;
 
+function CheckClientConfigCompatibility: String;
+var
+  ResultCode: Integer;
+  ConfigFile: String;
+  CheckerExe: String;
+  ResultFile: String;
+  Params: String;
+  Detail: AnsiString;
+  DetailText: String;
+begin
+  Result := '';
+  ConfigFile := ExpandConstant('{app}\conf\client.yaml');
+  if not FileExists(ConfigFile) then
+    exit;
+
+  CleanupClientConfigCheckHelper();
+  ExtractTemporaryFile('lsyl-tunnel-client-gui-check.exe');
+  CheckerExe := ClientConfigCheckHelperPath();
+  ResultFile := ExpandConstant('{tmp}\client-config-compat-result.txt');
+  DeleteFile(ResultFile);
+
+  Params :=
+    '-config-compat-check' +
+    ' -config "' + ConfigFile + '"' +
+    ' -result-file "' + ResultFile + '"';
+  if not Exec(CheckerExe, Params, ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then begin
+    Result :=
+      'Cannot start client config compatibility checker.' + #13#10 +
+      CheckerExe;
+    CleanupClientConfigCheckHelper();
+    exit;
+  end;
+  if ResultCode <> 0 then begin
+    Detail := '';
+    if FileExists(ResultFile) then
+      LoadStringFromFile(ResultFile, Detail);
+    DetailText := Trim(String(Detail));
+    if DetailText = '' then
+      DetailText := 'The installed client config requires a different client version.';
+    Result :=
+      'Installed client config is not compatible with this client installer. Installation stopped.' + #13#10 + #13#10 +
+      DetailText + #13#10 + #13#10 +
+      'Installed config: ' + ConfigFile;
+  end;
+  CleanupClientConfigCheckHelper();
+end;
+
+function TrimClientYamlValue(Value: String): String;
+begin
+  Result := Trim(Value);
+  if Length(Result) >= 2 then begin
+    if ((Copy(Result, 1, 1) = '"') and (Copy(Result, Length(Result), 1) = '"')) or
+       ((Copy(Result, 1, 1) = #39) and (Copy(Result, Length(Result), 1) = #39)) then
+      Result := Copy(Result, 2, Length(Result) - 2);
+  end;
+end;
+
+function ReadClientConfigServerAddr(ConfigFile: String): String;
+var
+  RawText: AnsiString;
+  Text: String;
+  Line: String;
+  Key: String;
+  Value: String;
+  LineEnd: Integer;
+  P: Integer;
+begin
+  Result := '';
+  if not LoadStringFromFile(ConfigFile, RawText) then
+    exit;
+  Text := String(RawText);
+  while Text <> '' do begin
+    LineEnd := Pos(#10, Text);
+    if LineEnd > 0 then begin
+      Line := Copy(Text, 1, LineEnd - 1);
+      Delete(Text, 1, LineEnd);
+    end else begin
+      Line := Text;
+      Text := '';
+    end;
+    if (Length(Line) > 0) and (Copy(Line, Length(Line), 1) = #13) then
+      Delete(Line, Length(Line), 1);
+    Line := Trim(Line);
+    if (Line <> '') and (Copy(Line, 1, 1) <> '#') then begin
+      P := Pos(':', Line);
+      if P > 0 then begin
+        Key := Trim(Copy(Line, 1, P - 1));
+        if CompareText(Key, 'server_addr') = 0 then begin
+          Value := Trim(Copy(Line, P + 1, Length(Line)));
+          Result := TrimClientYamlValue(Value);
+          exit;
+        end;
+      end;
+    end;
+  end;
+end;
+
+function IsClientArchiveSuffixChar(Ch: String): Boolean;
+begin
+  Result :=
+    ((Ch >= 'a') and (Ch <= 'z')) or
+    ((Ch >= 'A') and (Ch <= 'Z')) or
+    ((Ch >= '0') and (Ch <= '9')) or
+    (Ch = '.') or (Ch = '-') or (Ch = '_');
+end;
+
+function ClientArchiveSuffix(ServerAddr: String): String;
+var
+  I: Integer;
+  Ch: String;
+  LastUnderscore: Boolean;
+begin
+  Result := '';
+  ServerAddr := Trim(ServerAddr);
+  LastUnderscore := False;
+  for I := 1 to Length(ServerAddr) do begin
+    Ch := Copy(ServerAddr, I, 1);
+    if IsClientArchiveSuffixChar(Ch) then begin
+      Result := Result + Ch;
+      LastUnderscore := False;
+    end else if not LastUnderscore then begin
+      Result := Result + '_';
+      LastUnderscore := True;
+    end;
+  end;
+  while (Length(Result) > 0) and
+        ((Copy(Result, 1, 1) = '.') or (Copy(Result, 1, 1) = '_') or (Copy(Result, 1, 1) = '-')) do
+    Delete(Result, 1, 1);
+  while (Length(Result) > 0) and
+        ((Copy(Result, Length(Result), 1) = '.') or (Copy(Result, Length(Result), 1) = '_') or (Copy(Result, Length(Result), 1) = '-')) do
+    Delete(Result, Length(Result), 1);
+  if Length(Result) > 120 then
+    Result := Copy(Result, 1, 120);
+  while (Length(Result) > 0) and
+        ((Copy(Result, Length(Result), 1) = '.') or (Copy(Result, Length(Result), 1) = '_') or (Copy(Result, Length(Result), 1) = '-')) do
+    Delete(Result, Length(Result), 1);
+  if Result = '' then
+    Result := 'unknown';
+end;
+
 function BackupClientRuntimeFiles: String;
 var
   ConfigFile: String;
   CertFile: String;
   RollbackDir: String;
+  ArchiveSuffix: String;
+  ArchiveStarted: Boolean;
 begin
   Result := '';
   ClientInstallPrepared := False;
   ClientInstallSucceeded := False;
+  ArchiveStarted := False;
   ConfigFile := ExpandConstant('{app}\conf\client.yaml');
   CertFile := ExpandConstant('{app}\cert\server.crt');
   RollbackDir := ClientRollbackDir();
   ClientRollbackConfigFile := RollbackDir + '\client.yaml.rollback';
   ClientRollbackCertFile := RollbackDir + '\server.crt.rollback';
+  ClientRollbackArchiveConfigFile := RollbackDir + '\client.archive.rollback';
+  ClientRollbackArchiveCertFile := RollbackDir + '\server.archive.rollback';
   ClientHadConfigFile := FileExists(ConfigFile);
   ClientHadCertFile := FileExists(CertFile);
+  ClientHadArchiveConfigFile := False;
+  ClientHadArchiveCertFile := False;
+  ClientArchiveConfigFile := '';
+  ClientArchiveCertFile := '';
   CleanupClientRollbackFiles();
   if not CreateDir(RollbackDir) then begin
     Result := '无法创建安装回滚目录，请检查临时目录权限后重试。';
@@ -159,19 +326,44 @@ begin
       Result := '无法备份当前客户端配置，安装已停止。请检查安装目录权限后重试。';
       exit;
     end;
-    if not CopyFile(ConfigFile, ExpandConstant('{app}\conf\client.yaml.bak'), False) then begin
-      Result := '无法写入客户端配置备份，安装已停止。请检查安装目录权限后重试。';
+    ArchiveStarted := True;
+    ArchiveSuffix := ClientArchiveSuffix(ReadClientConfigServerAddr(ConfigFile));
+    ClientArchiveConfigFile := ExpandConstant('{app}\conf\client.' + ArchiveSuffix + '.yaml');
+    ClientArchiveCertFile := ExpandConstant('{app}\cert\server.' + ArchiveSuffix + '.crt');
+    ClientHadArchiveConfigFile := FileExists(ClientArchiveConfigFile);
+    ClientHadArchiveCertFile := FileExists(ClientArchiveCertFile);
+    if ClientHadArchiveConfigFile then begin
+      if not CopyFile(ClientArchiveConfigFile, ClientRollbackArchiveConfigFile, False) then begin
+        Result := '无法备份同名客户端配置归档，安装已停止。请检查安装目录权限后重试。';
+        exit;
+      end;
+    end;
+    if not CopyFile(ConfigFile, ClientArchiveConfigFile, False) then begin
+      Result := '无法按服务端地址归档当前客户端配置，安装已停止。请检查安装目录权限后重试。';
+      ClientInstallPrepared := ArchiveStarted;
       exit;
     end;
   end;
   if ClientHadCertFile then begin
     if not CopyFile(CertFile, ClientRollbackCertFile, False) then begin
       Result := '无法备份当前客户端证书，安装已停止。请检查安装目录权限后重试。';
+      ClientInstallPrepared := ArchiveStarted;
       exit;
     end;
-    if not CopyFile(CertFile, ExpandConstant('{app}\cert\server.crt.bak'), False) then begin
-      Result := '无法写入客户端证书备份，安装已停止。请检查安装目录权限后重试。';
-      exit;
+    ArchiveStarted := True;
+    if ClientArchiveCertFile <> '' then begin
+      if ClientHadArchiveCertFile then begin
+        if not CopyFile(ClientArchiveCertFile, ClientRollbackArchiveCertFile, False) then begin
+          Result := '无法备份同名客户端证书归档，安装已停止。请检查安装目录权限后重试。';
+          ClientInstallPrepared := ArchiveStarted;
+          exit;
+        end;
+      end;
+      if not CopyFile(CertFile, ClientArchiveCertFile, False) then begin
+        Result := '无法按服务端地址归档当前客户端证书，安装已停止。请检查安装目录权限后重试。';
+        ClientInstallPrepared := ArchiveStarted;
+        exit;
+      end;
     end;
   end;
   ClientInstallPrepared := True;
@@ -200,6 +392,22 @@ begin
   end else begin
     DeleteFile(CertFile);
   end;
+  if ClientArchiveConfigFile <> '' then begin
+    if ClientHadArchiveConfigFile then begin
+      if FileExists(ClientRollbackArchiveConfigFile) then
+        CopyFile(ClientRollbackArchiveConfigFile, ClientArchiveConfigFile, False);
+    end else begin
+      DeleteFile(ClientArchiveConfigFile);
+    end;
+  end;
+  if ClientArchiveCertFile <> '' then begin
+    if ClientHadArchiveCertFile then begin
+      if FileExists(ClientRollbackArchiveCertFile) then
+        CopyFile(ClientRollbackArchiveCertFile, ClientArchiveCertFile, False);
+    end else begin
+      DeleteFile(ClientArchiveCertFile);
+    end;
+  end;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -207,9 +415,19 @@ begin
   Result := RequestClientQuit();
   if Result <> '' then
     exit;
-  Result := BackupClientRuntimeFiles();
-  if Result <> '' then
+  Result := CheckClientConfigCompatibility();
+  if Result <> '' then begin
     CleanupClientInstallTemps();
+    exit;
+  end;
+  Result := BackupClientRuntimeFiles();
+  if Result <> '' then begin
+    if ClientInstallPrepared then begin
+      RollbackClientRuntimeFiles();
+      ClientInstallPrepared := False;
+    end;
+    CleanupClientInstallTemps();
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

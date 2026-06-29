@@ -14,21 +14,23 @@ import (
 
 	"lsyltunnel/src/internal/protocol"
 	"lsyltunnel/src/internal/transport"
+	appversion "lsyltunnel/src/internal/version"
 )
 
 type Client struct {
-	cfg        Config
-	ctx        context.Context
-	listeners  map[string]net.Listener
-	forwards   map[string]*forwardRuntime
-	forwardsMu sync.Mutex
-	healthMu   sync.Mutex
-	health     HealthStatus
-	logf       transport.LogFunc
-	closed     chan struct{}
-	closeOnce  sync.Once
-	active     atomic.Int64
-	total      atomic.Int64
+	cfg           Config
+	ctx           context.Context
+	listeners     map[string]net.Listener
+	forwards      map[string]*forwardRuntime
+	forwardsMu    sync.Mutex
+	healthMu      sync.Mutex
+	health        HealthStatus
+	serverVersion string
+	logf          transport.LogFunc
+	closed        chan struct{}
+	closeOnce     sync.Once
+	active        atomic.Int64
+	total         atomic.Int64
 }
 
 var (
@@ -61,6 +63,18 @@ func CheckHealthResponse(ctx context.Context, cfg Config) (protocol.OpenResponse
 	return checkServerResponse(ctx, cfg, "health")
 }
 
+func newOpenRequest(cfg Config, reqType string) protocol.OpenRequest {
+	return protocol.OpenRequest{
+		Type:            reqType,
+		Username:        cfg.Username,
+		Password:        cfg.Password,
+		Credential:      credentialFromConfig(cfg),
+		ClientID:        cfg.ClientID,
+		ClientVersion:   appversion.AppVersion,
+		ProtocolVersion: appversion.ProtocolVersion,
+	}
+}
+
 func checkServerResponse(ctx context.Context, cfg Config, reqType string) (protocol.OpenResponse, error) {
 	var resp protocol.OpenResponse
 	ApplyDefaults(&cfg)
@@ -82,13 +96,7 @@ func checkServerResponse(ctx context.Context, cfg Config, reqType string) (proto
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
-	req := protocol.OpenRequest{
-		Type:       reqType,
-		Username:   cfg.Username,
-		Password:   cfg.Password,
-		Credential: credentialFromConfig(cfg),
-		ClientID:   cfg.ClientID,
-	}
+	req := newOpenRequest(cfg, reqType)
 	if err := protocol.WriteJSON(conn, req); err != nil {
 		return resp, err
 	}
@@ -291,16 +299,10 @@ func (c *Client) handleLocal(local net.Conn, name string, fwd ForwardConfig) {
 		return
 	}
 	defer remote.Close()
-	req := protocol.OpenRequest{
-		Type:        "open",
-		Username:    c.cfg.Username,
-		Password:    c.cfg.Password,
-		Credential:  credentialFromConfig(c.cfg),
-		ClientID:    c.cfg.ClientID,
-		ForwardName: name,
-		Direction:   DirectionClientToServer,
-		Target:      fwd.ServerTarget,
-	}
+	req := newOpenRequest(c.cfg, "open")
+	req.ForwardName = name
+	req.Direction = DirectionClientToServer
+	req.Target = fwd.ServerTarget
 	if err := protocol.WriteJSON(remote, req); err != nil {
 		c.recordForwardError(name, err)
 		c.log("send open request failed: %v", err)
@@ -312,6 +314,7 @@ func (c *Client) handleLocal(local net.Conn, name string, fwd ForwardConfig) {
 		c.log("read open response failed: %v", err)
 		return
 	}
+	c.setServerVersionFromResponse(resp)
 	if !resp.OK {
 		err := responseError(resp, "server rejected the connection")
 		c.recordForwardError(name, err)
@@ -390,17 +393,11 @@ func (c *Client) maintainReverseListen(ctx context.Context, name string, fwd For
 	}()
 	defer close(done)
 	_ = remote.SetDeadline(time.Now().Add(timeout))
-	req := protocol.OpenRequest{
-		Type:        "reverse_listen",
-		Username:    c.cfg.Username,
-		Password:    c.cfg.Password,
-		Credential:  credentialFromConfig(c.cfg),
-		ClientID:    c.cfg.ClientID,
-		ForwardName: name,
-		Direction:   DirectionServerToClient,
-		ListenAddr:  fwd.ListenAddr,
-		Target:      fwd.ServerTarget,
-	}
+	req := newOpenRequest(c.cfg, "reverse_listen")
+	req.ForwardName = name
+	req.Direction = DirectionServerToClient
+	req.ListenAddr = fwd.ListenAddr
+	req.Target = fwd.ServerTarget
 	if err := protocol.WriteJSON(remote, req); err != nil {
 		return fmt.Errorf("send reverse listen request failed: %w", err)
 	}
@@ -408,6 +405,7 @@ func (c *Client) maintainReverseListen(ctx context.Context, name string, fwd For
 	if err := protocol.ReadJSON(remote, &resp, protocol.DefaultMaxHandshakeBytes); err != nil {
 		return fmt.Errorf("read reverse listen response failed: %w", err)
 	}
+	c.setServerVersionFromResponse(resp)
 	if !resp.OK {
 		return responseError(resp, "server rejected reverse forward")
 	}
@@ -421,15 +419,14 @@ func (c *Client) maintainReverseListen(ctx context.Context, name string, fwd For
 		}
 		if event.Code == "reverse_ping" {
 			_ = remote.SetWriteDeadline(time.Now().Add(timeout))
-			err := protocol.WriteJSON(remote, protocol.OpenRequest{
-				Type:        "reverse_pong",
-				Username:    c.cfg.Username,
-				ClientID:    c.cfg.ClientID,
-				ForwardName: name,
-				Direction:   DirectionServerToClient,
-				ListenAddr:  fwd.ListenAddr,
-				Target:      fwd.ServerTarget,
-			})
+			req := newOpenRequest(c.cfg, "reverse_pong")
+			req.Password = ""
+			req.Credential = nil
+			req.ForwardName = name
+			req.Direction = DirectionServerToClient
+			req.ListenAddr = fwd.ListenAddr
+			req.Target = fwd.ServerTarget
+			err := protocol.WriteJSON(remote, req)
 			_ = remote.SetWriteDeadline(time.Time{})
 			if err != nil {
 				return fmt.Errorf("send reverse heartbeat failed: %w", err)
@@ -479,18 +476,12 @@ func (c *Client) openReverseStream(ctx context.Context, name string, fwd Forward
 	}()
 	defer close(done)
 	_ = remote.SetDeadline(time.Now().Add(timeout))
-	req := protocol.OpenRequest{
-		Type:        "reverse_stream",
-		Username:    c.cfg.Username,
-		Password:    c.cfg.Password,
-		Credential:  credentialFromConfig(c.cfg),
-		ClientID:    c.cfg.ClientID,
-		ForwardName: name,
-		Direction:   DirectionServerToClient,
-		ListenAddr:  listenAddr,
-		StreamID:    streamID,
-		Target:      fwd.ServerTarget,
-	}
+	req := newOpenRequest(c.cfg, "reverse_stream")
+	req.ForwardName = name
+	req.Direction = DirectionServerToClient
+	req.ListenAddr = listenAddr
+	req.StreamID = streamID
+	req.Target = fwd.ServerTarget
 	if err := protocol.WriteJSON(remote, req); err != nil {
 		c.recordForwardError(name, err)
 		c.log("send reverse stream request failed: %v", err)
@@ -502,6 +493,7 @@ func (c *Client) openReverseStream(ctx context.Context, name string, fwd Forward
 		c.log("read reverse stream response failed: %v", err)
 		return
 	}
+	c.setServerVersionFromResponse(resp)
 	if !resp.OK {
 		err := responseError(resp, "server rejected reverse stream")
 		c.recordForwardError(name, err)

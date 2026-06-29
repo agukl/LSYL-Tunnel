@@ -4,11 +4,11 @@ LSYL Tunnel is a username/password-authenticated TCP tunnel and port-forwarding 
 
 The identity boundary is the account password, not a client certificate. TLS protects tunnel traffic and lets the client verify the server. The client does not present a certificate or private key.
 
-Current release version: `1.1.0`
+Current release version: `2.0.0`
 
 Chinese documentation: [docs/README-zh.md](docs/README-zh.md)
 System flow overview (Chinese): [docs/system/overview-zh.md](docs/system/overview-zh.md)
-Version update checklist (Chinese): [docs/release/version-bump-zh.md](docs/release/version-bump-zh.md)
+Release process (Chinese): [docs/release/release-process-zh.md](docs/release/release-process-zh.md)
 
 ## Layout
 
@@ -16,9 +16,9 @@ Version update checklist (Chinese): [docs/release/version-bump-zh.md](docs/relea
 src/client/             Client CLI, GUI, Win7 Lite UI, config, bundled trust cert, tunnel logic
 src/server/             Server CLI, Web admin console, service wrapper, config, tunnel logic
 src/internal/           Shared protocol, transport, password, credential sealing, service helpers
-src/cmd/                Admin tools: lsyl-tunnel-passwd, lsyl-tunnel-cert
+src/cmd/                Admin and development helper tools
 mobile/android/         Android client source
-build/bin/              Local build outputs, split by client, server, and profile tool
+build/bin/              Local build outputs, split by client, server, and auxiliary tools
 build/tmp/              Local test, GUI, and packaging scratch files
 runtime/data/           Local development runtime state
 runtime/logs/           Local development runtime logs, grouped by log type
@@ -26,7 +26,7 @@ deploy/windows/         Windows scripts grouped by build/run/cert/service/app/in
 docs/                   Chinese documentation
 ```
 
-Generated/runtime directories such as `build/bin`, `build/tmp`, `dist`, `runtime`, and root `certs` are ignored by `.gitignore`. Legacy local `tmp`, `logs`, and `data` folders remain ignored during migration, but new development outputs should use `build/tmp` and `runtime`.
+Generated/runtime directories such as `build/bin`, `build/tmp`, `dist`, `runtime`, project-local `tool` binaries, and root `certs` are ignored by `.gitignore`. Legacy local `tmp`, `logs`, and `data` folders remain ignored during migration, but new development outputs should use `build/tmp` and `runtime`.
 
 ## Main Windows Entry Points
 
@@ -41,13 +41,12 @@ Common release variants:
 ```powershell
 cmd /c release.cmd /hosts "vpn.example.com,203.0.113.10" /local-sign
 cmd /c release.cmd /skip-test
-cmd /c release.cmd /package-only
+cmd /c release.cmd /no-client-kit
 cmd /c release.cmd /verify-only
-cmd /c clean-build.cmd
 ```
 
 `release.cmd` is the recommended entry for packaging, installer build, signing, and output verification. Lower-level scripts under `deploy/windows` are kept for development, troubleshooting, and one-off custom packages.
-`clean-build.cmd` removes local build outputs and scratch directories under `build`, including stale Go cache shard directories. It keeps `build\_toolchains` by default; use `clean-build.cmd /all` only when you also want to remove downloaded toolchains.
+Full Windows script command map: [deploy/windows/README.md](deploy/windows/README.md)
 Release binaries use Go's official low-risk slimming flags: `-trimpath -ldflags "-s -w"`. Obfuscators and executable packers are not used.
 
 ```powershell
@@ -63,18 +62,20 @@ Package and installer entry points:
 
 ```powershell
 cmd /c release.cmd
-cmd /c release.cmd /package-only
+cmd /c release.cmd /no-client-kit
 ```
 
-`/package-only` creates a self-contained `dist` handoff directory. A full `release.cmd` writes the Windows client, Windows server, and Android installers under `dist\installers`; the server package directory is used as an intermediate build input and is removed from final release dist. The client package remains in dist so implementation staff can adjust client config/cert files and rebuild a one-off client installer without repeating manual setup.
+`release.cmd` builds temporary packages under `build\tmp\dist-work`, writes the Windows client, Windows server, and Android installers under `dist.stage\installers`, then replaces final `dist` only after staging succeeds. The default final `dist` contains installers, release manifests, and `dist\LSYL Tunnel Client` for implementation staff to adjust client config/cert files and rebuild a one-off client installer. Use `/no-client-kit` only when a compact installer-only `dist` is required.
+Android APK output is built during the release flow with Gradle. The script checks `GRADLE_EXE`, then PATH, then `tool\gradle-8.9` or `tool\gradle`; alternatively set `MOBILE_APK` to an existing APK. Stale APK files under `mobile\android\app\build` are not reused by default.
 
 The Windows client package already includes the Win7 Lite executable. Standalone lightweight handoff packages are optional and are not generated by the default release flow.
+The independent profile helper is a development tool and is not included in the default distributable packages.
 
 ```cmd
 dist\make-installers.cmd
 ```
 
-or build one side:
+This command exists in the default `release.cmd` output. You can also build directly from the client package:
 
 ```cmd
 dist\LSYL Tunnel Client\make-installer.cmd
@@ -82,7 +83,7 @@ dist\LSYL Tunnel Client\make-installer.cmd
 
 Detailed Windows deployment notes: [docs/deployment/windows-deployment-zh.md](docs/deployment/windows-deployment-zh.md)
 
-Release readiness checklist: [docs/release/readiness-checklist-zh.md](docs/release/readiness-checklist-zh.md)
+Release process: [docs/release/release-process-zh.md](docs/release/release-process-zh.md)
 
 Server service entry:
 
@@ -103,7 +104,7 @@ The Lite binary is built separately with Go 1.20.x as `windows/386` and `CGO_ENA
 
 The server GUI is a local Web operations console. Frontend assets live in `src/server/front` and are embedded into `lsyl-tunnel-server-gui.exe`; the GUI exposes only a local `127.0.0.1` management API for status, configuration editing, and restarting the `LSYLTunnelServer` service.
 
-The server installer generates a self-signed server TLS identity during install when `certs/server.crt` or `certs/server.key` is missing. During upgrades, it preserves the installed `conf/server.yaml` and blocks installation if the installed config shape is incompatible with the package config. Administrators distribute only `server.crt` to clients; `server.key` stays on the server. Server uninstall keeps `conf`, `certs`, `data`, and `logs` by default.
+The server installer generates a self-signed server TLS identity during install when `certs/server.crt` or `certs/server.key` is missing. During upgrades, it preserves the installed `conf/server.yaml` and blocks installation if the installed config version requires a newer server. Administrators distribute only `server.crt` to clients; `server.key` stays on the server. Server uninstall keeps `conf`, `certs`, `data`, and `logs` by default.
 
 Forward entries support two directions:
 
@@ -122,7 +123,7 @@ Forward entries support two directions:
 ## Verification
 
 ```powershell
-go test ./...
+go test ./src/...
 cmd /c deploy\windows\test\selfcheck.cmd
 ```
 

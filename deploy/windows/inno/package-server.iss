@@ -1,5 +1,5 @@
 #define AppName "LSYL Tunnel Server"
-#define AppVersion "1.1.0"
+#define AppVersion "2.0.0"
 ; This script is copied into the server distributable package:
 ;   LSYL Tunnel Server\installer\server.iss
 ; It compiles the files from that package directory, not from source.
@@ -55,7 +55,6 @@ Source: "{#SourceRoot}\assets\server.ico"; DestDir: "{app}\assets"; Flags: ignor
 Source: "{#SourceRoot}\assets\server.svg"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#SourceRoot}\conf\server.yaml"; DestDir: "{app}\conf"; Flags: ignoreversion onlyifdoesntexist uninsneveruninstall
 Source: "{#SourceRoot}\bin\lsyl-tunnel-server-gui.exe"; DestName: "lsyl-tunnel-server-gui-check.exe"; Flags: dontcopy
-Source: "{#SourceRoot}\conf\server.yaml"; DestName: "server-reference.yaml"; Flags: dontcopy
 
 [Icons]
 Name: "{group}\LSYL Tunnel Server"; Filename: "{app}\bin\lsyl-tunnel-server-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\assets\server.ico"
@@ -111,7 +110,6 @@ function CheckServerConfigCompatibility: String;
 var
   ResultCode: Integer;
   ConfigFile: String;
-  ReferenceFile: String;
   CheckerExe: String;
   ResultFile: String;
   Params: String;
@@ -123,9 +121,7 @@ begin
   if not FileExists(ConfigFile) then
     exit;
 
-  ExtractTemporaryFile('server-reference.yaml');
   ExtractTemporaryFile('lsyl-tunnel-server-gui-check.exe');
-  ReferenceFile := ExpandConstant('{tmp}\server-reference.yaml');
   CheckerExe := ExpandConstant('{tmp}\lsyl-tunnel-server-gui-check.exe');
   ResultFile := ExpandConstant('{tmp}\server-config-compat-result.txt');
   DeleteFile(ResultFile);
@@ -133,7 +129,6 @@ begin
   Params :=
     '-config-compat-check' +
     ' -config "' + ConfigFile + '"' +
-    ' -reference-config "' + ReferenceFile + '"' +
     ' -result-file "' + ResultFile + '"';
   if not Exec(CheckerExe, Params, ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then begin
     Result :=
@@ -147,7 +142,7 @@ begin
       LoadStringFromFile(ResultFile, Detail);
     DetailText := Trim(String(Detail));
     if DetailText = '' then
-      DetailText := 'The installed config structure differs from the config required by this installer.';
+      DetailText := 'The installed server config requires a different server version.';
     Result :=
       'Installed server config is not compatible with this server installer. Installation stopped.' + #13#10 + #13#10 +
       DetailText + #13#10 + #13#10 +

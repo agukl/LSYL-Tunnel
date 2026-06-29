@@ -2,12 +2,14 @@
 setlocal EnableExtensions DisableDelayedExpansion
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..\..\..") do set "WORKSPACE=%%~fI"
+if "%GOEXE%"=="" set "GOEXE=go"
 cd /d "%WORKSPACE%" || exit /b 1
+call deploy\windows\go-env.cmd "%WORKSPACE%" "%GOEXE%" || exit /b 1
 set "SELF_TMP=build\tmp"
 if not exist "%SELF_TMP%" mkdir "%SELF_TMP%"
 
-echo [1/6] go test ./...
-go test ./... || exit /b 1
+echo [1/6] go test ./src/...
+"%GOEXE%" test ./src/... || exit /b 1
 
 echo [2/6] build binaries
 call deploy\windows\build.cmd all || exit /b 1
@@ -42,6 +44,12 @@ if not exist src\server\cmd\lsyl-tunnel-server-gui\rsrc.syso (echo [ERROR] Missi
 if not exist src\server\cmd\lsyl-tunnel-server-svc\rsrc.syso (echo [ERROR] Missing: server service rsrc & exit /b 1)
 if not exist src\cmd\lsyl-tunnel-cert\rsrc.syso (echo [ERROR] Missing: cert tool rsrc & exit /b 1)
 if not exist src\cmd\lsyl-tunnel-passwd\rsrc.syso (echo [ERROR] Missing: password tool rsrc & exit /b 1)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if(-not (Select-String -Path 'src\client\conf\client.yaml' -SimpleMatch 'config_version:' -Quiet)){ Write-Host '[ERROR] Client default config is missing config_version'; exit 1 }" || exit /b 1
+findstr /c:"min_client_version" src\client\conf\client.yaml >nul || (echo [ERROR] Client default config is missing requires.min_client_version & exit /b 1)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if(-not (Select-String -Path 'src\server\conf\server.yaml' -SimpleMatch 'config_version:' -Quiet)){ Write-Host '[ERROR] Server default config is missing config_version'; exit 1 }" || exit /b 1
+findstr /c:"min_server_version" src\server\conf\server.yaml >nul || (echo [ERROR] Server default config is missing requires.min_server_version & exit /b 1)
+findstr /c:"min_client_version" src\server\conf\server.yaml >nul || (echo [ERROR] Server default config is missing compatibility.min_client_version & exit /b 1)
+findstr /c:"protocol_version: 2" src\server\conf\server.yaml >nul || (echo [ERROR] Server default config is missing compatibility.protocol_version & exit /b 1)
 if exist client\conf (echo [ERROR] Obsolete root source path exists: client\conf & exit /b 1)
 if exist server\conf (echo [ERROR] Obsolete root source path exists: server\conf & exit /b 1)
 if exist client\cmd (echo [ERROR] Obsolete root source path exists: client\cmd & exit /b 1)
@@ -75,9 +83,8 @@ if exist deploy\windows\release.cmd (echo [ERROR] Obsolete duplicated release en
 if exist deploy\windows\inno\build-installers.cmd (echo [ERROR] Obsolete duplicated installer build entry exists: deploy\windows\inno\build-installers.cmd & exit /b 1)
 if exist deploy\windows\inno\compile-client-package-installer.cmd (echo [ERROR] Obsolete compatibility entry exists: deploy\windows\inno\compile-client-package-installer.cmd & exit /b 1)
 if not exist release.cmd (echo [ERROR] Missing: release.cmd & exit /b 1)
-if not exist clean-build.cmd (echo [ERROR] Missing: clean-build.cmd & exit /b 1)
 if not exist deploy\windows\clean-build.ps1 (echo [ERROR] Missing: deploy\windows\clean-build.ps1 & exit /b 1)
-call clean-build.cmd /dry-run >nul || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\clean-build.ps1 -DryRun >nul || exit /b 1
 if not exist deploy\windows\build.cmd (echo [ERROR] Missing: deploy\windows\build.cmd & exit /b 1)
 findstr /c:"-s -w" deploy\windows\build.cmd >nul || (echo [ERROR] build.cmd must strip Go debug symbols with -s -w & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path 'release.cmd','deploy\windows\build.cmd','deploy\windows\sign\write-release-manifest.ps1' -Pattern 'garble','upx','UPX' -List; if($hit){ $hit | ForEach-Object { Write-Host ('[ERROR] Release build must use Go official slimming only: ' + $_.Path + ':' + $_.LineNumber) }; exit 1 }" || exit /b 1
@@ -87,25 +94,49 @@ if not exist deploy\windows\sign\sign-release.cmd (echo [ERROR] Missing: deploy\
 if not exist deploy\windows\sign\sign-release.ps1 (echo [ERROR] Missing: deploy\windows\sign\sign-release.ps1 & exit /b 1)
 if not exist deploy\windows\sign\write-release-manifest.ps1 (echo [ERROR] Missing: deploy\windows\sign\write-release-manifest.ps1 & exit /b 1)
 if not exist deploy\windows\sign\init-selfsigned-codesign.cmd (echo [ERROR] Missing: deploy\windows\sign\init-selfsigned-codesign.cmd & exit /b 1)
+if not exist deploy\windows\app\build-android-apk.cmd (echo [ERROR] Missing: deploy\windows\app\build-android-apk.cmd & exit /b 1)
 if not exist deploy\windows\app\write-dist-tools.cmd (echo [ERROR] Missing: deploy\windows\app\write-dist-tools.cmd & exit /b 1)
-if not exist deploy\windows\app\prune-release-dist.ps1 (echo [ERROR] Missing: deploy\windows\app\prune-release-dist.ps1 & exit /b 1)
-if not exist deploy\windows\app\package-android-installer.cmd (echo [ERROR] Missing: deploy\windows\app\package-android-installer.cmd & exit /b 1)
-if not exist deploy\windows\app\package-profile.cmd (echo [ERROR] Missing: deploy\windows\app\package-profile.cmd & exit /b 1)
-if not exist deploy\windows\app\package-light-clients.cmd (echo [ERROR] Missing: deploy\windows\app\package-light-clients.cmd & exit /b 1)
+if exist deploy\windows\app\build-release-dir.cmd (echo [ERROR] Obsolete release directory builder exists: deploy\windows\app\build-release-dir.cmd & exit /b 1)
+if exist deploy\windows\app\write-dist-from-build.cmd (echo [ERROR] Obsolete dist-from-build script exists: deploy\windows\app\write-dist-from-build.cmd & exit /b 1)
+if exist deploy\windows\app\prune-release-dist.ps1 (echo [ERROR] Obsolete dist pruning script exists: deploy\windows\app\prune-release-dist.ps1 & exit /b 1)
+if exist deploy\windows\app\package-android-installer.cmd (echo [ERROR] Obsolete Android direct-dist packaging script exists: deploy\windows\app\package-android-installer.cmd & exit /b 1)
+if exist deploy\windows\app\package-profile.cmd (echo [ERROR] Obsolete profile package script exists & exit /b 1)
+if exist deploy\windows\app\package-light-clients.cmd (echo [ERROR] Obsolete lightweight direct package script exists: deploy\windows\app\package-light-clients.cmd & exit /b 1)
 if not exist deploy\windows\inno\make-installers.cmd (echo [ERROR] Missing: deploy\windows\inno\make-installers.cmd & exit /b 1)
 if not exist deploy\windows\inno\bundle-inno.cmd (echo [ERROR] Missing: deploy\windows\inno\bundle-inno.cmd & exit /b 1)
 if not exist deploy\windows\inno\make-client-installer.cmd (echo [ERROR] Missing: deploy\windows\inno\make-client-installer.cmd & exit /b 1)
 if not exist deploy\windows\inno\make-server-installer.cmd (echo [ERROR] Missing: deploy\windows\inno\make-server-installer.cmd & exit /b 1)
+if not exist deploy\windows\inno\verify-installer-version.ps1 (echo [ERROR] Missing: deploy\windows\inno\verify-installer-version.ps1 & exit /b 1)
 if not exist deploy\windows\inno\package-client.iss (echo [ERROR] Missing: deploy\windows\inno\package-client.iss & exit /b 1)
 if not exist deploy\windows\inno\package-server.iss (echo [ERROR] Missing: deploy\windows\inno\package-server.iss & exit /b 1)
+findstr /c:"verify-installer-version.ps1" deploy\windows\inno\make-client-installer.cmd >nul || (echo [ERROR] Client installer builder must verify installer version & exit /b 1)
+findstr /c:"verify-installer-version.ps1" deploy\windows\inno\make-server-installer.cmd >nul || (echo [ERROR] Server installer builder must verify installer version & exit /b 1)
+findstr /c:"/O%%OUT_DIR%%" deploy\windows\inno\make-client-installer.cmd >nul || (echo [ERROR] Client installer builder must force output directory & exit /b 1)
+findstr /c:"/O%%OUT_DIR%%" deploy\windows\inno\make-server-installer.cmd >nul || (echo [ERROR] Server installer builder must force output directory & exit /b 1)
+findstr /c:"client-package" deploy\windows\build.cmd >nul || (echo [ERROR] build.cmd must keep the client-package target & exit /b 1)
+findstr /c:"client-package" deploy\windows\app\package-client.cmd >nul || (echo [ERROR] Client package builder must not build unused client CLI & exit /b 1)
+findstr /c:"ANDROID_GRADLE_TASK" deploy\windows\app\build-android-apk.cmd >nul || (echo [ERROR] Android APK builder must support Gradle task override & exit /b 1)
+findstr /c:"ANDROID_OFFLINE" deploy\windows\app\build-android-apk.cmd >nul || (echo [ERROR] Android APK builder must support offline mode & exit /b 1)
+findstr /c:"ANDROID_OUTPUT_DIR" deploy\windows\app\build-android-apk.cmd >nul || (echo [ERROR] Android APK builder must clear old Android APK outputs before building & exit /b 1)
+findstr /c:":app:assembleDebug" deploy\windows\app\build-android-apk.cmd >nul || (echo [ERROR] Android APK builder must define a default Android Gradle task & exit /b 1)
+findstr /c:"dist-work" release.cmd >nul || (echo [ERROR] release.cmd must use build\tmp\dist-work as temporary release work directory & exit /b 1)
+findstr /c:"/client-kit" release.cmd >nul || (echo [ERROR] release.cmd must expose /client-kit for optional client package delivery & exit /b 1)
+findstr /c:"build-release-dir.cmd" release.cmd >nul && (echo [ERROR] release.cmd must not call obsolete build-release-dir.cmd & exit /b 1)
+findstr /c:"write-dist-from-build.cmd" release.cmd >nul && (echo [ERROR] release.cmd must not call obsolete write-dist-from-build.cmd & exit /b 1)
+findstr /c:"PACKAGE_ONLY" release.cmd >nul && (echo [ERROR] release.cmd must not keep PACKAGE_ONLY release flow & exit /b 1)
+findstr /c:"package-only" release.cmd >nul && (echo [ERROR] release.cmd must not keep /package-only release flow & exit /b 1)
 findstr /c:"autostartservice" deploy\windows\inno\package-server.iss >nul || (echo [ERROR] Server installer is missing service auto-start confirmation task & exit /b 1)
 findstr /c:"-start-type" deploy\windows\inno\package-server.iss >nul || (echo [ERROR] Server installer is missing service start-type registration parameter & exit /b 1)
+findstr /c:"config-compat-check" deploy\windows\inno\package-client.iss >nul || (echo [ERROR] Client installer is missing config compatibility check & exit /b 1)
 findstr /c:"config-compat-check" deploy\windows\inno\package-server.iss >nul || (echo [ERROR] Server installer is missing config compatibility check & exit /b 1)
+findstr /c:"reference-config" deploy\windows\inno\package-server.iss >nul && (echo [ERROR] Server installer must not use reference-config YAML shape check & exit /b 1)
+findstr /c:"server-reference.yaml" deploy\windows\inno\package-server.iss >nul && (echo [ERROR] Server installer must not include server-reference.yaml & exit /b 1)
 if exist deploy\windows\inno\client.iss (echo [ERROR] Obsolete source-side Inno template remains: deploy\windows\inno\client.iss & exit /b 1)
 if exist deploy\windows\inno\server.iss (echo [ERROR] Obsolete source-side Inno template remains: deploy\windows\inno\server.iss & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path 'deploy\windows\inno\package-client.iss' -SimpleMatch 'taskkill' -List; if($hit){ Write-Host ('[ERROR] Client installer must not force-kill processes: ' + $hit.Path + ':' + $hit.LineNumber); exit 1 }" || exit /b 1
 findstr /c:"RollbackClientRuntimeFiles" deploy\windows\inno\package-client.iss >nul || (echo [ERROR] Client installer is missing rollback cleanup logic & exit /b 1)
 call deploy\windows\sign\sign-release.cmd package >nul || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path 'release.cmd','deploy\windows\sign\sign-release.ps1','deploy\windows\sign\write-release-manifest.ps1','deploy\windows\app\write-dist-tools.cmd' -Pattern 'LSYL Tunnel Profile Tool','package-profile','profile-package' -List; if($hit){ $hit | ForEach-Object { Write-Host ('[ERROR] Profile tool must not be part of release packaging: ' + $_.Path + ':' + $_.LineNumber) }; exit 1 }" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$roots=@('src','deploy','docs'); $files=foreach($r in $roots){ if(Test-Path $r){ Get-ChildItem $r -Recurse -File } }; $files=$files | Where-Object { $_.FullName -notlike '*\deploy\windows\test\selfcheck.cmd' }; $hit=$files | Select-String -SimpleMatch 'LSYLTunnelClient','lsyl-tunnel-client-svc' -List; if($hit){ $hit | ForEach-Object { Write-Host ('[ERROR] Forbidden client service reference: ' + $_.Path + ':' + $_.LineNumber) }; exit 1 }" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\test\check-text.ps1 || exit /b 1
 
@@ -120,10 +151,11 @@ if not exist build\bin\server\lsyl-tunnel-server-gui.exe (echo [ERROR] Missing: 
 if not exist build\bin\server\lsyl-tunnel-server-svc.exe (echo [ERROR] Missing: build\bin\server\lsyl-tunnel-server-svc.exe & exit /b 1)
 if not exist build\bin\server\lsyl-tunnel-cert.exe (echo [ERROR] Missing: build\bin\server\lsyl-tunnel-cert.exe & exit /b 1)
 if not exist build\bin\server\lsyl-tunnel-passwd.exe (echo [ERROR] Missing: build\bin\server\lsyl-tunnel-passwd.exe & exit /b 1)
-if not exist mobile\android\app\build\outputs\apk\release\app-release.apk if not exist mobile\android\app\build\outputs\apk\debug\app-debug.apk (echo [ERROR] Missing Android APK for installers output & exit /b 1)
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$targets=@('build\bin\client\lsyl-tunnel-client.exe','build\bin\client\lsyl-tunnel-client-gui.exe','build\bin\client\lsyl-tunnel-client-lite.exe','build\bin\profile\lsyl-tunnel-profile.exe','build\bin\server\lsyl-tunnel-server.exe','build\bin\server\lsyl-tunnel-server-gui.exe','build\bin\server\lsyl-tunnel-server-svc.exe','build\bin\server\lsyl-tunnel-cert.exe','build\bin\server\lsyl-tunnel-passwd.exe'); $bad=@(); foreach($t in $targets){ $vi=(Get-Item $t).VersionInfo; if([string]::IsNullOrWhiteSpace($vi.ProductName) -or [string]::IsNullOrWhiteSpace($vi.FileDescription) -or [string]::IsNullOrWhiteSpace($vi.CompanyName) -or $vi.FileVersion -ne '1.1.0.0'){ $bad += ($t + ' product=' + $vi.ProductName + ' desc=' + $vi.FileDescription + ' company=' + $vi.CompanyName + ' version=' + $vi.FileVersion) } }; if($bad){ Write-Host '[ERROR] Missing or incomplete Windows version resource:'; $bad | ForEach-Object { Write-Host ('  ' + $_) }; exit 1 }" || exit /b 1
+if not exist mobile\android\settings.gradle.kts (echo [ERROR] Missing Android Gradle project settings & exit /b 1)
+if not exist mobile\android\app\build.gradle.kts (echo [ERROR] Missing Android app Gradle config & exit /b 1)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$targets=@('build\bin\client\lsyl-tunnel-client.exe','build\bin\client\lsyl-tunnel-client-gui.exe','build\bin\client\lsyl-tunnel-client-lite.exe','build\bin\profile\lsyl-tunnel-profile.exe','build\bin\server\lsyl-tunnel-server.exe','build\bin\server\lsyl-tunnel-server-gui.exe','build\bin\server\lsyl-tunnel-server-svc.exe','build\bin\server\lsyl-tunnel-cert.exe','build\bin\server\lsyl-tunnel-passwd.exe'); $bad=@(); foreach($t in $targets){ $vi=(Get-Item $t).VersionInfo; if([string]::IsNullOrWhiteSpace($vi.ProductName) -or [string]::IsNullOrWhiteSpace($vi.FileDescription) -or [string]::IsNullOrWhiteSpace($vi.CompanyName) -or $vi.FileVersion -ne '2.0.0.0'){ $bad += ($t + ' product=' + $vi.ProductName + ' desc=' + $vi.FileDescription + ' company=' + $vi.CompanyName + ' version=' + $vi.FileVersion) } }; if($bad){ Write-Host '[ERROR] Missing or incomplete Windows version resource:'; $bad | ForEach-Object { Write-Host ('  ' + $_) }; exit 1 }" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='build\bin\client\lsyl-tunnel-client-lite.exe'; $b=[IO.File]::ReadAllBytes($p); $pe=[BitConverter]::ToInt32($b,0x3c); $machine=[BitConverter]::ToUInt16($b,$pe+4); if($machine -ne 0x014c){ Write-Host ('[ERROR] Win7 Lite client must be PE32/i386, got machine 0x{0:X4}' -f $machine); exit 1 }" || exit /b 1
-powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\sign\write-release-manifest.ps1 -OutputDir %SELF_TMP%\selfcheck-release-manifest -Files build\bin\client\lsyl-tunnel-client.exe,build\bin\client\lsyl-tunnel-client-gui.exe,build\bin\client\lsyl-tunnel-client-lite.exe,build\bin\profile\lsyl-tunnel-profile.exe,build\bin\server\lsyl-tunnel-server.exe,build\bin\server\lsyl-tunnel-server-gui.exe,build\bin\server\lsyl-tunnel-server-svc.exe,build\bin\server\lsyl-tunnel-cert.exe,build\bin\server\lsyl-tunnel-passwd.exe >nul || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\sign\write-release-manifest.ps1 -OutputDir %SELF_TMP%\selfcheck-release-manifest -DistDir . -Files build\bin\client\lsyl-tunnel-client.exe,build\bin\client\lsyl-tunnel-client-gui.exe,build\bin\client\lsyl-tunnel-client-lite.exe,build\bin\profile\lsyl-tunnel-profile.exe,build\bin\server\lsyl-tunnel-server.exe,build\bin\server\lsyl-tunnel-server-gui.exe,build\bin\server\lsyl-tunnel-server-svc.exe,build\bin\server\lsyl-tunnel-cert.exe,build\bin\server\lsyl-tunnel-passwd.exe >nul || exit /b 1
 if not exist %SELF_TMP%\selfcheck-release-manifest\release-manifest.json (echo [ERROR] Missing generated release manifest json & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-release-manifest\release-manifest.txt (echo [ERROR] Missing generated release manifest txt & exit /b 1)
 rmdir /s /q %SELF_TMP%\selfcheck-release-manifest
@@ -133,29 +165,21 @@ if not exist %SELF_TMP%\selfcheck-client-package\cert\server.crt (echo [ERROR] M
 if not exist %SELF_TMP%\selfcheck-client-package\bin\lsyl-tunnel-client-lite.exe (echo [ERROR] Missing: client package Lite exe & exit /b 1)
 if exist %SELF_TMP%\selfcheck-client-package\bin\lsyl-tunnel-profile.exe (echo [ERROR] Client package must not include independent profile tool & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\make-installer.cmd (echo [ERROR] Missing: client package installer builder & exit /b 1)
+if not exist %SELF_TMP%\selfcheck-client-package\verify-installer-version.ps1 (echo [ERROR] Missing: client package installer version verifier & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\installer\client.iss (echo [ERROR] Missing: client package Inno script & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\installer\Languages\ChineseSimplified.isl (echo [ERROR] Missing: client package installer language & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path '%SELF_TMP%\selfcheck-client-package\installer\client.iss' -SimpleMatch 'taskkill' -List; if($hit){ Write-Host ('[ERROR] Client package installer must not force-kill processes: ' + $hit.Path + ':' + $hit.LineNumber); exit 1 }" || exit /b 1
 findstr /c:"RollbackClientRuntimeFiles" %SELF_TMP%\selfcheck-client-package\installer\client.iss >nul || (echo [ERROR] Client package installer is missing rollback cleanup logic & exit /b 1)
+findstr /c:"config-compat-check" %SELF_TMP%\selfcheck-client-package\installer\client.iss >nul || (echo [ERROR] Client package installer is missing config compatibility check & exit /b 1)
 if exist %SELF_TMP%\selfcheck-client-package\install-client-app.cmd (echo [ERROR] Client package should not include manual install script & exit /b 1)
 if exist %SELF_TMP%\selfcheck-client-package\uninstall-client-app.cmd (echo [ERROR] Client package should not include manual uninstall script & exit /b 1)
 if exist %SELF_TMP%\selfcheck-client-package\uninstall-client-app.ps1 (echo [ERROR] Client package should not include manual uninstall script & exit /b 1)
 if exist %SELF_TMP%\selfcheck-client-package\bin\lsyl-tunnel-client-svc.exe (echo [ERROR] Client package should not include service exe & exit /b 1)
 findstr /c:"../cert/server.crt" %SELF_TMP%\selfcheck-client-package\conf\client.yaml >nul || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if(-not (Select-String -Path '%SELF_TMP%\selfcheck-client-package\conf\client.yaml' -SimpleMatch 'config_version:' -Quiet)){ Write-Host '[ERROR] Client package config is missing config_version'; exit 1 }" || exit /b 1
+findstr /c:"min_client_version" %SELF_TMP%\selfcheck-client-package\conf\client.yaml >nul || (echo [ERROR] Client package config is missing requires.min_client_version & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%SELF_TMP%\selfcheck-client-package\conf\client.yaml'; $t=Get-Content -Raw -Encoding UTF8 $p; if($t -match 'ciphertext:|key_id:|client_id:\s*demo-client'){ Write-Host '[ERROR] Client package config contains runtime-only credential data or demo client id.'; exit 1 }; if($t -notmatch '(?m)^saved_credential:\s*\{\}' -or $t -notmatch '(?m)^forwards:'){ Write-Host '[ERROR] Client package config was not sanitized correctly or lost forwards.'; exit 1 }" || exit /b 1
 rmdir /s /q %SELF_TMP%\selfcheck-client-package
-if exist %SELF_TMP%\selfcheck-android-installer rmdir /s /q %SELF_TMP%\selfcheck-android-installer
-call deploy\windows\app\package-android-installer.cmd %SELF_TMP%\selfcheck-android-installer >nul || exit /b 1
-if not exist %SELF_TMP%\selfcheck-android-installer\LSYL-Tunnel-Android.apk (echo [ERROR] Missing: Android installer APK & exit /b 1)
-rmdir /s /q %SELF_TMP%\selfcheck-android-installer
-if exist %SELF_TMP%\selfcheck-profile-package rmdir /s /q %SELF_TMP%\selfcheck-profile-package
-call deploy\windows\app\package-profile.cmd %SELF_TMP%\selfcheck-profile-package >nul || exit /b 1
-if not exist %SELF_TMP%\selfcheck-profile-package\bin\lsyl-tunnel-profile.exe (echo [ERROR] Missing: profile package tool & exit /b 1)
-if not exist %SELF_TMP%\selfcheck-profile-package\README.txt (echo [ERROR] Missing: profile package README & exit /b 1)
-if exist %SELF_TMP%\selfcheck-profile-package\bin\lsyl-tunnel-client-gui.exe (echo [ERROR] Profile package must not include client GUI & exit /b 1)
-if exist %SELF_TMP%\selfcheck-profile-package\bin\lsyl-tunnel-client-lite.exe (echo [ERROR] Profile package must not include client Lite & exit /b 1)
-if exist %SELF_TMP%\selfcheck-profile-package\installer (echo [ERROR] Profile package must not include installer files & exit /b 1)
-rmdir /s /q %SELF_TMP%\selfcheck-profile-package
 if exist %SELF_TMP%\selfcheck-server-package rmdir /s /q %SELF_TMP%\selfcheck-server-package
 call deploy\windows\app\package-server.cmd %SELF_TMP%\selfcheck-server-package >nul || exit /b 1
 if not exist %SELF_TMP%\selfcheck-server-package\bin\lsyl-tunnel-server.exe (echo [ERROR] Missing: server package cli & exit /b 1)
@@ -174,15 +198,22 @@ if not exist %SELF_TMP%\selfcheck-server-package\logs\flow-traffic (echo [ERROR]
 if not exist %SELF_TMP%\selfcheck-server-package\logs\service (echo [ERROR] Missing: server package service logs dir & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\assets\server.ico (echo [ERROR] Missing: server package icon & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\make-installer.cmd (echo [ERROR] Missing: server package installer builder & exit /b 1)
+if not exist %SELF_TMP%\selfcheck-server-package\verify-installer-version.ps1 (echo [ERROR] Missing: server package installer version verifier & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\installer\server.iss (echo [ERROR] Missing: server package Inno script & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\installer\Languages\ChineseSimplified.isl (echo [ERROR] Missing: server package installer language & exit /b 1)
 findstr /c:"autostartservice" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul || (echo [ERROR] Server package installer is missing service auto-start confirmation task & exit /b 1)
 findstr /c:"-start-type" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul || (echo [ERROR] Server package installer is missing service start-type registration parameter & exit /b 1)
 findstr /c:"config-compat-check" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul || (echo [ERROR] Server package installer is missing config compatibility check & exit /b 1)
+findstr /c:"reference-config" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul && (echo [ERROR] Server package installer must not use reference-config YAML shape check & exit /b 1)
+findstr /c:"server-reference.yaml" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul && (echo [ERROR] Server package installer must not include server-reference.yaml & exit /b 1)
 if exist %SELF_TMP%\selfcheck-server-package\install-server-app.cmd (echo [ERROR] Server package should not include manual install script & exit /b 1)
 if exist %SELF_TMP%\selfcheck-server-package\uninstall-server-app.cmd (echo [ERROR] Server package should not include manual uninstall script & exit /b 1)
 if exist %SELF_TMP%\selfcheck-server-package\uninstall-server-app.ps1 (echo [ERROR] Server package should not include manual uninstall script & exit /b 1)
 findstr /c:"../certs/server.crt" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if(-not (Select-String -Path '%SELF_TMP%\selfcheck-server-package\conf\server.yaml' -SimpleMatch 'config_version:' -Quiet)){ Write-Host '[ERROR] Server package config is missing config_version'; exit 1 }" || exit /b 1
+findstr /c:"min_server_version" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || (echo [ERROR] Server package config is missing requires.min_server_version & exit /b 1)
+findstr /c:"min_client_version" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || (echo [ERROR] Server package config is missing compatibility.min_client_version & exit /b 1)
+findstr /c:"protocol_version: 2" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || (echo [ERROR] Server package config is missing compatibility.protocol_version & exit /b 1)
 findstr /c:"../data/server-state.json" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1
 findstr /c:"../data/server-permanent-block.txt" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1
 findstr /c:"../logs/request/request.jsonl" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1
@@ -197,21 +228,16 @@ echo [6/6] verify docs and installer config
 if not exist README.md (echo [ERROR] Missing: README.md & exit /b 1)
 if not exist docs\README-zh.md (echo [ERROR] Missing: docs\README-zh.md & exit /b 1)
 if not exist docs\system\overview-zh.md (echo [ERROR] Missing: docs\system\overview-zh.md & exit /b 1)
-if not exist docs\system\network-flow-zh.md (echo [ERROR] Missing: docs\system\network-flow-zh.md & exit /b 1)
 if not exist docs\system\security-zh.md (echo [ERROR] Missing: docs\system\security-zh.md & exit /b 1)
 if not exist docs\system\config-reference-zh.md (echo [ERROR] Missing: docs\system\config-reference-zh.md & exit /b 1)
 if not exist docs\deployment\windows-deployment-zh.md (echo [ERROR] Missing: docs\deployment\windows-deployment-zh.md & exit /b 1)
 if not exist docs\deployment\client-user-zh.md (echo [ERROR] Missing: docs\deployment\client-user-zh.md & exit /b 1)
 if not exist docs\deployment\server-admin-zh.md (echo [ERROR] Missing: docs\deployment\server-admin-zh.md & exit /b 1)
 if not exist docs\deployment\mobile-android-zh.md (echo [ERROR] Missing: docs\deployment\mobile-android-zh.md & exit /b 1)
-if not exist docs\deployment\customization-zh.md (echo [ERROR] Missing: docs\deployment\customization-zh.md & exit /b 1)
 if not exist docs\development\architecture-zh.md (echo [ERROR] Missing: docs\development\architecture-zh.md & exit /b 1)
 if not exist docs\development\quickstart-zh.md (echo [ERROR] Missing: docs\development\quickstart-zh.md & exit /b 1)
-if not exist docs\development\windows-service-zh.md (echo [ERROR] Missing: docs\development\windows-service-zh.md & exit /b 1)
 if not exist docs\release\release-notes-zh.md (echo [ERROR] Missing: docs\release\release-notes-zh.md & exit /b 1)
-if not exist docs\release\signing-zh.md (echo [ERROR] Missing: docs\release\signing-zh.md & exit /b 1)
-if not exist docs\release\readiness-checklist-zh.md (echo [ERROR] Missing: docs\release\readiness-checklist-zh.md & exit /b 1)
-if not exist docs\release\version-bump-zh.md (echo [ERROR] Missing: docs\release\version-bump-zh.md & exit /b 1)
+if not exist docs\release\release-process-zh.md (echo [ERROR] Missing: docs\release\release-process-zh.md & exit /b 1)
 if not exist deploy\windows\README.md (echo [ERROR] Missing: deploy\windows\README.md & exit /b 1)
 if not exist deploy\windows\inno\assets\client.ico (echo [ERROR] Missing: installer client icon & exit /b 1)
 if not exist deploy\windows\inno\assets\server.ico (echo [ERROR] Missing: installer server icon & exit /b 1)

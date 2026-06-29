@@ -1,5 +1,16 @@
 # 版本发布说明
 
+## 2.0.0
+
+本版本补充客户端右下角低调版本展示。客户端未连接时显示客户端版本；登录成功后，服务端会在成功握手响应中返回 `server_version`，客户端右下角同步显示客户端和服务端版本。
+
+- 程序版本升级为 `2.0.0`，Windows 文件版本同步为 `2.0.0.0`；Android 客户端 `versionName`、`client_version` 和 `protocol_version` 同步到本版本。
+- LSYL 握手成功响应新增 `server_version`，本次按协议字段变化处理，`protocol_version` 升级为 `2`。
+- 服务端默认 `compatibility.min_client_version` 升级为 `"2.0.0"`，默认 `compatibility.protocol_version` 升级为 `2`；旧协议客户端会被拒绝连接。
+- 客户端配置结构未变化，客户端 `config_version` 和 `requires.min_client_version` 不变。
+- 服务端配置结构未变化，服务端 `config_version` 不变；默认服务端配置要求 `requires.min_server_version: "2.0.0"`。
+- 覆盖安装保留旧服务端配置时，未写 `compatibility.protocol_version` 的旧配置会按当前默认值补齐；如果旧配置显式保留 `compatibility.protocol_version: 1`，需要同步改为 `2`。
+
 ## 1.1.0
 
 本版本聚焦服务端防护、日志目录收口、GUI 运维入口和 Windows 发布链路。

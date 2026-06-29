@@ -188,11 +188,13 @@ func defaultClientConfig(configPath string) tunnel.Config {
 		hostname = "lsyl-tunnel-client"
 	}
 	return tunnel.Config{
-		ServerAddr: "",
-		Username:   "",
-		Password:   "",
-		ClientID:   hostname,
-		LogLevel:   "info",
+		ConfigVersion: tunnelDefaultConfigVersion(),
+		Requires:      tunnel.RequiresConfig{MinClientVersion: tunnelDefaultRequiredClientVersion()},
+		ServerAddr:    "",
+		Username:      "",
+		Password:      "",
+		ClientID:      hostname,
+		LogLevel:      "info",
 		TLS: tunnel.TLSConfig{
 			CACertFile: defaultCACertFile(configPath),
 			ServerName: "",
@@ -201,6 +203,18 @@ func defaultClientConfig(configPath string) tunnel.Config {
 		Connection: tunnel.ConnectionConfig{DialTimeoutSec: 5},
 		Forwards:   []tunnel.ForwardConfig{},
 	}
+}
+
+func tunnelDefaultConfigVersion() int {
+	cfg := tunnel.Config{}
+	tunnel.ApplyDefaults(&cfg)
+	return cfg.ConfigVersion
+}
+
+func tunnelDefaultRequiredClientVersion() string {
+	cfg := tunnel.Config{}
+	tunnel.ApplyDefaults(&cfg)
+	return cfg.Requires.MinClientVersion
 }
 
 func defaultCACertFile(configPath string) string {

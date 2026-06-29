@@ -138,7 +138,7 @@ cmd /c deploy\windows\run.cmd server-gui
 
 服务端 GUI 只保留“重启服务”按钮。点击后会保存未保存配置并重启 `LSYLTunnelServer` Windows 服务；如果服务尚未注册，会请求管理员授权完成注册并启动。命令行调试才使用 `run.cmd server`。
 
-Windows 服务见 [Windows 服务部署与调试](../development/windows-service-zh.md)。
+Windows 服务安装、启动和卸载边界见 [Windows 部署与安装](windows-deployment-zh.md)。
 
 生成完整客户端/服务端安装器，推荐使用根目录发布入口：
 
@@ -146,10 +146,10 @@ Windows 服务见 [Windows 服务部署与调试](../development/windows-service
 cmd /c release.cmd
 ```
 
-只生成分发目录、不编译安装器：
+如需保留内部临时构建目录用于排查：
 
 ```powershell
-cmd /c release.cmd /package-only
+cmd /c release.cmd /keep-work
 ```
 
 完整发布的 `dist` 中，服务端只交付已经生成好的安装包：
@@ -158,9 +158,9 @@ cmd /c release.cmd /package-only
 dist\installers\LSYL-Tunnel-Server-Setup.exe
 ```
 
-如果需要调整服务端默认配置后重新生成服务端安装包，优先在发布前修改源码侧 `src\server\conf\server.yaml` 后执行 `release.cmd`。`release.cmd /package-only` 仍会保留 `dist\LSYL Tunnel Server` 作为开发/实施侧的中间重打包目录，但它不是完整发布包的常规交付内容。
+如果需要调整服务端默认配置后重新生成服务端安装包，优先在发布前修改源码侧 `src\server\conf\server.yaml` 后执行完整 `release.cmd`。服务端临时包只存在于 `build\tmp\dist-work\LSYL Tunnel Server`，不作为现场交付目录。
 
-完整发布包保留客户端分发目录，主要用于按客户现场修改客户端地址、证书或预置配置后重新生成客户端安装器：
+默认执行 `release.cmd` 时，完整发布包会保留客户端分发目录，主要用于按客户现场修改客户端地址、证书或预置配置后重新生成客户端安装器：
 
 ```cmd
 dist\make-installers.cmd

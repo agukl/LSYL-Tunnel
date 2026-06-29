@@ -10,22 +10,25 @@ import (
 const DefaultMaxHandshakeBytes = 32 * 1024
 
 type OpenRequest struct {
-	Type        string            `json:"type"`
-	Username    string            `json:"username"`
-	Password    string            `json:"password"`
-	Credential  *SealedCredential `json:"credential,omitempty"`
-	ClientID    string            `json:"client_id,omitempty"`
-	ForwardName string            `json:"forward_name,omitempty"`
-	Direction   string            `json:"direction,omitempty"`
-	ListenAddr  string            `json:"listen_addr,omitempty"`
-	StreamID    string            `json:"stream_id,omitempty"`
-	Target      string            `json:"target"`
+	Type            string            `json:"type"`
+	Username        string            `json:"username"`
+	Password        string            `json:"password"`
+	Credential      *SealedCredential `json:"credential,omitempty"`
+	ClientID        string            `json:"client_id,omitempty"`
+	ClientVersion   string            `json:"client_version,omitempty"`
+	ProtocolVersion int               `json:"protocol_version,omitempty"`
+	ForwardName     string            `json:"forward_name,omitempty"`
+	Direction       string            `json:"direction,omitempty"`
+	ListenAddr      string            `json:"listen_addr,omitempty"`
+	StreamID        string            `json:"stream_id,omitempty"`
+	Target          string            `json:"target"`
 }
 
 type OpenResponse struct {
 	OK            bool                 `json:"ok"`
 	Code          string               `json:"code,omitempty"`
 	Message       string               `json:"message,omitempty"`
+	ServerVersion string               `json:"server_version,omitempty"`
 	ListenAddr    string               `json:"listen_addr,omitempty"`
 	StreamID      string               `json:"stream_id,omitempty"`
 	CredentialKey *CredentialPublicKey `json:"credential_key,omitempty"`

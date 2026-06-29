@@ -81,7 +81,8 @@ func (s *Server) registerReverseControl(conn net.Conn, req protocol.OpenRequest,
 	}
 	transport.EnableTCPKeepAlive(conn, reverseControlHeartbeatInterval)
 	_ = conn.SetDeadline(time.Time{})
-	if err := protocol.WriteJSON(conn, protocol.OpenResponse{OK: true, Code: "ok", Message: "reverse listen activated", CredentialKey: s.activeCredentialPublicKey()}); err != nil {
+	resp := serverVersionResponse(protocol.OpenResponse{OK: true, Code: "ok", Message: "reverse listen activated", CredentialKey: s.activeCredentialPublicKey()})
+	if err := protocol.WriteJSON(conn, resp); err != nil {
 		control.close()
 		rl.removeControl(control)
 		return err
@@ -121,7 +122,8 @@ func (s *Server) registerReverseStream(conn net.Conn, req protocol.OpenRequest, 
 	s.closeReverseListenerIfIdle(rl)
 	transport.EnableTCPKeepAlive(conn, reverseControlHeartbeatInterval)
 	_ = conn.SetDeadline(time.Time{})
-	if err := protocol.WriteJSON(conn, protocol.OpenResponse{OK: true, Code: "ok", Message: "connected"}); err != nil {
+	resp := serverVersionResponse(protocol.OpenResponse{OK: true, Code: "ok", Message: "connected"})
+	if err := protocol.WriteJSON(conn, resp); err != nil {
 		releaseUserStream()
 		_ = inbound.Close()
 		return err
@@ -439,7 +441,7 @@ func newReverseStreamID() (string, error) {
 
 func writeReverseControlResponse(conn net.Conn, resp protocol.OpenResponse) error {
 	_ = conn.SetWriteDeadline(time.Now().Add(reverseControlWriteTimeout))
-	err := protocol.WriteJSON(conn, resp)
+	err := protocol.WriteJSON(conn, serverVersionResponse(resp))
 	_ = conn.SetWriteDeadline(time.Time{})
 	return err
 }

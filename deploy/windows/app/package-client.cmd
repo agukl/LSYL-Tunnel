@@ -2,7 +2,7 @@
 setlocal EnableExtensions DisableDelayedExpansion
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..\..\..") do set "WORKSPACE=%%~fI"
-set "PACKAGE_DIR=%WORKSPACE%\dist\LSYL Tunnel Client"
+set "PACKAGE_DIR=%WORKSPACE%\build\tmp\dist-work\LSYL Tunnel Client"
 if not "%~1"=="" set "PACKAGE_DIR=%~1"
 cd /d "%WORKSPACE%"
 echo [INFO] Client package inputs:
@@ -10,27 +10,18 @@ echo   config: src\client\conf\client.yaml
 echo   certs:  src\client\cert\*
 echo [INFO] Client package directory will be recreated:
 echo   %PACKAGE_DIR%
-call "%SCRIPT_DIR%..\build.cmd" client || exit /b 1
-if not exist ".\src\client\cert\server.crt" (
-  echo [ERROR] Missing src\client\cert\server.crt. Put the server public certificate there before packaging.
-  exit /b 1
-)
 if exist "%PACKAGE_DIR%" (
   rmdir /s /q "%PACKAGE_DIR%" 2>nul
   if exist "%PACKAGE_DIR%" (
-    echo [WARN] Cannot remove package directory completely; refreshing files in place:
+    echo [ERROR] Cannot remove old client package directory:
     echo   %PACKAGE_DIR%
-    if exist "%PACKAGE_DIR%\install-client-app.cmd" del /f /q "%PACKAGE_DIR%\install-client-app.cmd" >nul 2>nul
-    if exist "%PACKAGE_DIR%\uninstall-client-app.cmd" del /f /q "%PACKAGE_DIR%\uninstall-client-app.cmd" >nul 2>nul
-    if exist "%PACKAGE_DIR%\uninstall-client-app.ps1" del /f /q "%PACKAGE_DIR%\uninstall-client-app.ps1" >nul 2>nul
-    if exist "%PACKAGE_DIR%\bin\*-svc.exe" del /f /q "%PACKAGE_DIR%\bin\*-svc.exe" >nul 2>nul
-    if exist "%PACKAGE_DIR%\bin\lsyl-tunnel-profile.exe" del /f /q "%PACKAGE_DIR%\bin\lsyl-tunnel-profile.exe" >nul 2>nul
-    if exist "%PACKAGE_DIR%\install-client-app.cmd" (echo [ERROR] Cannot remove obsolete install-client-app.cmd & exit /b 1)
-    if exist "%PACKAGE_DIR%\uninstall-client-app.cmd" (echo [ERROR] Cannot remove obsolete uninstall-client-app.cmd & exit /b 1)
-    if exist "%PACKAGE_DIR%\uninstall-client-app.ps1" (echo [ERROR] Cannot remove obsolete uninstall-client-app.ps1 & exit /b 1)
-    if exist "%PACKAGE_DIR%\bin\*-svc.exe" (echo [ERROR] Cannot remove obsolete service executable from client package & exit /b 1)
-    if exist "%PACKAGE_DIR%\bin\lsyl-tunnel-profile.exe" (echo [ERROR] Cannot remove obsolete profile tool from client package & exit /b 1)
+    exit /b 1
   )
+)
+call "%SCRIPT_DIR%..\build.cmd" client-package || exit /b 1
+if not exist ".\src\client\cert\server.crt" (
+  echo [ERROR] Missing src\client\cert\server.crt. Put the server public certificate there before packaging.
+  exit /b 1
 )
 if not exist "%PACKAGE_DIR%" mkdir "%PACKAGE_DIR%" || exit /b 1
 if not exist "%PACKAGE_DIR%\bin" mkdir "%PACKAGE_DIR%\bin" || exit /b 1
@@ -63,6 +54,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$t=[regex]::Replace($t,'(?m)^client_id:\s*.*$','client_id: \"\"');" ^
   "[IO.File]::WriteAllText($p,$t,[Text.UTF8Encoding]::new($false))" || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\make-client-installer.cmd" "%PACKAGE_DIR%\make-installer.cmd" >nul || exit /b 1
+copy /y "%SCRIPT_DIR%..\inno\verify-installer-version.ps1" "%PACKAGE_DIR%\verify-installer-version.ps1" >nul || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\package-client.iss" "%PACKAGE_DIR%\installer\client.iss" >nul || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\Languages\ChineseSimplified.isl" "%PACKAGE_DIR%\installer\Languages\ChineseSimplified.isl" >nul || exit /b 1
 > "%PACKAGE_DIR%\README.txt" (
@@ -71,7 +63,7 @@ copy /y "%SCRIPT_DIR%..\inno\Languages\ChineseSimplified.isl" "%PACKAGE_DIR%\ins
   echo Build installer from this package:
   echo   make-installer.cmd
   echo.
-  echo The package builder first uses ..\tools\inno\ISCC.exe when dist includes it.
+  echo The package builder first uses PATH, then project tool\inno, then dist tools when present.
   echo Otherwise install Inno Setup 6 or set INNO_SETUP_ISCC.
   echo.
   echo Generated installer:
@@ -87,7 +79,7 @@ copy /y "%SCRIPT_DIR%..\inno\Languages\ChineseSimplified.isl" "%PACKAGE_DIR%\ins
   echo Import a .lsylprofile, then connect or disconnect from the window.
   echo No extra client process or Windows client service is registered.
 )
-echo Client app package created from source config inputs:
+echo Client package created from source config inputs:
 echo   %PACKAGE_DIR%
-echo Edit files under this package, then run make-installer.cmd for one-off installer customization.
+echo release.cmd copies this package into dist by default unless /no-client-kit is used.
 endlocal

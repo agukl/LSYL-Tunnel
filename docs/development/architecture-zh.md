@@ -34,7 +34,7 @@ deploy/windows/
   cert/                 服务端 TLS 文件脚本
   run/                  开发运行脚本
   service/              Windows 服务脚本
-  app/                  客户端/服务端打包、安装、卸载脚本
+  app/                  客户端/服务端打包、release 构建目录和 dist 组装脚本
   inno/                 Inno Setup 安装器配置和图标输入
   sign/                 代码签名初始化和签名脚本
   test/                 自检脚本
