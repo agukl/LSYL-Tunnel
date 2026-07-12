@@ -4,7 +4,7 @@ LSYL Tunnel is a username/password-authenticated TCP tunnel and port-forwarding 
 
 The identity boundary is the account password, not a client certificate. TLS protects tunnel traffic and lets the client verify the server. The client does not present a certificate or private key.
 
-Current release version: `2.0.0`
+Current release version: `2.0.1`
 
 Chinese documentation: [docs/README-zh.md](docs/README-zh.md)
 System flow overview (Chinese): [docs/system/overview-zh.md](docs/system/overview-zh.md)

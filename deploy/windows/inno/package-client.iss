@@ -1,5 +1,5 @@
 #define AppName "LSYL Tunnel Client"
-#define AppVersion "2.0.0"
+#define AppVersion "2.0.1"
 ; This script is copied into the client distributable package:
 ;   LSYL Tunnel Client\installer\client.iss
 ; It compiles the files from that package directory, not from source.

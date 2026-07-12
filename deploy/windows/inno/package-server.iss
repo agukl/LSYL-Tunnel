@@ -1,5 +1,5 @@
 #define AppName "LSYL Tunnel Server"
-#define AppVersion "2.0.0"
+#define AppVersion "2.0.1"
 ; This script is copied into the server distributable package:
 ;   LSYL Tunnel Server\installer\server.iss
 ; It compiles the files from that package directory, not from source.
@@ -42,8 +42,6 @@ Name: "{app}\logs\business"; Flags: uninsneveruninstall
 Name: "{app}\logs\entry-traffic"; Flags: uninsneveruninstall
 Name: "{app}\logs\flow-traffic"; Flags: uninsneveruninstall
 Name: "{app}\logs\service"; Flags: uninsneveruninstall
-Name: "{app}\tmp"
-Name: "{app}\tmp\gui"; Permissions: users-modify
 
 [Files]
 Source: "{#SourceRoot}\bin\lsyl-tunnel-server.exe"; DestDir: "{app}\bin"; Flags: ignoreversion

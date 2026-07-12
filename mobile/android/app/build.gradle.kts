@@ -11,8 +11,8 @@ android {
         applicationId = "com.lsyl.tunnel.mobile"
         minSdk = (findProperty("minSdkOverride") as String?)?.toIntOrNull() ?: 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.0.0"
+        versionCode = 3
+        versionName = "2.0.1"
     }
 
     compileOptions {
@@ -23,4 +23,9 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
