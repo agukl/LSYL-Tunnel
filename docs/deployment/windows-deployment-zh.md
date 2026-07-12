@@ -147,7 +147,7 @@ build/tmp/dist-work/LSYL Tunnel Server
 - 注册 `LSYLTunnelServer` Windows 服务，默认启动类型为手动；安装向导中明确勾选后才设置为开机自启动。
 - 创建服务端 GUI 快捷方式。
 - 保留已存在的 `conf/server.yaml`。
-- 覆盖安装前执行 `config-compat-check` 版本兼容检查；当已安装配置要求更高版本程序或配置版本不被当前程序支持时停止安装。
+- 覆盖安装前执行 `config-compat-check`。检查会按 `config_version` 校验原始 YAML 的字段集、层级和必填结构，并检查转发授权语义；未知字段、结构错误、缺失必填项、无效放通用户、重复反向端口或版本不兼容时都会停止安装。
 
 默认安装路径：
 
