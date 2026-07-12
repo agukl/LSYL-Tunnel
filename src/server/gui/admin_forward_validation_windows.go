@@ -89,12 +89,6 @@ func validateAdminForwardsForSaveWithOptions(form adminConfig, opts adminForward
 			issues.addError(fieldPrefix+".direction", "direction must be client_to_server or server_to_client")
 		}
 
-		portText := adminForwardPortForValidation(item)
-		if _, err := parseForwardPort(portText); err != nil {
-			issues.addError(fieldPrefix+".port", "port must be a number from 1 to 65535")
-			continue
-		}
-
 		allowedUsers := cleanAllowedUsers(append(item.AllowedUsers, item.Owner))
 		if len(allowedUsers) == 0 {
 			issues.addError(fieldPrefix+".allowed_users", "at least one allowed user is required")
@@ -107,6 +101,11 @@ func validateAdminForwardsForSaveWithOptions(form adminConfig, opts adminForward
 		}
 		if direction == tunnel.DirectionServerToClient {
 			listenAddr := adminForwardListenAddrForValidation(item)
+			host, err := adminForwardAddressHost(listenAddr)
+			if err != nil || !isAdminLoopbackHost(host) {
+				issues.addError(fieldPrefix+".listen_addr", "passive listen address must be a loopback address with port")
+				continue
+			}
 			if len(allowedUsers) != 1 {
 				issues.addError(fieldPrefix+".allowed_users", "passive ports must belong to exactly one allowed user")
 			} else {
@@ -125,10 +124,19 @@ func validateAdminForwardsForSaveWithOptions(form adminConfig, opts adminForward
 			}
 			continue
 		}
+		target := adminForwardTargetAddrForValidation(item)
+		host, err := adminForwardAddressHost(target)
+		if err != nil {
+			issues.addError(fieldPrefix+".server_target", "target address must include a host and port")
+			continue
+		}
+		if !isAdminLoopbackHost(host) && !isAdminPrivateIP(host) {
+			issues.addError(fieldPrefix+".server_target", "target must be a loopback or private IP address")
+			continue
+		}
 		if direction == tunnel.DirectionClientToServer && opts.CheckForwardTargetReachability {
-			target := adminForwardTargetAddrForValidation(item)
 			if err := canConnectTCP(target, dialTimeout); err != nil {
-				issues.addError(fieldPrefix+".port", "forward target is not reachable: "+err.Error())
+				issues.addError(fieldPrefix+".server_target", "forward target is not reachable: "+err.Error())
 			}
 		}
 	}
@@ -143,18 +151,10 @@ func adminForwardIsEmpty(item adminForward) bool {
 		len(cleanAllowedUsers(append(item.AllowedUsers, item.Owner))) == 0
 }
 
-func adminForwardPortForValidation(item adminForward) string {
-	if port := strings.TrimSpace(item.Port); port != "" {
-		return port
-	}
-	return forwardPortText(tunnel.ForwardConfig{
-		Direction:    forwardDirectionOrDefault(item.Direction),
-		ListenAddr:   strings.TrimSpace(item.ListenAddr),
-		ServerTarget: strings.TrimSpace(item.ServerTarget),
-	})
-}
-
 func adminForwardTargetAddrForValidation(item adminForward) string {
+	if target := strings.TrimSpace(item.ServerTarget); target != "" {
+		return target
+	}
 	if port := strings.TrimSpace(item.Port); port != "" {
 		return net.JoinHostPort(serverLocalForwardHost, port)
 	}
@@ -162,10 +162,38 @@ func adminForwardTargetAddrForValidation(item adminForward) string {
 }
 
 func adminForwardListenAddrForValidation(item adminForward) string {
+	if listenAddr := strings.TrimSpace(item.ListenAddr); listenAddr != "" {
+		return listenAddr
+	}
 	if port := strings.TrimSpace(item.Port); port != "" {
 		return net.JoinHostPort(serverLocalForwardHost, port)
 	}
 	return strings.TrimSpace(item.ListenAddr)
+}
+
+func adminForwardAddressHost(addr string) (string, error) {
+	host, port, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil || strings.Trim(host, "[]") == "" {
+		return "", fmt.Errorf("invalid address")
+	}
+	if _, err := parseForwardPort(port); err != nil {
+		return "", err
+	}
+	return strings.Trim(host, "[]"), nil
+}
+
+func isAdminLoopbackHost(host string) bool {
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func isAdminPrivateIP(host string) bool {
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsPrivate()
 }
 
 func adminUserSet(users []adminUser) map[string]bool {

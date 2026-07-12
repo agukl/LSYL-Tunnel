@@ -875,8 +875,8 @@ function routeHTML(state){
     for(var i=0;i<items.length;i++){
       var item = items[i] || {};
       var direction = item.direction === 'server_to_client'
-        ? '服务端 ' + compactAddr(item.listen_addr) + ' -> 本机 ' + compactAddr(item.server_target)
-        : '本机 ' + compactAddr(item.listen_addr) + ' -> 服务端 ' + compactAddr(item.server_target);
+        ? '服务端被动端口 ' + (item.listen_port || compactAddr(item.listen_addr)) + ' -> ' + compactAddr(item.server_target)
+        : compactAddr(item.listen_addr) + ' -> 服务端 ' + compactAddr(item.server_target);
       var hasIssue = hasRouteItemIssue(item);
       var line = (item.name || '转发') + ': ' + forwardStateText(item.state) + '，' + direction;
       if(hasIssue){

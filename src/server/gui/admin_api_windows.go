@@ -62,19 +62,28 @@ type adminPermanentBlock struct {
 }
 
 type monitorStatus struct {
-	Service        string                  `json:"service"`
-	ListenAddr     string                  `json:"listen_addr"`
-	UptimeSec      int64                   `json:"uptime_sec"`
-	ActiveStreams  int64                   `json:"active_streams"`
-	TotalStreams   int64                   `json:"total_streams"`
-	AuthOK         int64                   `json:"auth_ok"`
-	AuthFailed     int64                   `json:"auth_failed"`
-	PolicyRejected int64                   `json:"policy_rejected"`
-	DialFailed     int64                   `json:"dial_failed"`
-	BytesUp        int64                   `json:"bytes_up"`
-	BytesDown      int64                   `json:"bytes_down"`
-	BlockedIPs     []tunnel.BlockedIPState `json:"blocked_ips,omitempty"`
-	RecentEvents   []tunnel.RuntimeEvent   `json:"recent_events,omitempty"`
+	Service                 string                  `json:"service"`
+	ListenAddr              string                  `json:"listen_addr"`
+	UptimeSec               int64                   `json:"uptime_sec"`
+	ActiveConnections       int                     `json:"active_connections"`
+	ConnectionsRejected     int64                   `json:"connections_rejected"`
+	ConnectionLimits        map[string]any          `json:"connection_limits,omitempty"`
+	ConnectionRejections    map[string]any          `json:"connection_rejections,omitempty"`
+	ActiveStreams           int64                   `json:"active_streams"`
+	TotalStreams            int64                   `json:"total_streams"`
+	UserStreamLimits        map[string]any          `json:"user_stream_limits,omitempty"`
+	UserStreamLimitRejected int64                   `json:"user_stream_limit_rejected"`
+	AuthOK                  int64                   `json:"auth_ok"`
+	AuthFailed              int64                   `json:"auth_failed"`
+	PolicyRejected          int64                   `json:"policy_rejected"`
+	DialFailed              int64                   `json:"dial_failed"`
+	BytesUp                 int64                   `json:"bytes_up"`
+	BytesDown               int64                   `json:"bytes_down"`
+	EntrySecurity           map[string]any          `json:"entry_security,omitempty"`
+	FailureTracker          map[string]any          `json:"failure_tracker,omitempty"`
+	EntryTrafficLog         map[string]any          `json:"entry_traffic_log,omitempty"`
+	BlockedIPs              []tunnel.BlockedIPState `json:"blocked_ips,omitempty"`
+	RecentEvents            []tunnel.RuntimeEvent   `json:"recent_events,omitempty"`
 }
 
 type adminConfig struct {
@@ -119,6 +128,11 @@ type adminSecurity struct {
 	ConnectionRateWindowSec       int `json:"connection_rate_window_sec"`
 	MaxNewConnectionsPerIPWindow  int `json:"max_new_connections_per_ip_window"`
 	MaxConnectionsPerIPPerWindow  int `json:"max_connections_per_ip_per_window,omitempty"`
+	MaxTrackedConnectionIPs       int `json:"max_tracked_connection_ips"`
+	ConnectionLimiterCleanupSec   int `json:"connection_limiter_cleanup_sec"`
+	MaxTrackedFailureIPs          int `json:"max_tracked_failure_ips"`
+	FailureTrackerCleanupSec      int `json:"failure_tracker_cleanup_sec"`
+	EntryTrafficLogQueueSize      int `json:"entry_traffic_log_queue_size"`
 	MaxConcurrentStreamsPerUser   int `json:"max_concurrent_streams_per_user"`
 	StreamRateLimitBytesPerSec    int `json:"stream_rate_limit_bytes_per_sec"`
 	AuthFailWindowSec             int `json:"auth_fail_window_sec"`
@@ -576,6 +590,11 @@ func adminConfigFromTunnel(cfg tunnel.Config) adminConfig {
 			MaxConcurrentConnectionsPerIP: cfg.Security.MaxConcurrentConnectionsPerIP,
 			ConnectionRateWindowSec:       cfg.Security.ConnectionRateWindowSec,
 			MaxNewConnectionsPerIPWindow:  cfg.Security.MaxNewConnectionsPerIPWindow,
+			MaxTrackedConnectionIPs:       cfg.Security.MaxTrackedConnectionIPs,
+			ConnectionLimiterCleanupSec:   cfg.Security.ConnectionLimiterCleanupSec,
+			MaxTrackedFailureIPs:          cfg.Security.MaxTrackedFailureIPs,
+			FailureTrackerCleanupSec:      cfg.Security.FailureTrackerCleanupSec,
+			EntryTrafficLogQueueSize:      cfg.Security.EntryTrafficLogQueueSize,
 			MaxConcurrentStreamsPerUser:   cfg.Security.MaxConcurrentStreamsPerUser,
 			StreamRateLimitBytesPerSec:    cfg.Security.StreamRateLimitBytesPerSec,
 			AuthFailWindowSec:             cfg.Security.AuthFailWindowSec,
@@ -629,6 +648,11 @@ func adminConfigToTunnel(form adminConfig, existing tunnel.Config) (tunnel.Confi
 		ConnectionRateWindowSec:       form.Security.ConnectionRateWindowSec,
 		MaxNewConnectionsPerIPWindow:  form.Security.MaxNewConnectionsPerIPWindow,
 		MaxConnectionsPerIPPerWindow:  form.Security.MaxConnectionsPerIPPerWindow,
+		MaxTrackedConnectionIPs:       form.Security.MaxTrackedConnectionIPs,
+		ConnectionLimiterCleanupSec:   form.Security.ConnectionLimiterCleanupSec,
+		MaxTrackedFailureIPs:          form.Security.MaxTrackedFailureIPs,
+		FailureTrackerCleanupSec:      form.Security.FailureTrackerCleanupSec,
+		EntryTrafficLogQueueSize:      form.Security.EntryTrafficLogQueueSize,
 		MaxConcurrentStreamsPerUser:   form.Security.MaxConcurrentStreamsPerUser,
 		StreamRateLimitBytesPerSec:    form.Security.StreamRateLimitBytesPerSec,
 		AuthFailWindowSec:             form.Security.AuthFailWindowSec,
@@ -862,30 +886,51 @@ func adminForwardToTunnel(item adminForward) (tunnel.ForwardConfig, bool, error)
 	name := strings.TrimSpace(item.Name)
 	direction := forwardDirectionOrDefault(item.Direction)
 	portText := strings.TrimSpace(item.Port)
-	if portText == "" {
-		portText = forwardPortText(tunnel.ForwardConfig{
-			Direction:    direction,
-			ListenAddr:   strings.TrimSpace(item.ListenAddr),
-			ServerTarget: strings.TrimSpace(item.ServerTarget),
-		})
-	}
 	if name == "" && portText == "" && strings.TrimSpace(item.ListenAddr) == "" && strings.TrimSpace(item.ServerTarget) == "" {
 		return tunnel.ForwardConfig{}, true, nil
 	}
-	if _, err := parseForwardPort(portText); err != nil {
-		return tunnel.ForwardConfig{}, false, fmt.Errorf("forward %q port is invalid", forwardDisplayName(item))
-	}
-	addr := net.JoinHostPort(serverLocalForwardHost, portText)
 	fwd := tunnel.ForwardConfig{Name: name, Direction: direction}
 	if direction == tunnel.DirectionServerToClient {
+		addr, err := adminForwardAddress(strings.TrimSpace(item.ListenAddr), portText)
+		if err != nil {
+			return tunnel.ForwardConfig{}, false, fmt.Errorf("forward %q listen address is invalid", forwardDisplayName(item))
+		}
+		_, port, _ := net.SplitHostPort(addr)
+		listenPort, _ := strconv.Atoi(port)
+		fwd.ListenPort = listenPort
 		fwd.ListenAddr = addr
 	} else {
+		addr, err := adminForwardAddress(strings.TrimSpace(item.ServerTarget), portText)
+		if err != nil {
+			return tunnel.ForwardConfig{}, false, fmt.Errorf("forward %q target address is invalid", forwardDisplayName(item))
+		}
 		fwd.ServerTarget = addr
 	}
 	return fwd, false, nil
 }
 
+func adminForwardAddress(addr, portText string) (string, error) {
+	addr = strings.TrimSpace(addr)
+	if addr != "" {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil || strings.Trim(host, "[]") == "" {
+			return "", fmt.Errorf("invalid address")
+		}
+		if _, err := parseForwardPort(port); err != nil {
+			return "", err
+		}
+		return addr, nil
+	}
+	if _, err := parseForwardPort(portText); err != nil {
+		return "", err
+	}
+	return net.JoinHostPort(serverLocalForwardHost, portText), nil
+}
+
 func forwardPortText(fwd tunnel.ForwardConfig) string {
+	if forwardDirectionOrDefault(fwd.Direction) == tunnel.DirectionServerToClient && fwd.ListenPort > 0 {
+		return strconv.Itoa(fwd.ListenPort)
+	}
 	target := strings.TrimSpace(fwd.ServerTarget)
 	if forwardDirectionOrDefault(fwd.Direction) == tunnel.DirectionServerToClient {
 		target = strings.TrimSpace(fwd.ListenAddr)

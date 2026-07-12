@@ -22,6 +22,37 @@ func TestAuthorizeAllowsConfiguredForwardAllowedUser(t *testing.T) {
 	}
 }
 
+func TestAuthorizeAllowsConfiguredPrivateTarget(t *testing.T) {
+	s := &Server{cfg: Config{
+		Forwards: []ForwardConfig{{
+			Direction:    DirectionClientToServer,
+			ServerTarget: "192.168.10.20:3389",
+			AllowedUsers: []string{"alice"},
+		}},
+	}}
+
+	if err := s.authorize(UserConfig{Username: "alice"}, "192.168.10.20:3389"); err != nil {
+		t.Fatalf("authorize private target returned error: %v", err)
+	}
+	if err := s.authorize(UserConfig{Username: "alice"}, "192.168.10.21:3389"); err == nil {
+		t.Fatal("authorize unexpected private target unexpectedly succeeded")
+	}
+}
+
+func TestAuthorizeRejectsConfiguredPublicTarget(t *testing.T) {
+	s := &Server{cfg: Config{
+		Forwards: []ForwardConfig{{
+			Direction:    DirectionClientToServer,
+			ServerTarget: "203.0.113.20:3389",
+			AllowedUsers: []string{"alice"},
+		}},
+	}}
+
+	if err := s.authorize(UserConfig{Username: "alice"}, "203.0.113.20:3389"); err == nil {
+		t.Fatal("authorize public target unexpectedly succeeded")
+	}
+}
+
 func TestAuthorizeSeparatesForwardTargetsByAllowedUser(t *testing.T) {
 	s := &Server{cfg: Config{
 		Forwards: []ForwardConfig{

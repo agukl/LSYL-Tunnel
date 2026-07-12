@@ -96,10 +96,14 @@ func (a *App) routeSummary() string {
 			name = "转发"
 		}
 		if fwd.Direction == tunnel.DirectionServerToClient {
-			lines = append(lines, fmt.Sprintf("%s: 服务端 %s -> 本机 %s", name, compactDisplayAddr(fwd.ListenAddr), compactDisplayAddr(fwd.ServerTarget)))
+			port := fmt.Sprintf("%d", fwd.ListenPort)
+			if fwd.ListenPort <= 0 {
+				port = compactDisplayAddr(fwd.ListenAddr)
+			}
+			lines = append(lines, fmt.Sprintf("%s: 服务端被动端口 %s -> %s", name, port, compactDisplayAddr(fwd.ServerTarget)))
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("%s: 本机 %s -> 服务端 %s", name, compactDisplayAddr(fwd.ListenAddr), compactDisplayAddr(fwd.ServerTarget)))
+		lines = append(lines, fmt.Sprintf("%s: %s -> 服务端 %s", name, compactDisplayAddr(fwd.ListenAddr), compactDisplayAddr(fwd.ServerTarget)))
 	}
 	return strings.Join(lines, "\n")
 }

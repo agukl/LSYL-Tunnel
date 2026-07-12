@@ -5,9 +5,8 @@
   var activeTab = 'overview';
   var resetPasswordRow = null;
   var analysisLoaded = false;
-  var serverLoopbackHost = '127.0.0.1';
   var lockedSecurityIds = ['listenAddr', 'monitorAddr', 'logLevel', 'tlsCert', 'tlsKey', 'tlsMinVersion', 'sealKeyID', 'sealPrivate', 'sealPublic', 'sealExpires'];
-  var editableSecurityIds = ['handshakeTimeout', 'dialTimeout', 'maxHandshakeBytes', 'maxConcurrentConnections', 'maxConcurrentConnectionsPerIP', 'connectionRateWindow', 'maxNewConnectionsPerIPWindow', 'maxConcurrentStreamsPerUser', 'streamRateLimitBytesPerSec', 'authFailWindow', 'authFailThreshold', 'authFailBlock'];
+  var editableSecurityIds = ['handshakeTimeout', 'dialTimeout', 'maxHandshakeBytes', 'maxConcurrentConnections', 'maxConcurrentConnectionsPerIP', 'connectionRateWindow', 'maxNewConnectionsPerIPWindow', 'maxTrackedConnectionIPs', 'connectionLimiterCleanupSec', 'maxTrackedFailureIPs', 'failureTrackerCleanupSec', 'entryTrafficLogQueueSize', 'maxConcurrentStreamsPerUser', 'streamRateLimitBytesPerSec', 'authFailWindow', 'authFailThreshold', 'authFailBlock'];
 
   function $(id) { return document.getElementById(id); }
 
@@ -162,7 +161,8 @@
       renderUsers(cfg.users || [], cfg.forwards || []);
       renderForwards(cfg.forwards || []);
       dirty = false;
-    }
+    }
+
     updateButtons();
   }
 
@@ -202,6 +202,11 @@
         nodes[i].title = '';
       }
     }
+    var customControls = document.querySelectorAll('#forwardsTable input[type="hidden"][data-name]');
+    for (var k = 0; k < customControls.length; k++) {
+      renderCustomSelect(customControls[k]);
+    }
+    if (!enabled) { closeAllCustomSelects(); }
     for (var j = 0; j < editableSecurityIds.length; j++) {
       var input = $(editableSecurityIds[j]);
       if (!input) { continue; }
@@ -240,6 +245,11 @@
     $('maxConcurrentConnectionsPerIP').value = sec.max_concurrent_connections_per_ip || '';
     $('connectionRateWindow').value = sec.connection_rate_window_sec || '';
     $('maxNewConnectionsPerIPWindow').value = sec.max_new_connections_per_ip_window || sec.max_connections_per_ip_per_window || '';
+    $('maxTrackedConnectionIPs').value = sec.max_tracked_connection_ips || '';
+    $('connectionLimiterCleanupSec').value = sec.connection_limiter_cleanup_sec || '';
+    $('maxTrackedFailureIPs').value = sec.max_tracked_failure_ips || '';
+    $('failureTrackerCleanupSec').value = sec.failure_tracker_cleanup_sec || '';
+    $('entryTrafficLogQueueSize').value = sec.entry_traffic_log_queue_size || '';
     $('maxConcurrentStreamsPerUser').value = sec.max_concurrent_streams_per_user || '';
     $('streamRateLimitBytesPerSec').value = sec.stream_rate_limit_bytes_per_sec || '';
     $('authFailWindow').value = sec.auth_fail_window_sec || '';
@@ -418,7 +428,7 @@
     var tbody = $('forwardsTable').getElementsByTagName('tbody')[0];
     tbody.innerHTML = '';
     for (var i = 0; i < forwards.length; i++) { addForwardRow(forwards[i]); }
-    if (forwards.length === 0) { appendEmptyRow(tbody, 4, '\u6682\u65e0\u8f6c\u53d1\u7aef\u53e3\uff0c\u70b9\u51fb\u201c\u65b0\u589e\u8f6c\u53d1\u201d\u6dfb\u52a0\u89c4\u5219'); }
+    if (forwards.length === 0) { appendEmptyRow(tbody, 5, '\u6682\u65e0\u8f6c\u53d1\u7aef\u53e3\uff0c\u70b9\u51fb\u201c\u65b0\u589e\u8f6c\u53d1\u201d\u6dfb\u52a0\u89c4\u5219'); }
   }
 
   function addForwardRow(fwd) {
@@ -427,6 +437,7 @@
     var tr = document.createElement('tr');
     tr.appendChild(directionCell(fwd.direction || '', tr));
     tr.appendChild(allowedUsersCell(allowedUsersForForward(fwd)));
+    tr.appendChild(serverHostCell(forwardHostValue(fwd)));
     tr.appendChild(portCell(forwardPortValue(fwd)));
     tr.appendChild(actionCell(tr));
     tbody.appendChild(tr);
@@ -474,74 +485,44 @@
   function directionCell(value, row) {
     var td = document.createElement('td');
     td.className = 'select-cell';
-    var select = document.createElement('select');
-    select.setAttribute('data-name', 'direction');
-    select.className = 'pretty-select';
-    var opt0 = document.createElement('option');
-    opt0.value = '';
-    opt0.text = '\u8bf7\u9009\u62e9\u65b9\u5411';
-    var opt1 = document.createElement('option');
-    opt1.value = 'client_to_server';
-    opt1.text = '正向代理';
-    var opt2 = document.createElement('option');
-    opt2.value = 'server_to_client';
-    opt2.text = '反向代理';
-    select.add(opt0);
-    select.add(opt1);
-    select.add(opt2);
-    select.value = value === 'server_to_client' || value === 'client_to_server' ? value : '';
-    select.onchange = function () {
+    addCustomSelect(td, 'direction', value === 'server_to_client' || value === 'client_to_server' ? value : '', [
+      { value: '', text: '\u8bf7\u9009\u62e9\u65b9\u5411' },
+      { value: 'client_to_server', text: '正向代理' },
+      { value: 'server_to_client', text: '反向代理' }
+    ], function () {
       markDirty();
       updateForwardRowForDirection(row);
-    };
-    td.appendChild(selectShell(select));
+    });
     return td;
   }
 
   function allowedUsersCell(selectedUsers) {
     var td = document.createElement('td');
     td.className = 'select-cell';
-    var select = document.createElement('select');
-    select.className = 'pretty-select user-select';
-    select.setAttribute('data-name', 'allowed_users');
-    setSelectedUsersData(select, firstUserOnly(selectedUsers || []));
-    select.onchange = function () {
-      setSelectedUsersData(select, selectedAllowedUsers(select));
+    var control = addCustomSelect(td, 'allowed_users', '', [], function () {
+      setSelectedUsersData(control, selectedAllowedUsers(control));
       markDirty();
       refreshUserBoundPorts();
-    };
-    td.appendChild(selectShell(select));
-    refreshAllowedUserSelect(select);
+    });
+    setSelectedUsersData(control, firstUserOnly(selectedUsers || []));
+    refreshAllowedUserSelect(control);
     return td;
   }
 
-  function setSelectedUsersData(select, users) {
-    select.setAttribute('data-selected-users', firstUserOnly(users || []).join(','));
+  function setSelectedUsersData(control, users) {
+    var selected = firstUserOnly(users || []);
+    control.setAttribute('data-selected-users', selected.join(','));
+    control.value = selected.length ? selected[0] : '';
   }
 
   function selectedAllowedUsers(control) {
     if (!control) { return []; }
-    if (String(control.tagName || '').toLowerCase() === 'select') {
-      if (!control.multiple) {
-        return control.value ? [control.value] : [];
-      }
-      var out = [];
-      for (var i = 0; i < control.options.length; i++) {
-        if (control.options[i].selected && control.options[i].value) {
-          out.push(control.options[i].value);
-        }
-      }
-      if (!out.length) {
-        return splitUserList(control.getAttribute('data-selected-users') || '');
-      }
-      return out;
-    }
     return splitUserList(control.value);
   }
 
-  function refreshAllowedUserSelect(select) {
-    if (!select) { return; }
-    var selected = firstUserOnly(splitUserList(select.getAttribute('data-selected-users') || ''));
+  function refreshAllowedUserSelect(control) {
+    if (!control) { return; }
+    var selected = firstUserOnly(splitUserList(control.getAttribute('data-selected-users') || ''));
     var selectedMap = {};
     for (var i = 0; i < selected.length; i++) { selectedMap[selected[i]] = true; }
     var names = currentUserNames();
@@ -553,26 +534,14 @@
         known[selected[k]] = true;
       }
     }
-    select.innerHTML = '';
-    var placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.text = names.length ? '\u8bf7\u9009\u62e9\u7528\u6237' : '\u8bf7\u5148\u65b0\u589e\u7528\u6237';
-    placeholder.disabled = !names.length;
-    select.add(placeholder);
-    if (!names.length) {
-      select.value = '';
-      setSelectedUsersData(select, []);
-      return;
-    }
+    var options = [{ value: '', text: names.length ? '\u8bf7\u9009\u62e9\u7528\u6237' : '\u8bf7\u5148\u65b0\u589e\u7528\u6237', disabled: !names.length }];
     for (var n = 0; n < names.length; n++) {
-      var opt = document.createElement('option');
-      opt.value = names[n];
-      opt.text = names[n];
-      opt.selected = !!selectedMap[names[n]];
-      select.add(opt);
+      options.push({ value: names[n], text: names[n] });
     }
-    select.value = selected.length ? selected[0] : '';
-    setSelectedUsersData(select, selectedAllowedUsers(select));
+    control._customOptions = options;
+    control._customEmpty = !names.length;
+    setSelectedUsersData(control, names.length ? selected : []);
+    renderCustomSelect(control);
   }
 
   function firstUserOnly(users) {
@@ -602,15 +571,207 @@
     return out;
   }
 
-  function selectShell(select) {
-    var wrap = document.createElement('span');
-    wrap.className = 'select-shell';
+  function addCustomSelect(td, name, value, options, onChange) {
+    var control = hiddenInput(value, name);
+    control._customOptions = options || [];
+    control._customChange = onChange;
+    control._customEmpty = false;
+
+    var shell = document.createElement('div');
+    shell.className = 'custom-select';
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'custom-select-button';
+    button.setAttribute('aria-haspopup', 'listbox');
+    button.setAttribute('aria-expanded', 'false');
+    var label = document.createElement('span');
+    label.className = 'custom-select-label';
     var arrow = document.createElement('span');
-    arrow.className = 'select-arrow';
+    arrow.className = 'custom-select-arrow';
     arrow.innerHTML = '&#9662;';
-    wrap.appendChild(select);
-    wrap.appendChild(arrow);
-    return wrap;
+    button.appendChild(label);
+    button.appendChild(arrow);
+    var list = document.createElement('div');
+    list.className = 'custom-select-list';
+    list.setAttribute('role', 'listbox');
+
+    button.onclick = function () {
+      if (!button.disabled) { toggleCustomSelect(control); }
+    };
+    button.onkeydown = function (event) {
+      handleCustomSelectButtonKey(control, event || window.event);
+    };
+    shell.appendChild(button);
+    shell.appendChild(list);
+    td.appendChild(control);
+    td.appendChild(shell);
+    control._customShell = shell;
+    control._customButton = button;
+    control._customLabel = label;
+    control._customList = list;
+    renderCustomSelect(control);
+    return control;
+  }
+
+  function renderCustomSelect(control) {
+    if (!control || !control._customShell) { return; }
+    var options = control._customOptions || [];
+    var selected = null;
+    for (var i = 0; i < options.length; i++) {
+      if (options[i].value === control.value) { selected = options[i]; break; }
+    }
+    if (!selected && options.length) { selected = options[0]; }
+    control._customLabel.textContent = selected ? selected.text : '';
+    control._customButton.disabled = !!control.disabled || !!control._customEmpty;
+    control._customShell.className = 'custom-select' + (control._customButton.disabled ? ' disabled' : '');
+    var list = control._customList;
+    list.innerHTML = '';
+    for (var n = 0; n < options.length; n++) {
+      var option = options[n];
+      var item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'custom-select-option' + (option.value === control.value ? ' selected' : '') + (option.disabled ? ' disabled' : '');
+      item.textContent = option.text;
+      item.disabled = !!option.disabled || !!control.disabled;
+      item.onclick = customSelectOptionClick(control, option.value);
+      item.onkeydown = customSelectOptionKey(control);
+      list.appendChild(item);
+    }
+  }
+
+  function customSelectOptionClick(control, value) {
+    return function () {
+      if (control.disabled) { return; }
+      control.value = value;
+      closeCustomSelect(control);
+      renderCustomSelect(control);
+      if (control._customChange) { control._customChange(); }
+    };
+  }
+
+  function customSelectOptionKey(control) {
+    return function (event) {
+      event = event || window.event;
+      var code = event.keyCode || event.which;
+      if (code === 27) {
+        closeCustomSelect(control);
+        control._customButton.focus();
+        preventEvent(event);
+        return;
+      }
+      if (code === 38 || code === 40) {
+        focusCustomOption(control, this, code === 40 ? 1 : -1);
+        preventEvent(event);
+      }
+    };
+  }
+
+  function handleCustomSelectButtonKey(control, event) {
+    var code = event.keyCode || event.which;
+    if (code === 27) {
+      closeCustomSelect(control);
+      preventEvent(event);
+      return;
+    }
+    if (code === 13 || code === 32 || code === 40) {
+      openCustomSelect(control);
+      focusFirstCustomOption(control);
+      preventEvent(event);
+    }
+  }
+
+  function toggleCustomSelect(control) {
+    if (hasClass(control._customShell, 'open')) {
+      closeCustomSelect(control);
+      return;
+    }
+    openCustomSelect(control);
+  }
+
+  function openCustomSelect(control) {
+    if (!control || control._customButton.disabled) { return; }
+    closeAllCustomSelects(control);
+    control._customShell.className = control._customShell.className.replace(/\s*open\b/g, '') + ' open';
+    control._customButton.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeCustomSelect(control) {
+    if (!control || !control._customShell) { return; }
+    control._customShell.className = control._customShell.className.replace(/\s*open\b/g, '');
+    control._customButton.setAttribute('aria-expanded', 'false');
+  }
+
+  function closeAllCustomSelects(exceptControl) {
+    var nodes = document.querySelectorAll('.custom-select');
+    for (var i = 0; i < nodes.length; i++) {
+      if (exceptControl && nodes[i] === exceptControl._customShell) { continue; }
+      nodes[i].className = nodes[i].className.replace(/\s*open\b/g, '');
+      var buttons = nodes[i].getElementsByTagName('button');
+      if (buttons.length) { buttons[0].setAttribute('aria-expanded', 'false'); }
+    }
+  }
+
+  function focusFirstCustomOption(control) {
+    var buttons = control._customList.getElementsByTagName('button');
+    for (var i = 0; i < buttons.length; i++) {
+      if (!buttons[i].disabled) { buttons[i].focus(); return; }
+    }
+  }
+
+  function focusCustomOption(control, current, step) {
+    var buttons = control._customList.getElementsByTagName('button');
+    var index = -1;
+    for (var i = 0; i < buttons.length; i++) {
+      if (buttons[i] === current) { index = i; break; }
+    }
+    for (var offset = 1; offset <= buttons.length; offset++) {
+      var next = (index + step * offset + buttons.length) % buttons.length;
+      if (!buttons[next].disabled) { buttons[next].focus(); return; }
+    }
+  }
+
+  function preventEvent(event) {
+    if (!event) { return; }
+    if (event.preventDefault) { event.preventDefault(); }
+    event.returnValue = false;
+  }
+
+  function hasClass(node, className) {
+    return (' ' + (node.className || '') + ' ').indexOf(' ' + className + ' ') >= 0;
+  }
+
+  function bindCustomSelectDismissal() {
+    var dismiss = function (event) {
+      event = event || window.event;
+      var node = event.target || event.srcElement;
+      while (node && node !== document) {
+        if (hasClass(node, 'custom-select')) { return; }
+        node = node.parentNode;
+      }
+      closeAllCustomSelects();
+    };
+    if (document.addEventListener) {
+      document.addEventListener('click', dismiss, false);
+    } else if (document.attachEvent) {
+      document.attachEvent('onclick', dismiss);
+    }
+  }
+
+  function serverHostCell(value) {
+    var td = document.createElement('td');
+    td.className = 'target-cell';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = value || '';
+    input.setAttribute('data-name', 'server_host');
+    input.onchange = function () {
+      markDirty();
+      updateForwardRowForDirection(input.parentNode.parentNode);
+      refreshUserBoundPorts();
+    };
+    input.onkeyup = input.onchange;
+    td.appendChild(input);
+    return td;
   }
 
   function portCell(value) {
@@ -623,7 +784,6 @@
     input.setAttribute('data-name', 'port');
     input.onchange = function () {
       markDirty();
-      updateForwardRowForDirection(input.parentNode.parentNode);
       refreshUserBoundPorts();
     };
     input.onkeyup = input.onchange;
@@ -676,8 +836,12 @@
 
   function forwardPortValue(fwd) {
     if (fwd && fwd.port) { return fwd.port; }
+    return hostPortPort(fwd && fwd.server_target);
+  }
+
+  function forwardHostValue(fwd) {
     var direction = fwd && fwd.direction === 'server_to_client' ? 'server_to_client' : 'client_to_server';
-    return hostPortPort(direction === 'server_to_client' ? fwd.listen_addr : fwd.server_target);
+    return direction === 'server_to_client' ? '本机回环' : hostPortHost(fwd && fwd.server_target);
   }
 
   function hostPortPort(value) {
@@ -686,16 +850,37 @@
     return match ? match[1] : '';
   }
 
-  function serverLoopbackAddr(port) {
-    return port ? serverLoopbackHost + ':' + port : '';
+  function hostPortHost(value) {
+    value = (value || '').replace(/^\s+|\s+$/g, '');
+    var bracketed = /^\[([^\]]+)\]:(\d+)$/.exec(value);
+    if (bracketed) { return bracketed[1]; }
+    var basic = /^([^:\s]+):(\d+)$/.exec(value);
+    return basic ? basic[1] : '';
+  }
+
+  function joinHostPort(host, port) {
+    host = (host || '').replace(/^\s+|\s+$/g, '');
+    if (host.indexOf(':') >= 0 && host.charAt(0) !== '[') { host = '[' + host + ']'; }
+    return host + ':' + port;
   }
 
   function updateForwardRowForDirection(row) {
     if (!row) { return; }
     var direction = field(row, 'direction');
+    var host = field(row, 'server_host');
     var port = field(row, 'port');
-    if (!direction || !port) { return; }
-    port.placeholder = '';
+    if (!direction || !host || !port) { return; }
+    if (direction.value === 'server_to_client') {
+      host.value = '本机回环';
+      host.disabled = true;
+      host.placeholder = '';
+      port.placeholder = '18080';
+      return;
+    }
+    if (host.value === '本机回环') { host.value = '127.0.0.1'; }
+    host.disabled = false;
+    host.placeholder = '127.0.0.1 或 192.168.1.10';
+    port.placeholder = '3389';
   }
 
   function refreshForwardOwnerOptions() {
@@ -824,6 +1009,11 @@
         max_concurrent_connections_per_ip: toInt($('maxConcurrentConnectionsPerIP').value),
         connection_rate_window_sec: toInt($('connectionRateWindow').value),
         max_new_connections_per_ip_window: toInt($('maxNewConnectionsPerIPWindow').value),
+        max_tracked_connection_ips: toInt($('maxTrackedConnectionIPs').value),
+        connection_limiter_cleanup_sec: toInt($('connectionLimiterCleanupSec').value),
+        max_tracked_failure_ips: toInt($('maxTrackedFailureIPs').value),
+        failure_tracker_cleanup_sec: toInt($('failureTrackerCleanupSec').value),
+        entry_traffic_log_queue_size: toInt($('entryTrafficLogQueueSize').value),
         max_concurrent_streams_per_user: toInt($('maxConcurrentStreamsPerUser').value),
         stream_rate_limit_bytes_per_sec: toInt($('streamRateLimitBytesPerSec').value),
         auth_fail_window_sec: toInt($('authFailWindow').value),
@@ -859,20 +1049,22 @@
     var out = [];
     for (var i = 0; i < rows.length; i++) {
       var directionNode = field(rows[i], 'direction');
+      var hostNode = field(rows[i], 'server_host');
       var portNode = field(rows[i], 'port');
       var allowedNode = field(rows[i], 'allowed_users');
-      if (!directionNode || !portNode || !allowedNode) { continue; }
+      if (!directionNode || !hostNode || !portNode || !allowedNode) { continue; }
       var direction = directionNode.value;
+      var host = hostNode.value.replace(/^\s+|\s+$/g, '');
       var port = portNode.value.replace(/^\s+|\s+$/g, '');
-      var addr = serverLoopbackAddr(port);
+      var isReverse = direction === 'server_to_client';
       var allowedUsers = selectedAllowedUsers(allowedNode);
       out.push({
         direction: direction,
         owner: allowedUsers.length ? allowedUsers[0] : '',
         allowed_users: allowedUsers,
         port: port,
-        listen_addr: direction === 'server_to_client' ? addr : '',
-        server_target: direction === 'server_to_client' ? '' : addr
+        listen_addr: '',
+        server_target: isReverse ? '' : joinHostPort(host, port)
       });
     }
     return out;
@@ -910,26 +1102,31 @@
       var name = '\u7b2c ' + (i + 1) + ' \u6761\u89c4\u5219';
       var directionNode = field(rows[i], 'direction');
       var allowedNode = field(rows[i], 'allowed_users');
+      var hostNode = field(rows[i], 'server_host');
       var portNode = field(rows[i], 'port');
-      if (!directionNode || !allowedNode || !portNode) { continue; }
+      if (!directionNode || !allowedNode || !hostNode || !portNode) { continue; }
       var direction = directionNode.value;
       var allowedUsers = selectedAllowedUsers(allowedNode);
+      var host = hostNode.value.replace(/^\s+|\s+$/g, '');
       var port = portNode.value.replace(/^\s+|\s+$/g, '');
-      if (!port && !allowedUsers.length && !direction) { continue; }
+      if (!host && !port && !allowedUsers.length && !direction) { continue; }
       if (!direction) {
         return '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u9700\u8981\u9009\u62e9\u4ee3\u7406\u65b9\u5411\u3002';
       }
-      if (!port) {
-        return '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u9700\u8981\u586b\u5199\u7aef\u53e3\u53f7\u3002';
+      if (!port || !isValidPort(port)) {
+        return '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u7684\u670d\u52a1\u7aef\u7aef\u53e3\u5fc5\u987b\u662f 1-65535 \u7684\u6570\u5b57\u3002';
       }
-      if (!isValidPort(port)) {
-        return '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u7684\u7aef\u53e3\u53f7\u4e0d\u6b63\u786e\uff0c\u8bf7\u586b\u5199 1-65535\u3002';
+      if (direction === 'server_to_client') {
+        if (!allowedUsers.length) {
+          return '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u9700\u8981\u586b\u5199\u653e\u901a\u7528\u6237\u3002';
+        }
+        continue;
+      }
+      if (!host || !isValidHostPort(joinHostPort(host, port))) {
+        return '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u7684\u670d\u52a1\u7aef IP \u5730\u5740\u4e0d\u6b63\u786e\u3002';
       }
       if (!allowedUsers.length) {
         return '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u9700\u8981\u586b\u5199\u653e\u901a\u7528\u6237\u3002';
-      }
-      if (!isValidHostPort(serverLoopbackAddr(port))) {
-        return '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u751f\u6210\u7684\u670d\u52a1\u7aef\u5730\u5740\u4e0d\u6b63\u786e\u3002';
       }
     }
     return '';
@@ -942,7 +1139,7 @@
   }
 
   function isValidHostPort(value) {
-    var match = /^127\.0\.0\.1:(\d+)$/.exec(value || '');
+    var match = /^(?:[^:\s]+|\[[^\]\s]+\]):(\d+)$/.exec(value || '');
     return !!match && isValidPort(match[1]);
   }
 
@@ -1423,7 +1620,7 @@
   function ensureForwardsEmptyRow() {
     var tbody = $('forwardsTable').getElementsByTagName('tbody')[0];
     if (!hasDataRows(tbody)) {
-      appendEmptyRow(tbody, 4, '\u6682\u65e0\u8f6c\u53d1\u7aef\u53e3\uff0c\u70b9\u51fb\u201c\u65b0\u589e\u8f6c\u53d1\u201d\u6dfb\u52a0\u89c4\u5219');
+      appendEmptyRow(tbody, 5, '\u6682\u65e0\u8f6c\u53d1\u7aef\u53e3\uff0c\u70b9\u51fb\u201c\u65b0\u589e\u8f6c\u53d1\u201d\u6dfb\u52a0\u89c4\u5219');
       updateButtons();
     }
   }
@@ -1887,6 +2084,7 @@
     bindTabs();
     bindSecurityFields();
     bindActions();
+    bindCustomSelectDismissal();
     initAnalysisDefaults();
     setActiveTab(activeTab);
     loadState(true);

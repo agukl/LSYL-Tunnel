@@ -288,7 +288,7 @@
         <div class="panel-head">
           <div>
             <h2>转发端口</h2>
-            <p>只配置代理方向、允许用户和代理端口；端口规则后续统一重构。</p>
+            <p>正向分别填写服务端 IP 和端口；反向 IP 固定为本机回环，仅填写服务端被动端口。</p>
           </div>
           <button id="addForwardBtn" class="btn small muted">新增转发</button>
         </div>
@@ -298,6 +298,7 @@
               <tr>
                 <th>方向</th>
                 <th>放通用户</th>
+                <th>服务端 IP</th>
                 <th>服务端端口</th>
                 <th>操作</th>
               </tr>
@@ -380,6 +381,11 @@
           <label>最大握手字节<input id="maxHandshakeBytes" type="number"></label>
           <label>新建连接速率窗口秒<input id="connectionRateWindow" type="number"></label>
           <label>单 IP 窗口新建连接上限<input id="maxNewConnectionsPerIPWindow" type="number"></label>
+          <label>连接来源 IP 上限<input id="maxTrackedConnectionIPs" type="number"></label>
+          <label>连接来源清扫周期秒<input id="connectionLimiterCleanupSec" type="number"></label>
+          <label>失败来源 IP 上限<input id="maxTrackedFailureIPs" type="number"></label>
+          <label>失败记录清扫周期秒<input id="failureTrackerCleanupSec" type="number"></label>
+          <label>入口日志队列容量<input id="entryTrafficLogQueueSize" type="number"></label>
           <div class="form-section-title">认证封禁</div>
           <label>失败统计窗口秒<input id="authFailWindow" type="number"></label>
           <label>失败封禁阈值<input id="authFailThreshold" type="number"></label>

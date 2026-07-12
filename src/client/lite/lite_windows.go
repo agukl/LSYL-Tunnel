@@ -416,7 +416,11 @@ func routesSummary(cfg tunnel.Config) string {
 		if name == "" {
 			name = "forward"
 		}
-		lines = append(lines, fmt.Sprintf("%s: 本机 %s -> 服务端 %s", name, fwd.ListenAddr, fwd.ServerTarget))
+		if fwd.Direction == tunnel.DirectionServerToClient {
+			lines = append(lines, fmt.Sprintf("%s: 服务端被动端口 %d -> %s", name, fwd.ListenPort, fwd.ServerTarget))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s -> 服务端 %s", name, fwd.ListenAddr, fwd.ServerTarget))
 	}
 	return strings.Join(lines, "\r\n")
 }

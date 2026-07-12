@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -267,7 +268,7 @@ func TestReverseControlHeartbeatReleasesStaleActivation(t *testing.T) {
 	}
 }
 
-func TestServerAllowsNonLocalReverseListenDuringValidation(t *testing.T) {
+func TestServerRejectsNonLocalReverseListenDuringValidation(t *testing.T) {
 	err := ValidateConfig(Config{
 		TLS: TLSConfig{CertFile: "server.crt", KeyFile: "server.key"},
 		Forwards: []ForwardConfig{{
@@ -276,8 +277,8 @@ func TestServerAllowsNonLocalReverseListenDuringValidation(t *testing.T) {
 			ListenAddr: "0.0.0.0:18080",
 		}},
 	})
-	if err != nil {
-		t.Fatalf("ValidateConfig returned error: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "listen_addr must be a loopback address") {
+		t.Fatalf("expected non-local reverse listen validation error, got %v", err)
 	}
 }
 

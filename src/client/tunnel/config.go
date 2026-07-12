@@ -2,8 +2,10 @@ package tunnel
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"lsyltunnel/src/internal/protocol"
@@ -30,7 +32,8 @@ type ConnectionConfig struct {
 type ForwardConfig struct {
 	Name         string `yaml:"name"`
 	Direction    string `yaml:"direction"`
-	ListenAddr   string `yaml:"listen_addr"`
+	ListenPort   int    `yaml:"listen_port,omitempty"`
+	ListenAddr   string `yaml:"listen_addr,omitempty"`
 	ServerTarget string `yaml:"server_target"`
 }
 
@@ -83,7 +86,7 @@ func LoadConfig(path string) (Config, error) {
 
 func SaveConfig(path string, cfg Config) error {
 	ApplyDefaults(&cfg)
-	data, err := yaml.Marshal(cfg)
+	data, err := yaml.Marshal(configForSave(cfg))
 	if err != nil {
 		return err
 	}
@@ -115,6 +118,39 @@ func ApplyDefaults(cfg *Config) {
 		if cfg.Forwards[i].Direction == "" {
 			cfg.Forwards[i].Direction = DirectionClientToServer
 		}
+		normalizeReverseListenPort(&cfg.Forwards[i])
+	}
+}
+
+func configForSave(cfg Config) Config {
+	for i := range cfg.Forwards {
+		if cfg.Forwards[i].Direction == DirectionServerToClient && cfg.Forwards[i].ListenPort > 0 {
+			cfg.Forwards[i].ListenAddr = ""
+		}
+	}
+	return cfg
+}
+
+func normalizeReverseListenPort(forward *ForwardConfig) {
+	if forward == nil || forward.Direction != DirectionServerToClient {
+		return
+	}
+	if forward.ListenPort <= 0 && strings.TrimSpace(forward.ListenAddr) != "" {
+		host, portText, err := net.SplitHostPort(strings.TrimSpace(forward.ListenAddr))
+		if err == nil && isLoopbackName(host) {
+			if port, err := strconv.Atoi(portText); err == nil && port > 0 && port <= 65535 {
+				forward.ListenPort = port
+			}
+		}
+	}
+	if forward.ListenPort > 0 && strings.TrimSpace(forward.ListenAddr) != "" {
+		host, _, err := net.SplitHostPort(strings.TrimSpace(forward.ListenAddr))
+		if err != nil || !isLoopbackName(host) {
+			return
+		}
+	}
+	if forward.ListenPort > 0 && forward.ListenPort <= 65535 {
+		forward.ListenAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(forward.ListenPort))
 	}
 }
 
@@ -135,16 +171,38 @@ func ValidateConfig(cfg Config) error {
 		return fmt.Errorf("at least one forward is required")
 	}
 	for _, fwd := range cfg.Forwards {
-		switch strings.TrimSpace(fwd.Direction) {
+		direction := strings.TrimSpace(fwd.Direction)
+		switch direction {
 		case DirectionClientToServer, DirectionServerToClient:
 		default:
 			return fmt.Errorf("forward %q has unsupported direction", fwd.Name)
 		}
-		if strings.TrimSpace(fwd.ListenAddr) == "" || strings.TrimSpace(fwd.ServerTarget) == "" {
+		if strings.TrimSpace(fwd.ServerTarget) == "" {
+			return fmt.Errorf("forward %q requires listen_addr and server_target", fwd.Name)
+		}
+		if direction == DirectionServerToClient {
+			if fwd.ListenPort <= 0 || fwd.ListenPort > 65535 {
+				return fmt.Errorf("forward %q requires listen_port", fwd.Name)
+			}
+			if host, _, err := net.SplitHostPort(strings.TrimSpace(fwd.ListenAddr)); err != nil || !isLoopbackName(host) {
+				return fmt.Errorf("forward %q listen_port must use the server loopback address", fwd.Name)
+			}
+			continue
+		}
+		if strings.TrimSpace(fwd.ListenAddr) == "" {
 			return fmt.Errorf("forward %q requires listen_addr and server_target", fwd.Name)
 		}
 	}
 	return nil
+}
+
+func isLoopbackName(host string) bool {
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func ValidateConfigVersion(cfg Config) error {

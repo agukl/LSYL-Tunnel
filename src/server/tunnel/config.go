@@ -2,8 +2,10 @@ package tunnel
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +39,11 @@ type SecurityConfig struct {
 	ConnectionRateWindowSec       int `yaml:"connection_rate_window_sec"`
 	MaxNewConnectionsPerIPWindow  int `yaml:"max_new_connections_per_ip_window"`
 	MaxConnectionsPerIPPerWindow  int `yaml:"max_connections_per_ip_per_window,omitempty"`
+	MaxTrackedConnectionIPs       int `yaml:"max_tracked_connection_ips"`
+	ConnectionLimiterCleanupSec   int `yaml:"connection_limiter_cleanup_sec"`
+	MaxTrackedFailureIPs          int `yaml:"max_tracked_failure_ips"`
+	FailureTrackerCleanupSec      int `yaml:"failure_tracker_cleanup_sec"`
+	EntryTrafficLogQueueSize      int `yaml:"entry_traffic_log_queue_size"`
 	MaxConcurrentStreamsPerUser   int `yaml:"max_concurrent_streams_per_user"`
 	StreamRateLimitBytesPerSec    int `yaml:"stream_rate_limit_bytes_per_sec"`
 	AuthFailWindowSec             int `yaml:"auth_fail_window_sec"`
@@ -69,7 +76,8 @@ type RuntimeConfig struct {
 type ForwardConfig struct {
 	Name         string   `yaml:"name"`
 	Direction    string   `yaml:"direction"`
-	ListenAddr   string   `yaml:"listen_addr"`
+	ListenPort   int      `yaml:"listen_port,omitempty"`
+	ListenAddr   string   `yaml:"listen_addr,omitempty"`
 	ServerTarget string   `yaml:"server_target"`
 	AllowedUsers []string `yaml:"allowed_users,omitempty"`
 }
@@ -163,7 +171,7 @@ func LoadConfig(path string) (Config, error) {
 
 func SaveConfig(path string, cfg Config) error {
 	ApplyDefaults(&cfg)
-	data, err := yaml.Marshal(cfg)
+	data, err := yaml.Marshal(configForSave(cfg))
 	if err != nil {
 		return err
 	}
@@ -196,6 +204,7 @@ func ApplyDefaults(cfg *Config) {
 		if cfg.Forwards[i].Direction == "" {
 			cfg.Forwards[i].Direction = DirectionClientToServer
 		}
+		normalizeReverseListenPort(&cfg.Forwards[i])
 	}
 	if cfg.Security.HandshakeTimeoutSec <= 0 {
 		cfg.Security.HandshakeTimeoutSec = 8
@@ -222,6 +231,21 @@ func ApplyDefaults(cfg *Config) {
 		cfg.Security.MaxNewConnectionsPerIPWindow = 120
 	}
 	cfg.Security.MaxConnectionsPerIPPerWindow = 0
+	if cfg.Security.MaxTrackedConnectionIPs <= 0 {
+		cfg.Security.MaxTrackedConnectionIPs = 8192
+	}
+	if cfg.Security.ConnectionLimiterCleanupSec <= 0 {
+		cfg.Security.ConnectionLimiterCleanupSec = 60
+	}
+	if cfg.Security.MaxTrackedFailureIPs <= 0 {
+		cfg.Security.MaxTrackedFailureIPs = 8192
+	}
+	if cfg.Security.FailureTrackerCleanupSec <= 0 {
+		cfg.Security.FailureTrackerCleanupSec = 60
+	}
+	if cfg.Security.EntryTrafficLogQueueSize <= 0 {
+		cfg.Security.EntryTrafficLogQueueSize = 2048
+	}
 	if cfg.Security.AuthFailWindowSec <= 0 {
 		cfg.Security.AuthFailWindowSec = 300
 	}
@@ -236,6 +260,36 @@ func ApplyDefaults(cfg *Config) {
 	}
 }
 
+func configForSave(cfg Config) Config {
+	for i := range cfg.Forwards {
+		if cfg.Forwards[i].Direction == DirectionServerToClient && cfg.Forwards[i].ListenPort > 0 {
+			cfg.Forwards[i].ListenAddr = ""
+		}
+	}
+	return cfg
+}
+
+func normalizeReverseListenPort(forward *ForwardConfig) {
+	if forward == nil || forward.Direction != DirectionServerToClient {
+		return
+	}
+	if forward.ListenPort <= 0 && strings.TrimSpace(forward.ListenAddr) != "" {
+		host, port, err := splitHostPort(forward.ListenAddr)
+		if err == nil && isLoopbackName(host) {
+			forward.ListenPort = port
+		}
+	}
+	if forward.ListenPort > 0 && strings.TrimSpace(forward.ListenAddr) != "" {
+		host, _, err := splitHostPort(forward.ListenAddr)
+		if err != nil || !isLoopbackName(host) {
+			return
+		}
+	}
+	if forward.ListenPort > 0 && forward.ListenPort <= 65535 {
+		forward.ListenAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(forward.ListenPort))
+	}
+}
+
 func ValidateConfig(cfg Config) error {
 	if err := ValidateConfigVersion(cfg); err != nil {
 		return err
@@ -243,18 +297,90 @@ func ValidateConfig(cfg Config) error {
 	if strings.TrimSpace(cfg.TLS.CertFile) == "" || strings.TrimSpace(cfg.TLS.KeyFile) == "" {
 		return fmt.Errorf("server TLS identity cert_file and key_file are required")
 	}
-	seen := map[string]bool{}
+	if monitorAddr := strings.TrimSpace(cfg.MonitorAddr); monitorAddr != "" {
+		host, _, err := splitHostPort(monitorAddr)
+		if err != nil || !isLoopbackName(host) {
+			return fmt.Errorf("monitor_addr must use a loopback address")
+		}
+	}
+	knownUsers := map[string]bool{}
 	for _, user := range cfg.Auth.Users {
 		name := strings.TrimSpace(user.Username)
 		if name == "" {
 			return fmt.Errorf("auth user username is required")
 		}
-		if seen[name] {
+		if knownUsers[name] {
 			return fmt.Errorf("duplicate auth user: %s", name)
 		}
-		seen[name] = true
+		knownUsers[name] = true
 		if !user.Disabled && strings.TrimSpace(user.PasswordHash) == "" {
 			return fmt.Errorf("password_hash is required for user %s", name)
+		}
+	}
+	seenReversePorts := map[int]string{}
+	for _, forward := range cfg.Forwards {
+		direction := strings.TrimSpace(forward.Direction)
+		if direction == "" {
+			direction = DirectionClientToServer
+		}
+		reversePort := 0
+		switch direction {
+		case DirectionClientToServer:
+			host, _, err := splitHostPort(forward.ServerTarget)
+			if err != nil {
+				return fmt.Errorf("forward %q server_target is invalid", forward.Name)
+			}
+			if !isLoopbackName(host) && !isPrivateTargetIP(host) {
+				return fmt.Errorf("forward %q server_target must be a loopback or private IP", forward.Name)
+			}
+		case DirectionServerToClient:
+			port := forward.ListenPort
+			if port <= 0 {
+				host, legacyPort, err := splitHostPort(forward.ListenAddr)
+				if err != nil || !isLoopbackName(host) {
+					return fmt.Errorf("forward %q listen_port is required and legacy listen_addr must be a loopback address", forward.Name)
+				}
+				port = legacyPort
+			}
+			if port < 1 || port > 65535 {
+				return fmt.Errorf("forward %q listen_port must be between 1 and 65535", forward.Name)
+			}
+			reversePort = port
+			if strings.TrimSpace(forward.ListenAddr) != "" {
+				host, _, err := splitHostPort(forward.ListenAddr)
+				if err != nil || !isLoopbackName(host) {
+					return fmt.Errorf("forward %q listen_addr must be a loopback address", forward.Name)
+				}
+			}
+		default:
+			return fmt.Errorf("forward %q has unsupported direction", forward.Name)
+		}
+
+		allowedUsers := map[string]bool{}
+		for _, username := range forward.AllowedUsers {
+			username = strings.TrimSpace(username)
+			if username == "" {
+				return fmt.Errorf("forward %q allowed_users contains an empty username", forward.Name)
+			}
+			if allowedUsers[username] {
+				return fmt.Errorf("forward %q has duplicate allowed user %s", forward.Name, username)
+			}
+			if !knownUsers[username] {
+				return fmt.Errorf("forward %q allowed user %s does not exist", forward.Name, username)
+			}
+			allowedUsers[username] = true
+		}
+		if len(allowedUsers) == 0 {
+			return fmt.Errorf("forward %q requires at least one allowed user", forward.Name)
+		}
+		if direction == DirectionServerToClient {
+			if len(allowedUsers) != 1 {
+				return fmt.Errorf("forward %q reverse port must belong to exactly one allowed user", forward.Name)
+			}
+			if existing, ok := seenReversePorts[reversePort]; ok {
+				return fmt.Errorf("forward %q reverse listen_port %d duplicates forward %q", forward.Name, reversePort, existing)
+			}
+			seenReversePorts[reversePort] = forward.Name
 		}
 	}
 	activeKeys := 0

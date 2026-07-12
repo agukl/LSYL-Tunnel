@@ -42,6 +42,7 @@ type HealthStatus struct {
 type ForwardStatus struct {
 	Name         string `json:"name"`
 	Direction    string `json:"direction"`
+	ListenPort   int    `json:"listen_port,omitempty"`
 	ListenAddr   string `json:"listen_addr"`
 	ServerTarget string `json:"server_target"`
 	State        string `json:"state"`
@@ -71,6 +72,7 @@ type ForwardCheckSummary struct {
 type forwardRuntime struct {
 	name         string
 	direction    string
+	listenPort   int
 	listenAddr   string
 	serverTarget string
 	active       atomic.Int64
@@ -137,6 +139,7 @@ func (f *forwardRuntime) snapshot() ForwardStatus {
 	return ForwardStatus{
 		Name:         f.name,
 		Direction:    f.direction,
+		ListenPort:   f.listenPort,
 		ListenAddr:   f.listenAddr,
 		ServerTarget: f.serverTarget,
 		State:        f.state,
@@ -153,6 +156,7 @@ func (c *Client) initForward(name string, fwd ForwardConfig, state, message stri
 	rt := &forwardRuntime{
 		name:         name,
 		direction:    fwd.Direction,
+		listenPort:   fwd.ListenPort,
 		listenAddr:   fwd.ListenAddr,
 		serverTarget: fwd.ServerTarget,
 		state:        state,

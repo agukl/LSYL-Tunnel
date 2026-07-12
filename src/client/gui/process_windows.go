@@ -259,7 +259,7 @@ func friendlyErrorText(raw string) string {
 		return "服务端地址无法解析，请检查域名或网络。"
 	case strings.Contains(text, "already in use") || strings.Contains(text, "only one usage") || strings.Contains(text, "bind:"):
 		return "本地端口已被占用，请关闭占用程序或调整端口。"
-	case strings.Contains(text, "at least one forward") || strings.Contains(text, "requires listen_addr"):
+	case strings.Contains(text, "at least one forward") || strings.Contains(text, "requires listen_addr") || strings.Contains(text, "requires listen_port"):
 		return "未配置端口转发，请联系管理员检查配置。"
 	case strings.Contains(text, "no usable forward"):
 		return "没有可用的端口映射，请检查本地端口是否被占用。"

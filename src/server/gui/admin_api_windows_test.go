@@ -46,6 +46,26 @@ func TestAdminConfigToTunnelWritesForwardAllowedUsers(t *testing.T) {
 	}
 }
 
+func TestAdminConfigToTunnelPreservesPrivateForwardTarget(t *testing.T) {
+	cfg, err := adminConfigToTunnel(adminConfig{
+		ListenAddr: "127.0.0.1:9443",
+		TLS:        adminTLS{CertFile: "server.crt", KeyFile: "server.key", MinVersion: "1.3"},
+		Users:      []adminUser{{Username: "alice", PasswordHash: "plain:secret"}},
+		Forwards: []adminForward{{
+			Name:         "lan-rdp",
+			Direction:    tunnel.DirectionClientToServer,
+			ServerTarget: "192.168.10.20:3389",
+			Owner:        "alice",
+		}},
+	}, tunnel.Config{})
+	if err != nil {
+		t.Fatalf("adminConfigToTunnel returned error: %v", err)
+	}
+	if got := cfg.Forwards[0].ServerTarget; got != "192.168.10.20:3389" {
+		t.Fatalf("ServerTarget = %q, want private target", got)
+	}
+}
+
 func TestAdminConfigFromTunnelReadsForwardAllowedUsers(t *testing.T) {
 	cfg := tunnel.Config{
 		TLS: tunnel.TLSConfig{CertFile: "server.crt", KeyFile: "server.key"},
@@ -93,6 +113,9 @@ func TestAdminConfigToTunnelNormalizesReversePort(t *testing.T) {
 	}
 	if got := cfg.Forwards[0].ListenAddr; got != "127.0.0.1:18080" {
 		t.Fatalf("ListenAddr = %q, want 127.0.0.1:18080", got)
+	}
+	if got := cfg.Forwards[0].ListenPort; got != 18080 {
+		t.Fatalf("ListenPort = %d, want 18080", got)
 	}
 	if got := cfg.Forwards[0].ServerTarget; got != "" {
 		t.Fatalf("ServerTarget = %q, want empty", got)
@@ -168,6 +191,37 @@ func TestValidateAdminForwardsForSaveAcceptsConfiguredAllowedUsers(t *testing.T)
 	})
 	if issues.hasErrors() {
 		t.Fatalf("validateAdminForwardsForSave returned issues: %#v", issues)
+	}
+}
+
+func TestValidateAdminForwardsForSaveAcceptsPrivateTarget(t *testing.T) {
+	issues := validateAdminForwardsForSave(adminConfig{
+		Users: []adminUser{{Username: "alice"}},
+		Forwards: []adminForward{{
+			Direction:    tunnel.DirectionClientToServer,
+			ServerTarget: "192.168.10.20:3389",
+			AllowedUsers: []string{"alice"},
+		}},
+	})
+	if issues.hasErrors() {
+		t.Fatalf("validateAdminForwardsForSave returned issues: %#v", issues)
+	}
+}
+
+func TestValidateAdminForwardsForSaveRejectsPublicTarget(t *testing.T) {
+	issues := validateAdminForwardsForSave(adminConfig{
+		Users: []adminUser{{Username: "alice"}},
+		Forwards: []adminForward{{
+			Direction:    tunnel.DirectionClientToServer,
+			ServerTarget: "203.0.113.20:3389",
+			AllowedUsers: []string{"alice"},
+		}},
+	})
+	if !issues.hasErrors() {
+		t.Fatal("expected public target validation error")
+	}
+	if got := issues[0].Field; got != "forwards[0].server_target" {
+		t.Fatalf("issue field = %q, want server_target", got)
 	}
 }
 
