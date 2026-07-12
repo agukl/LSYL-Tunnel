@@ -6,7 +6,7 @@
 
 ## 服务端配置
 
-`config_version`：服务端配置结构版本。当前支持 `1`；缺省时按旧配置处理并套用当前默认值，高于当前程序支持值时拒绝启动或覆盖安装。
+`config_version`：服务端配置结构版本。当前支持 `1`；缺省时按历史 V0 配置处理并套用当前默认值。覆盖安装会先按对应版本的字段集做严格 YAML 校验：未知字段、错误层级、V1 缺失必填结构或运行语义不合法时均会停止安装；高于当前程序支持的版本同样拒绝。
 
 `requires.min_server_version`：该配置要求的最低服务端程序版本。当前默认 `"2.0.0"`；配置结构、协议基线或字段含义升级时才应上调。
 
@@ -46,6 +46,16 @@
 
 `security.max_new_connections_per_ip_window`：同一来源 IP 在速率窗口内允许的新建连接数。该限制只控制新建连接速率，不限制已建立隧道的业务带宽。
 
+`security.max_tracked_connection_ips`：入口连接限流器可保留的来源 IP 状态上限。达到上限时优先逐出最久未活动的来源；若所有记录都有活动连接，则拒绝新的来源连接并在监控状态中计数。
+
+`security.connection_limiter_cleanup_sec`：入口连接限流来源状态的过期清扫周期。速率窗口已过且没有活动连接的来源会被移出内存。
+
+`security.max_tracked_failure_ips`：认证失败与异常协议失败的来源 IP 内存记录上限。达到上限时优先逐出最久未活动且未处于临时封禁的记录；若只剩有效临时封禁，新的失败记录会被丢弃并在监控状态中计数。
+
+`security.failure_tracker_cleanup_sec`：失败来源记录的过期清扫周期，过期的失败时间序列和临时封禁会从内存中移除。
+
+`security.entry_traffic_log_queue_size`：入口异常日志异步队列容量。入口保护不会等待日志落盘；队列满时仅丢弃入口异常明细并在监控状态中计数，不影响入口拒绝动作。
+
 `security.max_concurrent_streams_per_user`：单个账号允许同时保持的业务连接数，`0` 表示不限制。只统计正向 `open` 和反向 `reverse_stream` 数据通道，不统计登录、健康检查和反向控制连接。
 
 `security.stream_rate_limit_bytes_per_sec`：每条业务连接的总速率上限，单位字节/秒，`0` 表示不限制。该上限按单条连接上下行合计统计。
@@ -74,7 +84,7 @@
 
 `runtime.business_log_file`：业务控制层流水日志。源码开发配置默认位于 `runtime\logs\business\business.jsonl`；安装包内配置默认位于 `logs\business\business.jsonl`。
 
-`runtime.entry_traffic_log_file`：入口连接层流量和异常日志。源码开发配置默认位于 `runtime\logs\entry-traffic\entry-traffic.jsonl`；安装包内配置默认位于 `logs\entry-traffic\entry-traffic.jsonl`。用于记录连接限制拒绝、永久封禁命中、非 TLS、HTTP 探测、TLS/协议握手异常等入口层事件。
+`runtime.entry_traffic_log_file`：入口连接层流量和异常日志。源码开发配置默认位于 `runtime\logs\entry-traffic\entry-traffic.jsonl`；安装包内配置默认位于 `logs\entry-traffic\entry-traffic.jsonl`。用于记录连接限制拒绝、永久封禁命中聚合、非 TLS、HTTP 探测、TLS/协议握手异常等入口层事件。该文件使用有界异步写入，不改变既有字段或文件类别。
 
 `runtime.flow_traffic_log_file`：业务数据流层流量和异常日志。源码开发配置默认位于 `runtime\logs\flow-traffic\flow-traffic.jsonl`；安装包内配置默认位于 `logs\flow-traffic\flow-traffic.jsonl`。用于记录 `open`、`reverse_stream` 数据流关闭时的字节数、时长、平均速率，以及单账号并发限制、目标不可达、反向流超时等异常。
 
@@ -82,13 +92,13 @@
 
 `forwards[]`：服务端侧转发清单，用于启动前检查、反向端口授权，以及 GUI 中的端口放通管理。客户端仍需要配置自己的 `forwards[]` 来决定登录后启用哪些映射。
 
-服务端 `forwards[].allowed_users`：允许使用该转发规则的用户名列表。用户账号本身只负责认证；端口访问关系统一写在转发规则上。
+服务端 `forwards[].allowed_users`：允许使用该转发规则的用户名列表。用户账号本身只负责认证；端口访问关系统一写在转发规则上。核心配置校验要求每条规则至少绑定一个已存在用户，不能依赖 GUI 页面兜底。
 
-服务端 `forwards[].direction: client_to_server`：配置保存时会预检 `server_target` 是否能从服务端访问；服务启动后也会做审计并记录运行事件。目标临时不通不会拖垮服务主入口，实际连接时会返回“目标服务不可达”。
+服务端 `forwards[].direction: client_to_server`：配置保存时会预检 `server_target` 是否能从服务端访问；服务启动后也会做审计并记录运行事件。目标临时不通不会拖垮服务主入口，实际连接时会返回“目标服务不可达”。目标只能填写服务端回环地址或私有网段 IP:端口，例如 `127.0.0.1:3389`、`192.168.10.20:3389`、`10.20.30.40:5432`；不接受域名、公网 IP 或任意未配置目标。
 
-服务端 `forwards[].direction: server_to_client`：服务端只保存被动入口配置和用户绑定；客户端上线激活时才会尝试监听 `listen_addr`。如果此时端口被其他程序占用，客户端会自动重试并记录“服务端被动端口不可用”。该地址只能是服务端本机回环地址，例如 `127.0.0.1:18080`、`localhost:18080` 或 `[::1]:18080`，不能配置为 `0.0.0.0` 或公网/内网网卡地址。
+服务端 `forwards[].direction: server_to_client`：反向规则只配置 `listen_port`。服务端和客户端运行时均固定使用 `127.0.0.1:<listen_port>` 作为内部被动入口标识；客户端上线激活时才会尝试监听该端口。端口被其他程序占用时，客户端会自动重试并记录“服务端被动端口不可用”。
 
-服务端反向 `listen_addr` 和端口都不能重复。客户端激活反向转发时，请求的 `listen_addr` 必须已经存在于服务端 `forwards[]` 中。
+服务端反向 `listen_port` 不能重复。客户端激活反向转发时，请求的端口必须已经存在于服务端 `forwards[]` 中。每个反向规则必须且只能归属一个已存在用户，这些约束由核心配置校验和 GUI 同时执行。
 
 反向端口必须且只能绑定到一个启用用户。GUI 会把所选用户写入该 `server_to_client` 规则的 `allowed_users`；手写配置时，同一个反向端口只能出现在一条转发规则中，并且该规则只能绑定一个用户。这样端口归属在配置阶段就固定下来，不靠客户端上线先后抢占。
 
@@ -126,9 +136,11 @@
 
 `forwards[].direction`：转发方向。`client_to_server` 表示客户端监听入口、服务端连接目标；`server_to_client` 表示服务端创建被动入口、客户端连接目标。留空时默认为 `client_to_server`。
 
-`forwards[].listen_addr`：入口监听地址。`client_to_server` 时监听在客户端；`server_to_client` 时监听在服务端，并且该服务端被动端口必须由已认证客户端连接后激活。
+`forwards[].listen_addr`：正向 `client_to_server` 的客户端入口监听地址。反向配置已改用 `listen_port`；旧版反向 `listen_addr` 仅为兼容旧配置而读取，必须是回环地址，下一次保存会收敛为 `listen_port`。
 
-`forwards[].server_target`：目标地址。`client_to_server` 时表示服务端侧要访问的目标；`server_to_client` 时表示客户端侧要访问的目标。当前字段名保留兼容，后续可再考虑改名。
+`forwards[].listen_port`：反向 `server_to_client` 的服务端被动端口，范围为 `1-65535`。不配置 IP，运行时固定映射为 `127.0.0.1:<listen_port>`。
+
+`forwards[].server_target`：目标地址。`client_to_server` 时表示服务端侧要访问的目标，必须是回环地址或私有 IP:端口；`server_to_client` 时表示客户端侧要访问的目标。当前字段名保留兼容，后续可再考虑改名。
 
 反向转发不会让服务端主动连接客户端。`server_to_client` 的实际流程是：服务端启动时加载配置但不主动占端口；客户端主动连接服务端并尝试激活这个被动端口；有人访问该服务端端口时，服务端通知客户端；客户端再主动建立一条流连接回来并访问自己的本地目标。
 

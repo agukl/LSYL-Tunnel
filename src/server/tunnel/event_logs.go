@@ -209,6 +209,14 @@ func (s *Server) recordEntryTrafficLog(entry EntryTrafficLogEntry) {
 	if entry.Time == "" {
 		entry.Time = time.Now().Format(time.RFC3339)
 	}
+	if s.entryTrafficWriter != nil {
+		s.entryTrafficWriter.Enqueue(entry)
+		return
+	}
+	s.writeEntryTrafficLog(entry)
+}
+
+func (s *Server) writeEntryTrafficLog(entry EntryTrafficLogEntry) {
 	data, err := json.Marshal(entry)
 	if err == nil {
 		s.log("entry_traffic_log %s", string(data))

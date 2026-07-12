@@ -116,12 +116,15 @@ func TestPermanentBlockedHitsAreAggregatedWithoutRequestLogSpam(t *testing.T) {
 	dir := t.TempDir()
 	requestLog := filepath.Join(dir, "request.jsonl")
 	businessLog := filepath.Join(dir, "business.jsonl")
+	entryTrafficLog := filepath.Join(dir, "entry-traffic.jsonl")
 	server := &Server{
 		requestLog:         newJSONLLog(requestLog),
 		businessLog:        newJSONLLog(businessLog),
+		entryTrafficLog:    newJSONLLog(entryTrafficLog),
 		maxRecentEvents:    500,
 		permanentBlockHits: newPermanentBlockHitAggregator(time.Second),
 	}
+	server.entryTrafficWriter = newAsyncEntryTrafficLog(8, server.writeEntryTrafficLog)
 	defer server.Close()
 
 	server.recordPermanentBlockedHit("203.0.113.10")
@@ -129,22 +132,53 @@ func TestPermanentBlockedHitsAreAggregatedWithoutRequestLogSpam(t *testing.T) {
 	server.recordPermanentBlockedHit("203.0.113.10")
 	server.flushPermanentBlockHitLogs()
 
-	businessPath := datedJSONLPath(businessLog, time.Now().Format("2006-01-02"))
-	waitForFileContains(t, businessPath, `"code":"ip_permanently_blocked"`, 2*time.Second)
-	data, err := os.ReadFile(businessPath)
+	entryPath := datedJSONLPath(entryTrafficLog, time.Now().Format("2006-01-02"))
+	waitForFileContains(t, entryPath, `"code":"ip_permanently_blocked"`, 2*time.Second)
+	data, err := os.ReadFile(entryPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Count(string(data), `"code":"ip_permanently_blocked"`) != 1 {
-		t.Fatalf("expected one aggregated permanent block log, got %s", string(data))
+		t.Fatalf("expected one aggregated entry log, got %s", string(data))
 	}
 	if !strings.Contains(string(data), `hit 3 times in last 1s`) {
-		t.Fatalf("expected aggregated count in business log, got %s", string(data))
+		t.Fatalf("expected aggregated count in entry log, got %s", string(data))
+	}
+	if _, err := os.Stat(datedJSONLPath(businessLog, time.Now().Format("2006-01-02"))); !os.IsNotExist(err) {
+		t.Fatalf("expected no business log file for permanent blocked hits, got err=%v", err)
 	}
 
 	requestPath := datedJSONLPath(requestLog, time.Now().Format("2006-01-02"))
 	if _, err := os.Stat(requestPath); !os.IsNotExist(err) {
 		t.Fatalf("expected no request log file for permanent blocked hits, got err=%v", err)
+	}
+}
+
+func TestAsyncEntryTrafficLogDropsWhenQueueIsFull(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	writer := newAsyncEntryTrafficLog(1, func(EntryTrafficLogEntry) {
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+		<-release
+	})
+
+	writer.Enqueue(EntryTrafficLogEntry{Event: "protocol_rejected"})
+	<-started
+	writer.Enqueue(EntryTrafficLogEntry{Event: "protocol_rejected"})
+	writer.Enqueue(EntryTrafficLogEntry{Event: "protocol_rejected"})
+	if got := writer.stats().Dropped; got != 1 {
+		t.Fatalf("dropped entry logs = %d, want 1", got)
+	}
+
+	close(release)
+	writer.Close()
+	stats := writer.stats()
+	if stats.Accepted != 2 || stats.Written != 2 {
+		t.Fatalf("writer stats = %#v, want two accepted and written entries", stats)
 	}
 }
 

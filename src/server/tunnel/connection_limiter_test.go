@@ -66,6 +66,80 @@ func TestConnectionLimiterRejectsConnectionRate(t *testing.T) {
 	}
 }
 
+func TestConnectionLimiterCleanupExpiresTrackedIPs(t *testing.T) {
+	now := time.Unix(1000, 0)
+	limiter := newConnectionLimiter(SecurityConfig{
+		MaxConcurrentConnections:     10,
+		ConnectionRateWindowSec:      1,
+		MaxNewConnectionsPerIPWindow: 2,
+		MaxTrackedConnectionIPs:      2,
+	})
+	limiter.now = func() time.Time { return now }
+	release, ok, reason := limiter.acquire("203.0.113.10")
+	if !ok {
+		t.Fatalf("acquire rejected: %s", reason)
+	}
+	release()
+	if got := limiter.snapshot()["tracked_ips"]; got != 1 {
+		t.Fatalf("tracked IPs = %d, want 1", got)
+	}
+	now = now.Add(2 * time.Second)
+	limiter.cleanup()
+	if got := limiter.snapshot()["tracked_ips"]; got != 0 {
+		t.Fatalf("tracked IPs after cleanup = %d, want 0", got)
+	}
+}
+
+func TestConnectionLimiterEvictsOldestInactiveIPAtCapacity(t *testing.T) {
+	now := time.Unix(1000, 0)
+	limiter := newConnectionLimiter(SecurityConfig{
+		MaxConcurrentConnections:     10,
+		ConnectionRateWindowSec:      300,
+		MaxNewConnectionsPerIPWindow: 2,
+		MaxTrackedConnectionIPs:      2,
+	})
+	limiter.now = func() time.Time { return now }
+	for _, ip := range []string{"203.0.113.10", "203.0.113.11", "203.0.113.12"} {
+		release, ok, reason := limiter.acquire(ip)
+		if !ok {
+			t.Fatalf("acquire %s rejected: %s", ip, reason)
+		}
+		release()
+		now = now.Add(time.Second)
+	}
+	limiter.mu.Lock()
+	_, hasOldest := limiter.items["203.0.113.10"]
+	_, hasSecond := limiter.items["203.0.113.11"]
+	_, hasNewest := limiter.items["203.0.113.12"]
+	limiter.mu.Unlock()
+	if hasOldest || !hasSecond || !hasNewest {
+		t.Fatalf("tracked items = oldest:%t second:%t newest:%t", hasOldest, hasSecond, hasNewest)
+	}
+	if got := limiter.snapshot()["evicted_ips"]; got != 1 {
+		t.Fatalf("evicted IPs = %d, want 1", got)
+	}
+}
+
+func TestConnectionLimiterRejectsNewIPWhenCapacityHasOnlyActiveConnections(t *testing.T) {
+	limiter := newConnectionLimiter(SecurityConfig{
+		MaxConcurrentConnections:     10,
+		ConnectionRateWindowSec:      60,
+		MaxNewConnectionsPerIPWindow: 2,
+		MaxTrackedConnectionIPs:      1,
+	})
+	release, ok, reason := limiter.acquire("203.0.113.10")
+	if !ok {
+		t.Fatalf("first acquire rejected: %s", reason)
+	}
+	defer release()
+	if _, ok, reason := limiter.acquire("203.0.113.11"); ok || reason != "tracked_remote_ip_capacity" {
+		t.Fatalf("second acquire = %v, %q; want tracked_remote_ip_capacity", ok, reason)
+	}
+	if got := limiter.snapshot()["capacity_rejected"]; got != 1 {
+		t.Fatalf("capacity rejections = %d, want 1", got)
+	}
+}
+
 func TestServerRejectsConnectionsBeforeHandshakeWhenPerIPLimitReached(t *testing.T) {
 	certFile, keyFile := writeTestCertificate(t)
 	ctx, cancel := context.WithCancel(context.Background())

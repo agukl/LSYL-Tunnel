@@ -109,13 +109,13 @@ func (f *failTracker) load() error {
 			if err := json.Unmarshal(data, &state); err != nil {
 				return err
 			}
-			now := time.Now()
+			now := f.now()
 			f.mu.Lock()
 			for _, item := range state.BlockedIPs {
 				if item.IP == "" || !item.BlockedUntil.After(now) {
 					continue
 				}
-				f.items[item.IP] = &failState{blockedUntil: item.BlockedUntil}
+				f.items[item.IP] = &failState{blockedUntil: item.BlockedUntil, lastSeen: now}
 			}
 			f.mu.Unlock()
 		}
@@ -137,7 +137,7 @@ func (f *failTracker) saveLocked() error {
 	if f == nil || f.stateFile == "" {
 		return nil
 	}
-	now := time.Now()
+	now := f.now()
 	state := persistedRuntimeState{BlockedIPs: []persistedBlockedIP{}}
 	for ip, item := range f.items {
 		if item == nil || !item.blockedUntil.After(now) {
@@ -162,7 +162,7 @@ func (f *failTracker) snapshotBlocked() []BlockedIPState {
 	if f == nil {
 		return nil
 	}
-	now := time.Now()
+	now := f.now()
 	changed := false
 	out := []BlockedIPState{}
 	f.mu.Lock()

@@ -42,6 +42,7 @@ type Server struct {
 	requestLog          *jsonlLog
 	businessLog         *jsonlLog
 	entryTrafficLog     *jsonlLog
+	entryTrafficWriter  *asyncEntryTrafficLog
 	flowTrafficLog      *jsonlLog
 	requestSeq          atomic.Uint64
 	permanentBlockHits  *permanentBlockHitAggregator
@@ -66,6 +67,7 @@ type Server struct {
 	connectionsRejectedGlobal       atomic.Int64
 	connectionsRejectedPerIPActive  atomic.Int64
 	connectionsRejectedPerIPNewRate atomic.Int64
+	connectionsRejectedIPCapacity   atomic.Int64
 	authOK                          atomic.Int64
 	authFailed                      atomic.Int64
 	policyRejected                  atomic.Int64
@@ -129,6 +131,7 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 		connLimiter:        newConnectionLimiter(cfg.Security),
 		userStreams:        newUserStreamLimiter(cfg.Security),
 	}
+	srv.entryTrafficWriter = newAsyncEntryTrafficLog(cfg.Security.EntryTrafficLogQueueSize, srv.writeEntryTrafficLog)
 	for _, user := range cfg.Auth.Users {
 		srv.users[user.Username] = user
 	}
@@ -143,6 +146,8 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 	go srv.acceptLoop(ctx)
 	go srv.credentialSealRotationLoop(ctx.Done())
 	go srv.permanentBlockHitLogLoop(ctx.Done())
+	go srv.failureTrackerCleanupLoop(ctx.Done())
+	go srv.connectionLimiterCleanupLoop(ctx.Done())
 	if strings.TrimSpace(cfg.MonitorAddr) != "" {
 		srv.startMonitor(ctx)
 	}
@@ -173,6 +178,9 @@ func (s *Server) Close() error {
 	}
 	s.closeReverseListeners()
 	s.flushPermanentBlockHitLogs()
+	if s.entryTrafficWriter != nil {
+		s.entryTrafficWriter.Close()
+	}
 	if s.requestLog != nil {
 		_ = s.requestLog.Close()
 	}
@@ -204,16 +212,6 @@ func (s *Server) acceptLoop(ctx context.Context) {
 		}
 		remoteIP := remoteHost(conn.RemoteAddr())
 		if s.fails.blockKind(remoteIP) == blockedPermanent {
-			s.recordEntryTrafficLog(EntryTrafficLogEntry{
-				Event:      "connection_rejected",
-				Result:     "blocked",
-				RemoteAddr: addrString(conn.RemoteAddr()),
-				RemoteIP:   remoteIP,
-				LocalAddr:  addrString(conn.LocalAddr()),
-				Code:       "ip_permanently_blocked",
-				Message:    "permanently blocked ip",
-				Abnormal:   true,
-			})
 			s.recordPermanentBlockedHit(remoteIP)
 			_ = conn.Close()
 			continue
@@ -577,26 +575,35 @@ func (s *Server) authorizeTarget(user UserConfig, direction, target string) erro
 	if err != nil {
 		return fmt.Errorf("target address is invalid")
 	}
-	if !isLoopbackName(host) {
-		return fmt.Errorf("target is not allowed")
+	forward := s.allowedConfiguredForward(user.Username, direction, target)
+	if forward == nil {
+		return fmt.Errorf("user is not allowed to access this target")
 	}
-	if s.userAllowedByConfiguredForward(user.Username, direction, target) {
+	if isLoopbackName(host) {
 		return nil
 	}
-	return fmt.Errorf("user is not allowed to access this target")
+	if direction == DirectionClientToServer && isPrivateTargetIP(host) {
+		return nil
+	}
+	return fmt.Errorf("target is not allowed")
 }
 
 func (s *Server) userAllowedByConfiguredForward(username, direction, target string) bool {
+	return s.allowedConfiguredForward(username, direction, target) != nil
+}
+
+func (s *Server) allowedConfiguredForward(username, direction, target string) *ForwardConfig {
 	username = strings.TrimSpace(username)
 	if username == "" {
-		return false
+		return nil
 	}
 	direction = strings.TrimSpace(direction)
 	if direction == "" {
 		direction = DirectionClientToServer
 	}
 	normalizedTarget := normalizeTarget(target)
-	for _, fwd := range s.cfg.Forwards {
+	for i := range s.cfg.Forwards {
+		fwd := &s.cfg.Forwards[i]
 		configuredDirection := strings.TrimSpace(fwd.Direction)
 		if configuredDirection == "" {
 			configuredDirection = DirectionClientToServer
@@ -608,14 +615,14 @@ func (s *Server) userAllowedByConfiguredForward(username, direction, target stri
 			continue
 		}
 		forwardTarget := strings.TrimSpace(fwd.ServerTarget)
-		if strings.TrimSpace(fwd.Direction) == DirectionServerToClient {
+		if configuredDirection == DirectionServerToClient {
 			forwardTarget = strings.TrimSpace(fwd.ListenAddr)
 		}
 		if forwardTarget != "" && normalizeTarget(forwardTarget) == normalizedTarget {
-			return true
+			return fwd
 		}
 	}
-	return false
+	return nil
 }
 
 func allowedUser(users []string, username string) bool {
@@ -709,6 +716,8 @@ func (s *Server) startMonitor(ctx context.Context) {
 func (s *Server) status() map[string]any {
 	connectionLimits := s.connLimiter.snapshot()
 	userStreamLimits := s.userStreams.snapshot()
+	failureStats := s.fails.stats()
+	entryTrafficStats := s.entryTrafficWriter.stats()
 	return map[string]any{
 		"service":              "lsyl-tunnel-server",
 		"listen_addr":          s.Addr(),
@@ -717,18 +726,22 @@ func (s *Server) status() map[string]any {
 		"tracked_remote_ips":   connectionLimits["tracked_ips"],
 		"connections_rejected": s.connectionsRejected.Load(),
 		"connection_limits": map[string]any{
-			"active":                            connectionLimits["active"],
-			"tracked_remote_ips":                connectionLimits["tracked_ips"],
-			"max_concurrent_connections":        s.cfg.Security.MaxConcurrentConnections,
-			"max_concurrent_connections_per_ip": s.cfg.Security.MaxConcurrentConnectionsPerIP,
-			"new_connection_rate_window_sec":    s.cfg.Security.ConnectionRateWindowSec,
-			"max_new_connections_per_ip_window": s.cfg.Security.MaxNewConnectionsPerIPWindow,
+			"active":                              connectionLimits["active"],
+			"tracked_remote_ips":                  connectionLimits["tracked_ips"],
+			"max_tracked_remote_ips":              connectionLimits["max_tracked_ips"],
+			"tracked_remote_ip_evictions":         connectionLimits["evicted_ips"],
+			"tracked_remote_ip_capacity_rejected": connectionLimits["capacity_rejected"],
+			"max_concurrent_connections":          s.cfg.Security.MaxConcurrentConnections,
+			"max_concurrent_connections_per_ip":   s.cfg.Security.MaxConcurrentConnectionsPerIP,
+			"new_connection_rate_window_sec":      s.cfg.Security.ConnectionRateWindowSec,
+			"max_new_connections_per_ip_window":   s.cfg.Security.MaxNewConnectionsPerIPWindow,
 		},
 		"connection_rejections": map[string]any{
 			"total":                      s.connectionsRejected.Load(),
 			"global_concurrent":          s.connectionsRejectedGlobal.Load(),
 			"per_ip_concurrent":          s.connectionsRejectedPerIPActive.Load(),
 			"per_ip_new_connection_rate": s.connectionsRejectedPerIPNewRate.Load(),
+			"tracked_remote_ip_capacity": s.connectionsRejectedIPCapacity.Load(),
 		},
 		"entry_security": map[string]any{
 			"protocol_rejected_total":       s.entryProtocolRejected.Load(),
@@ -742,6 +755,19 @@ func (s *Server) status() map[string]any {
 			"invalid_handshake_rejected":    s.entryInvalidHandshakeRejected.Load(),
 			"permanent_blocks_created":      s.entryPermanentBlocksCreated.Load(),
 			"permanent_block_hits_observed": s.entryPermanentBlockHits.Load(),
+		},
+		"failure_tracker": map[string]any{
+			"tracked_ips":     failureStats.TrackedIPs,
+			"max_tracked_ips": failureStats.MaxTrackedIPs,
+			"evicted_ips":     failureStats.EvictedIPs,
+			"capacity_drops":  failureStats.CapacityDrops,
+		},
+		"entry_traffic_log": map[string]any{
+			"queue_capacity": entryTrafficStats.Capacity,
+			"queue_pending":  entryTrafficStats.Queued,
+			"accepted":       entryTrafficStats.Accepted,
+			"written":        entryTrafficStats.Written,
+			"dropped":        entryTrafficStats.Dropped,
 		},
 		"user_stream_limits": map[string]any{
 			"active":                             userStreamLimits.Active,
@@ -765,6 +791,40 @@ func (s *Server) status() map[string]any {
 	}
 }
 
+func (s *Server) failureTrackerCleanupLoop(done <-chan struct{}) {
+	if s == nil || s.fails == nil {
+		return
+	}
+	ticker := time.NewTicker(s.fails.cleanupEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			if err := s.fails.cleanup(); err != nil {
+				s.log("failure tracker cleanup failed: %v", err)
+			}
+		}
+	}
+}
+
+func (s *Server) connectionLimiterCleanupLoop(done <-chan struct{}) {
+	if s == nil || s.connLimiter == nil {
+		return
+	}
+	ticker := time.NewTicker(s.connLimiter.cleanupEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			s.connLimiter.cleanup()
+		}
+	}
+}
+
 func (s *Server) recordConnectionRejected(reason string) {
 	s.connectionsRejected.Add(1)
 	switch reason {
@@ -774,6 +834,8 @@ func (s *Server) recordConnectionRejected(reason string) {
 		s.connectionsRejectedPerIPActive.Add(1)
 	case "per_ip_new_connection_rate":
 		s.connectionsRejectedPerIPNewRate.Add(1)
+	case "tracked_remote_ip_capacity":
+		s.connectionsRejectedIPCapacity.Add(1)
 	}
 }
 
@@ -785,6 +847,8 @@ func (s *Server) connectionRejectLimit(reason string) (int, int) {
 		return s.cfg.Security.MaxConcurrentConnectionsPerIP, 0
 	case "per_ip_new_connection_rate":
 		return s.cfg.Security.MaxNewConnectionsPerIPWindow, s.cfg.Security.ConnectionRateWindowSec
+	case "tracked_remote_ip_capacity":
+		return s.cfg.Security.MaxTrackedConnectionIPs, 0
 	default:
 		return 0, 0
 	}
@@ -801,10 +865,15 @@ type failTracker struct {
 	window        time.Duration
 	limit         int
 	blockFor      time.Duration
+	maxItems      int
+	cleanupEvery  time.Duration
+	now           func() time.Time
 	items         map[string]*failState
 	permanent     sync.Map
 	stateFile     string
 	permanentFile string
+	evicted       atomic.Uint64
+	capacityDrop  atomic.Uint64
 }
 
 type blockKind int
@@ -819,13 +888,25 @@ type failState struct {
 	authFailures     []time.Time
 	protocolFailures []time.Time
 	blockedUntil     time.Time
+	lastSeen         time.Time
 }
 
 func newFailTracker(cfg SecurityConfig, stateFile, permanentFile string) *failTracker {
+	maxItems := cfg.MaxTrackedFailureIPs
+	if maxItems <= 0 {
+		maxItems = 8192
+	}
+	cleanupEvery := time.Duration(cfg.FailureTrackerCleanupSec) * time.Second
+	if cleanupEvery <= 0 {
+		cleanupEvery = time.Minute
+	}
 	return &failTracker{
 		window:        time.Duration(cfg.AuthFailWindowSec) * time.Second,
 		limit:         cfg.AuthFailThreshold,
 		blockFor:      time.Duration(cfg.AuthFailBlockSec) * time.Second,
+		maxItems:      maxItems,
+		cleanupEvery:  cleanupEvery,
+		now:           time.Now,
 		items:         map[string]*failState{},
 		stateFile:     strings.TrimSpace(stateFile),
 		permanentFile: strings.TrimSpace(permanentFile),
@@ -852,7 +933,8 @@ func (f *failTracker) blockKind(key string) blockKind {
 		return blockedNone
 	}
 	f.mu.RUnlock()
-	if time.Now().Before(blockedUntil) {
+	now := f.now()
+	if now.Before(blockedUntil) {
 		return blockedTemporary
 	}
 	f.mu.Lock()
@@ -864,7 +946,7 @@ func (f *failTracker) blockKind(key string) blockKind {
 	if f.hasPermanent(key) {
 		return blockedPermanent
 	}
-	if state.blockedUntil.IsZero() || time.Now().Before(state.blockedUntil) {
+	if state.blockedUntil.IsZero() || now.Before(state.blockedUntil) {
 		if state.blockedUntil.IsZero() {
 			return blockedNone
 		}
@@ -881,23 +963,17 @@ func (f *failTracker) blockKind(key string) blockKind {
 func (f *failTracker) addFailure(key string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	now := time.Now()
-	state := f.items[key]
-	if state == nil {
-		state = &failState{}
-		f.items[key] = state
+	now := f.now()
+	state, ok := f.trackStateLocked(key, now)
+	if !ok {
+		return
 	}
 	if f.hasPermanent(key) {
 		return
 	}
-	cutoff := now.Add(-f.window)
-	kept := state.authFailures[:0]
-	for _, t := range state.authFailures {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-	state.authFailures = append(kept, now)
+	state.authFailures = appendRecentFailures(state.authFailures, now.Add(-f.window))
+	state.authFailures = append(state.authFailures, now)
+	state.lastSeen = now
 	if len(state.authFailures) >= f.limit {
 		state.blockedUntil = now.Add(f.blockFor)
 		state.authFailures = nil
@@ -908,23 +984,17 @@ func (f *failTracker) addFailure(key string) {
 func (f *failTracker) addProtocolFailure(key string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	now := time.Now()
-	state := f.items[key]
-	if state == nil {
-		state = &failState{}
-		f.items[key] = state
+	now := f.now()
+	state, ok := f.trackStateLocked(key, now)
+	if !ok {
+		return false
 	}
 	if f.hasPermanent(key) {
 		return false
 	}
-	cutoff := now.Add(-f.window)
-	kept := state.protocolFailures[:0]
-	for _, t := range state.protocolFailures {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-	state.protocolFailures = append(kept, now)
+	state.protocolFailures = appendRecentFailures(state.protocolFailures, now.Add(-f.window))
+	state.protocolFailures = append(state.protocolFailures, now)
+	state.lastSeen = now
 	if len(state.protocolFailures) >= f.limit {
 		state.blockedUntil = time.Time{}
 		state.authFailures = nil
@@ -959,6 +1029,119 @@ func (f *failTracker) hasPermanent(key string) bool {
 	return ok
 }
 
+type failTrackerStats struct {
+	TrackedIPs    int
+	MaxTrackedIPs int
+	EvictedIPs    uint64
+	CapacityDrops uint64
+}
+
+func (f *failTracker) trackStateLocked(key string, now time.Time) (*failState, bool) {
+	key = strings.TrimSpace(key)
+	if key == "" || f.hasPermanent(key) {
+		return nil, false
+	}
+	if state := f.items[key]; state != nil {
+		state.lastSeen = now
+		return state, true
+	}
+	_ = f.cleanupLocked(now)
+	if len(f.items) >= f.maxItems {
+		oldestKey := ""
+		var oldest time.Time
+		for candidate, state := range f.items {
+			if state == nil || (!state.blockedUntil.IsZero() && state.blockedUntil.After(now)) {
+				continue
+			}
+			if oldestKey == "" || state.lastSeen.Before(oldest) {
+				oldestKey = candidate
+				oldest = state.lastSeen
+			}
+		}
+		if oldestKey == "" {
+			f.capacityDrop.Add(1)
+			return nil, false
+		}
+		delete(f.items, oldestKey)
+		f.evicted.Add(1)
+	}
+	state := &failState{lastSeen: now}
+	f.items[key] = state
+	return state, true
+}
+
+func appendRecentFailures(items []time.Time, cutoff time.Time) []time.Time {
+	kept := items[:0]
+	for _, item := range items {
+		if item.After(cutoff) {
+			kept = append(kept, item)
+		}
+	}
+	return kept
+}
+
+func (f *failTracker) cleanup() error {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.cleanupLocked(f.now()) {
+		return nil
+	}
+	return f.saveLocked()
+}
+
+func (f *failTracker) cleanupLocked(now time.Time) bool {
+	if f == nil {
+		return false
+	}
+	changed := false
+	cutoff := now.Add(-f.window)
+	for key, state := range f.items {
+		if state == nil {
+			delete(f.items, key)
+			changed = true
+			continue
+		}
+		beforeAuth := len(state.authFailures)
+		beforeProtocol := len(state.protocolFailures)
+		state.authFailures = appendRecentFailures(state.authFailures, cutoff)
+		state.protocolFailures = appendRecentFailures(state.protocolFailures, cutoff)
+		if len(state.authFailures) != beforeAuth || len(state.protocolFailures) != beforeProtocol {
+			changed = true
+		}
+		if !state.blockedUntil.IsZero() && !state.blockedUntil.After(now) {
+			state.blockedUntil = time.Time{}
+			changed = true
+		}
+		if state.blockedUntil.IsZero() && len(state.authFailures) == 0 && len(state.protocolFailures) == 0 {
+			delete(f.items, key)
+			changed = true
+		}
+	}
+	return changed
+}
+
+func (f *failTracker) stats() failTrackerStats {
+	if f == nil {
+		return failTrackerStats{}
+	}
+	f.mu.Lock()
+	changed := f.cleanupLocked(f.now())
+	stats := failTrackerStats{
+		TrackedIPs:    len(f.items),
+		MaxTrackedIPs: f.maxItems,
+		EvictedIPs:    f.evicted.Load(),
+		CapacityDrops: f.capacityDrop.Load(),
+	}
+	if changed {
+		_ = f.saveLocked()
+	}
+	f.mu.Unlock()
+	return stats
+}
+
 func splitHostPort(target string) (string, int, error) {
 	host, portText, err := net.SplitHostPort(strings.TrimSpace(target))
 	if err != nil {
@@ -986,6 +1169,11 @@ func isLoopbackName(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+func isPrivateTargetIP(host string) bool {
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsPrivate()
 }
 
 func remoteHost(addr net.Addr) string {

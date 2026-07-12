@@ -54,12 +54,13 @@ func (s *Server) recordPermanentBlockedHit(remoteIP string) {
 	}
 	s.countEntryPermanentBlockHit()
 	if s.permanentBlockHits == nil {
-		s.recordEvent(RuntimeEvent{
-			Kind:     "auth",
+		s.recordEntryTrafficLog(EntryTrafficLogEntry{
+			Event:    "connection_rejected",
 			Result:   "blocked",
 			RemoteIP: remoteIP,
 			Code:     "ip_permanently_blocked",
-			Message:  "permanently blocked ip hit 1 time",
+			Message:  permanentBlockedHitSummary(1, defaultPermanentBlockHitLogInterval),
+			Abnormal: true,
 		})
 		return
 	}
@@ -102,12 +103,13 @@ func (s *Server) flushPermanentBlockHitLogs() {
 		if count <= 0 {
 			continue
 		}
-		s.recordEvent(RuntimeEvent{
-			Kind:     "auth",
+		s.recordEntryTrafficLog(EntryTrafficLogEntry{
+			Event:    "connection_rejected",
 			Result:   "blocked",
 			RemoteIP: ip,
 			Code:     "ip_permanently_blocked",
 			Message:  permanentBlockedHitSummary(count, interval),
+			Abnormal: true,
 		})
 	}
 }

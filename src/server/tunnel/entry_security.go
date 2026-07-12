@@ -190,7 +190,6 @@ func (s *Server) rejectEntryProtocol(conn net.Conn, remoteIP, requestID, entryCo
 	permanentBlockCreated := s.fails.addProtocolFailure(remoteIP)
 	if permanentBlockCreated {
 		s.countEntryPermanentBlockCreated()
-		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "auth", Result: "blocked", RemoteIP: remoteIP, Code: "ip_permanently_blocked", Message: "too many invalid tunnel requests"})
 	}
 	remoteAddr := ""
 	localAddr := ""
