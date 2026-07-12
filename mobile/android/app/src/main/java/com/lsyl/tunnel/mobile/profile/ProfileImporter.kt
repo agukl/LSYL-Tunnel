@@ -3,6 +3,7 @@
 import android.content.Context
 import android.net.Uri
 import com.lsyl.tunnel.mobile.security.CertificatePins
+import com.lsyl.tunnel.mobile.tunnel.MAX_MOBILE_FORWARDS
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.time.OffsetDateTime
@@ -88,8 +89,10 @@ object ProfileImporter {
         }
         if (profile.tls.insecureSkipVerify) throw ProfileImportException("移动端不允许跳过证书校验")
         if (profile.tls.minVersion != "1.3") throw ProfileImportException("移动端要求 TLS 1.3")
-        CertificatePins.parseCertificate(certBytes)
         if (profile.forwards.isEmpty()) throw ProfileImportException("至少需要一个正向端口")
+        if (profile.forwards.size > MAX_MOBILE_FORWARDS) {
+            throw ProfileImportException("移动端最多支持 $MAX_MOBILE_FORWARDS 个本地端口")
+        }
         val names = mutableSetOf<String>()
         val listens = mutableSetOf<String>()
         profile.forwards.forEach { forward ->
@@ -105,5 +108,6 @@ object ProfileImporter {
             if (!names.add(name)) throw ProfileImportException("端口名称重复: $name")
             if (!listens.add(forward.listenAddr)) throw ProfileImportException("本地监听端口重复: ${forward.listenAddr}")
         }
+        CertificatePins.parseCertificate(certBytes)
     }
 }

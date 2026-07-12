@@ -5,15 +5,13 @@ import com.lsyl.tunnel.mobile.profile.MobileProfile
 import com.lsyl.tunnel.mobile.protocol.ProtocolClient
 import com.lsyl.tunnel.mobile.protocol.ProtocolException
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 class TunnelManager(private val loaded: LoadedProfile) {
     private val profile: MobileProfile = loaded.profile
     private val protocol = ProtocolClient(profile, loaded.serverCertBytes)
     private val registry = RuntimeRegistry(profile.forwards)
-    private val executor: ExecutorService = Executors.newCachedThreadPool()
+    private val executors = TunnelExecutors()
     private val forwards = ConcurrentHashMap<String, LocalForward>()
     private val running = AtomicBoolean(false)
     @Volatile private var message: String = "未连接"
@@ -26,7 +24,7 @@ class TunnelManager(private val loaded: LoadedProfile) {
             val runtime = registry.runtime(forward)
             try {
                 protocol.forwardCheck(forward)
-                val local = LocalForward(forward, protocol, runtime, executor)
+                val local = LocalForward(forward, protocol, runtime, executors.listeners, executors.connections, executors.copies)
                 forwards[forward.displayName()] = local
                 local.start()
             } catch (err: ProtocolException) {
@@ -50,7 +48,7 @@ class TunnelManager(private val loaded: LoadedProfile) {
                 protocol.forwardCheck(forward)
                 val existing = forwards[forward.displayName()]
                 if (existing == null || !existing.isRunning()) {
-                    val local = LocalForward(forward, protocol, runtime, executor)
+                    val local = LocalForward(forward, protocol, runtime, executors.listeners, executors.connections, executors.copies)
                     forwards[forward.displayName()] = local
                     local.start()
                 }
@@ -74,7 +72,7 @@ class TunnelManager(private val loaded: LoadedProfile) {
         if (!running.compareAndSet(true, false)) return
         forwards.values.forEach { it.stop() }
         forwards.clear()
-        executor.shutdownNow()
+        executors.shutdown()
         message = "已断开"
     }
 

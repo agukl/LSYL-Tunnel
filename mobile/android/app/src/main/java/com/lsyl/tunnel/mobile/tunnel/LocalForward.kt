@@ -8,14 +8,17 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
-import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executor
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 
 class LocalForward(
     private val forward: ForwardConfig,
     private val protocol: ProtocolClient,
     private val runtime: ForwardRuntime,
-    private val executor: ExecutorService
+    private val listenerExecutor: Executor,
+    private val connectionExecutor: Executor,
+    private val copyExecutor: Executor
 ) {
     private val running = AtomicBoolean(false)
     @Volatile private var serverSocket: ServerSocket? = null
@@ -30,9 +33,14 @@ class LocalForward(
             socket.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), endpoint.port))
             serverSocket = socket
             runtime.setState(ForwardState.LISTENING, "本地端口监听中")
-            executor.execute { acceptLoop(socket) }
+            listenerExecutor.execute { acceptLoop(socket) }
         } catch (err: Exception) {
             running.set(false)
+            try {
+                serverSocket?.close()
+            } catch (_: Exception) {
+            }
+            serverSocket = null
             runtime.setState(ForwardState.LISTEN_FAILED, friendlyMessage(err))
         }
     }
@@ -54,7 +62,12 @@ class LocalForward(
         while (running.get()) {
             try {
                 val local = listener.accept()
-                executor.execute { handleLocal(local) }
+                try {
+                    connectionExecutor.execute { handleLocal(local) }
+                } catch (_: RejectedExecutionException) {
+                    closeQuietly(local)
+                    runtime.setState(ForwardState.LISTENING, "本地连接并发已达上限，已拒绝")
+                }
             } catch (_: SocketException) {
                 if (running.get()) runtime.setState(ForwardState.ERROR, "本地监听已中断")
                 return
@@ -68,7 +81,7 @@ class LocalForward(
         val streamDone = runtime.beginStream()
         try {
             val remote = protocol.open(forward)
-            SocketPipe.copyBidirectional(local, remote, executor)
+            SocketPipe.copyBidirectional(local, remote, copyExecutor)
         } catch (err: ProtocolException) {
             closeQuietly(local)
             if (err.response.code == "target_denied") {
