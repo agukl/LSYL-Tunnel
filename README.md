@@ -4,7 +4,7 @@ LSYL Tunnel is a username/password-authenticated TCP tunnel and port-forwarding 
 
 The identity boundary is the account password, not a client certificate. TLS protects tunnel traffic and lets the client verify the server. The client does not present a certificate or private key.
 
-Current release version: `2.0.1`
+Current release version: `2.1.0`
 
 Chinese documentation: [docs/README-zh.md](docs/README-zh.md)
 System flow overview (Chinese): [docs/system/overview-zh.md](docs/system/overview-zh.md)
@@ -110,7 +110,7 @@ The server installer generates a self-signed server TLS identity during install 
 Forward entries support three modes:
 
 - `client_to_server`: the client listens locally, and the server connects to a server-side target.
-- `virtual`: the standard 64-bit Windows client intercepts one certificate-authorized `IP:port` endpoint and maps it through a random session-local listener; other ports keep their normal network path.
+- `virtual`: the standard 64-bit Windows client intercepts one certificate-authorized `IP:port` endpoint and maps it through a random loopback-only session listener; each rule is isolated and other ports keep their normal network path.
 - `server_to_client`: the server creates a passive local listening port, and an authenticated client activates it; the server never dials the client.
 
 ## Security Model
