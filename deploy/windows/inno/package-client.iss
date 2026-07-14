@@ -1,5 +1,7 @@
 #define AppName "LSYL Tunnel Client"
-#define AppVersion "2.0.1"
+#define AppVersion "2.1.0"
+#define WinDivertDLLSHA256 "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+#define WinDivertDriverSHA256 "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
 ; This script is copied into the client distributable package:
 ;   LSYL Tunnel Client\installer\client.iss
 ; It compiles the files from that package directory, not from source.
@@ -44,8 +46,8 @@ Name: "{app}\licenses\WinDivert\source"
 [Files]
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-lite.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
-Source: "{#SourceRoot}\bin\WinDivert.dll"; DestDir: "{app}\bin"; Flags: ignoreversion
-Source: "{#SourceRoot}\bin\WinDivert64.sys"; DestDir: "{app}\bin"; Flags: ignoreversion
+Source: "{#SourceRoot}\bin\WinDivert.dll"; DestDir: "{app}\bin"; Flags: ignoreversion restartreplace; Check: ShouldInstallPinnedRuntime('{app}\bin\WinDivert.dll', '{#WinDivertDLLSHA256}')
+Source: "{#SourceRoot}\bin\WinDivert64.sys"; DestDir: "{app}\bin"; Flags: ignoreversion restartreplace; Check: ShouldInstallPinnedRuntime('{app}\bin\WinDivert64.sys', '{#WinDivertDriverSHA256}')
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestName: "lsyl-tunnel-client-gui-quit.exe"; Flags: dontcopy
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestName: "lsyl-tunnel-client-gui-check.exe"; Flags: dontcopy
 Source: "{#SourceRoot}\assets\client.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
@@ -84,6 +86,29 @@ var
   ClientRollbackArchiveConfigFile: String;
   ClientRollbackArchiveCertFile: String;
   ClientQuitUseInstalledApp: Boolean;
+
+function ShouldInstallPinnedRuntime(FileName, ExpectedSHA256: String): Boolean;
+var
+  ExpandedFileName: String;
+  ExistingSHA256: String;
+begin
+  ExpandedFileName := ExpandConstant(FileName);
+  if not FileExists(ExpandedFileName) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  try
+    ExistingSHA256 := GetSHA256OfFile(ExpandedFileName);
+    Result := CompareText(ExistingSHA256, ExpectedSHA256) <> 0;
+    if not Result then
+      Log('Skipping unchanged pinned runtime: ' + ExpandedFileName);
+  except
+    Log('Unable to hash existing pinned runtime; replacement will be attempted: ' + ExpandedFileName);
+    Result := True;
+  end;
+end;
 
 function ClientQuitHelperPath: String;
 begin

@@ -19,6 +19,8 @@ function Get-DefaultReleaseFiles([string]$root) {
     @(
         (Join-Path $root "LSYL Tunnel Client\bin\lsyl-tunnel-client-gui.exe"),
         (Join-Path $root "LSYL Tunnel Client\bin\lsyl-tunnel-client-lite.exe"),
+        (Join-Path $root "LSYL Tunnel Client\bin\WinDivert.dll"),
+        (Join-Path $root "LSYL Tunnel Client\bin\WinDivert64.sys"),
         (Join-Path $root "installers\LSYL-Tunnel-Client-Setup.exe"),
         (Join-Path $root "installers\LSYL-Tunnel-Server-Setup.exe"),
         (Join-Path $root "installers\LSYL-Tunnel-Android.apk")
