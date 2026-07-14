@@ -125,11 +125,17 @@ findstr /c:"build-release-dir.cmd" release.cmd >nul && (echo [ERROR] release.cmd
 findstr /c:"write-dist-from-build.cmd" release.cmd >nul && (echo [ERROR] release.cmd must not call obsolete write-dist-from-build.cmd & exit /b 1)
 findstr /c:"PACKAGE_ONLY" release.cmd >nul && (echo [ERROR] release.cmd must not keep PACKAGE_ONLY release flow & exit /b 1)
 findstr /c:"package-only" release.cmd >nul && (echo [ERROR] release.cmd must not keep /package-only release flow & exit /b 1)
+findstr /c:":refresh_dist_in_place" release.cmd >nul || (echo [ERROR] release.cmd must support in-place refresh when the old dist directory cannot be renamed & exit /b 1)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$text=Get-Content -Raw -Encoding UTF8 'release.cmd'; if(([regex]::Matches($text,'endlocal & exit /b')).Count -lt 3){ Write-Host '[ERROR] release.cmd failure paths must preserve a non-zero exit code across endlocal'; exit 1 }" || exit /b 1
 findstr /c:"autostartservice" deploy\windows\inno\package-server.iss >nul || (echo [ERROR] Server installer is missing service auto-start confirmation task & exit /b 1)
 findstr /c:"-start-type" deploy\windows\inno\package-server.iss >nul || (echo [ERROR] Server installer is missing service start-type registration parameter & exit /b 1)
 findstr /c:"config-compat-check" deploy\windows\inno\package-client.iss >nul || (echo [ERROR] Client installer is missing config compatibility check & exit /b 1)
 findstr /c:"-virtual-ip-helper cleanup" deploy\windows\inno\package-client.iss >nul && (echo [ERROR] Client installer still contains obsolete virtual IP alias cleanup & exit /b 1)
 findstr /c:"WinDivert64.sys" deploy\windows\inno\package-client.iss >nul || (echo [ERROR] Client installer is missing WinDivert driver packaging & exit /b 1)
+findstr /c:"ShouldInstallPinnedRuntime" deploy\windows\inno\package-client.iss >nul || (echo [ERROR] Client installer is missing unchanged WinDivert runtime detection & exit /b 1)
+findstr /c:"restartreplace" deploy\windows\inno\package-client.iss >nul || (echo [ERROR] Client installer is missing locked WinDivert runtime replacement handling & exit /b 1)
+findstr /c:"LSYL Tunnel Client\bin\WinDivert.dll" deploy\windows\sign\write-release-manifest.ps1 >nul || (echo [ERROR] Release manifest defaults are missing WinDivert.dll & exit /b 1)
+findstr /c:"LSYL Tunnel Client\bin\WinDivert64.sys" deploy\windows\sign\write-release-manifest.ps1 >nul || (echo [ERROR] Release manifest defaults are missing WinDivert64.sys & exit /b 1)
 findstr /c:"DirectionVirtual" src\client\tunnel\config.go >nul || (echo [ERROR] Client config is missing direction: virtual & exit /b 1)
 findstr /c:"virtual_ip,omitempty" src\client\tunnel\config.go >nul && (echo [ERROR] Client config must use listen_addr instead of virtual_ip & exit /b 1)
 findstr /c:"WinDivertOpen" src\client\tunnel\virtual_redirect_windows.go >nul || (echo [ERROR] Virtual forwarding must use endpoint-specific WinDivert interception & exit /b 1)
@@ -137,6 +143,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path
 if not exist third_party\windivert\2.2.2\x64\WinDivert.dll (echo [ERROR] Missing WinDivert.dll source dependency & exit /b 1)
 if not exist third_party\windivert\2.2.2\x64\WinDivert64.sys (echo [ERROR] Missing WinDivert64.sys source dependency & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$sig=Get-AuthenticodeSignature 'third_party\windivert\2.2.2\x64\WinDivert64.sys'; if($sig.Status -ne 'Valid'){ Write-Host ('[ERROR] WinDivert64.sys signature is not valid: ' + $sig.Status); exit 1 }" || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$script=Get-Content -Raw -Encoding UTF8 'deploy\windows\inno\package-client.iss'; foreach($file in @('WinDivert.dll','WinDivert64.sys')){ $hash=(Get-FileHash -Algorithm SHA256 ('third_party\windivert\2.2.2\x64\' + $file)).Hash.ToLowerInvariant(); if(-not $script.Contains($hash)){ Write-Host ('[ERROR] Client installer pinned hash does not match ' + $file + ': ' + $hash); exit 1 } }" || exit /b 1
 findstr /c:"config-compat-check" deploy\windows\inno\package-server.iss >nul || (echo [ERROR] Server installer is missing config compatibility check & exit /b 1)
 findstr /c:"reference-config" deploy\windows\inno\package-server.iss >nul && (echo [ERROR] Server installer must not use reference-config YAML shape check & exit /b 1)
 findstr /c:"server-reference.yaml" deploy\windows\inno\package-server.iss >nul && (echo [ERROR] Server installer must not include server-reference.yaml & exit /b 1)
@@ -144,7 +151,6 @@ if exist deploy\windows\inno\client.iss (echo [ERROR] Obsolete source-side Inno 
 if exist deploy\windows\inno\server.iss (echo [ERROR] Obsolete source-side Inno template remains: deploy\windows\inno\server.iss & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path 'deploy\windows\inno\package-client.iss' -SimpleMatch 'taskkill' -List; if($hit){ Write-Host ('[ERROR] Client installer must not force-kill processes: ' + $hit.Path + ':' + $hit.LineNumber); exit 1 }" || exit /b 1
 findstr /c:"RollbackClientRuntimeFiles" deploy\windows\inno\package-client.iss >nul || (echo [ERROR] Client installer is missing rollback cleanup logic & exit /b 1)
-call deploy\windows\sign\sign-release.cmd package >nul || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path 'release.cmd','deploy\windows\sign\sign-release.ps1','deploy\windows\sign\write-release-manifest.ps1','deploy\windows\app\write-dist-tools.cmd' -Pattern 'LSYL Tunnel Profile Tool','package-profile','profile-package' -List; if($hit){ $hit | ForEach-Object { Write-Host ('[ERROR] Profile tool must not be part of release packaging: ' + $_.Path + ':' + $_.LineNumber) }; exit 1 }" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$roots=@('src','deploy','docs'); $files=foreach($r in $roots){ if(Test-Path $r){ Get-ChildItem $r -Recurse -File } }; $files=$files | Where-Object { $_.FullName -notlike '*\deploy\windows\test\selfcheck.cmd' }; $hit=$files | Select-String -SimpleMatch 'LSYLTunnelClient','lsyl-tunnel-client-svc' -List; if($hit){ $hit | ForEach-Object { Write-Host ('[ERROR] Forbidden client service reference: ' + $_.Path + ':' + $_.LineNumber) }; exit 1 }" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\test\check-text.ps1 || exit /b 1
@@ -162,11 +168,12 @@ if not exist build\bin\server\lsyl-tunnel-cert.exe (echo [ERROR] Missing: build\
 if not exist build\bin\server\lsyl-tunnel-passwd.exe (echo [ERROR] Missing: build\bin\server\lsyl-tunnel-passwd.exe & exit /b 1)
 if not exist mobile\android\settings.gradle.kts (echo [ERROR] Missing Android Gradle project settings & exit /b 1)
 if not exist mobile\android\app\build.gradle.kts (echo [ERROR] Missing Android app Gradle config & exit /b 1)
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$targets=@('build\bin\client\lsyl-tunnel-client.exe','build\bin\client\lsyl-tunnel-client-gui.exe','build\bin\client\lsyl-tunnel-client-lite.exe','build\bin\profile\lsyl-tunnel-profile.exe','build\bin\server\lsyl-tunnel-server.exe','build\bin\server\lsyl-tunnel-server-gui.exe','build\bin\server\lsyl-tunnel-server-svc.exe','build\bin\server\lsyl-tunnel-cert.exe','build\bin\server\lsyl-tunnel-passwd.exe'); $bad=@(); foreach($t in $targets){ $vi=(Get-Item $t).VersionInfo; if([string]::IsNullOrWhiteSpace($vi.ProductName) -or [string]::IsNullOrWhiteSpace($vi.FileDescription) -or [string]::IsNullOrWhiteSpace($vi.CompanyName) -or $vi.FileVersion -ne '2.0.1.0'){ $bad += ($t + ' product=' + $vi.ProductName + ' desc=' + $vi.FileDescription + ' company=' + $vi.CompanyName + ' version=' + $vi.FileVersion) } }; if($bad){ Write-Host '[ERROR] Missing or incomplete Windows version resource:'; $bad | ForEach-Object { Write-Host ('  ' + $_) }; exit 1 }" || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$targets=@('build\bin\client\lsyl-tunnel-client.exe','build\bin\client\lsyl-tunnel-client-gui.exe','build\bin\client\lsyl-tunnel-client-lite.exe','build\bin\profile\lsyl-tunnel-profile.exe','build\bin\server\lsyl-tunnel-server.exe','build\bin\server\lsyl-tunnel-server-gui.exe','build\bin\server\lsyl-tunnel-server-svc.exe','build\bin\server\lsyl-tunnel-cert.exe','build\bin\server\lsyl-tunnel-passwd.exe'); $bad=@(); foreach($t in $targets){ $vi=(Get-Item $t).VersionInfo; if([string]::IsNullOrWhiteSpace($vi.ProductName) -or [string]::IsNullOrWhiteSpace($vi.FileDescription) -or [string]::IsNullOrWhiteSpace($vi.CompanyName) -or $vi.FileVersion -ne '2.1.0.0'){ $bad += ($t + ' product=' + $vi.ProductName + ' desc=' + $vi.FileDescription + ' company=' + $vi.CompanyName + ' version=' + $vi.FileVersion) } }; if($bad){ Write-Host '[ERROR] Missing or incomplete Windows version resource:'; $bad | ForEach-Object { Write-Host ('  ' + $_) }; exit 1 }" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='build\bin\client\lsyl-tunnel-client-lite.exe'; $b=[IO.File]::ReadAllBytes($p); $pe=[BitConverter]::ToInt32($b,0x3c); $machine=[BitConverter]::ToUInt16($b,$pe+4); if($machine -ne 0x014c){ Write-Host ('[ERROR] Win7 Lite client must be PE32/i386, got machine 0x{0:X4}' -f $machine); exit 1 }" || exit /b 1
-powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\sign\write-release-manifest.ps1 -OutputDir %SELF_TMP%\selfcheck-release-manifest -DistDir . -Files build\bin\client\lsyl-tunnel-client.exe,build\bin\client\lsyl-tunnel-client-gui.exe,build\bin\client\lsyl-tunnel-client-lite.exe,build\bin\profile\lsyl-tunnel-profile.exe,build\bin\server\lsyl-tunnel-server.exe,build\bin\server\lsyl-tunnel-server-gui.exe,build\bin\server\lsyl-tunnel-server-svc.exe,build\bin\server\lsyl-tunnel-cert.exe,build\bin\server\lsyl-tunnel-passwd.exe >nul || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\sign\write-release-manifest.ps1 -OutputDir %SELF_TMP%\selfcheck-release-manifest -DistDir . -Files build\bin\client\lsyl-tunnel-client.exe,build\bin\client\lsyl-tunnel-client-gui.exe,build\bin\client\lsyl-tunnel-client-lite.exe,build\bin\client\WinDivert.dll,build\bin\client\WinDivert64.sys,build\bin\profile\lsyl-tunnel-profile.exe,build\bin\server\lsyl-tunnel-server.exe,build\bin\server\lsyl-tunnel-server-gui.exe,build\bin\server\lsyl-tunnel-server-svc.exe,build\bin\server\lsyl-tunnel-cert.exe,build\bin\server\lsyl-tunnel-passwd.exe >nul || exit /b 1
 if not exist %SELF_TMP%\selfcheck-release-manifest\release-manifest.json (echo [ERROR] Missing generated release manifest json & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-release-manifest\release-manifest.txt (echo [ERROR] Missing generated release manifest txt & exit /b 1)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$m=Get-Content -Raw -Encoding UTF8 '%SELF_TMP%\selfcheck-release-manifest\release-manifest.json' | ConvertFrom-Json; $names=@($m.files.file_name); foreach($name in @('WinDivert.dll','WinDivert64.sys')){ if($names -notcontains $name){ Write-Host ('[ERROR] Release manifest is missing ' + $name); exit 1 } }" || exit /b 1
 rmdir /s /q %SELF_TMP%\selfcheck-release-manifest
 if exist %SELF_TMP%\selfcheck-client-package rmdir /s /q %SELF_TMP%\selfcheck-client-package
 call deploy\windows\app\package-client.cmd %SELF_TMP%\selfcheck-client-package >nul || exit /b 1
@@ -176,6 +183,14 @@ if not exist %SELF_TMP%\selfcheck-client-package\bin\WinDivert.dll (echo [ERROR]
 if not exist %SELF_TMP%\selfcheck-client-package\bin\WinDivert64.sys (echo [ERROR] Missing: client package WinDivert64.sys & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\licenses\WinDivert\LICENSE (echo [ERROR] Missing: client package WinDivert license & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\licenses\WinDivert\source\WinDivert-2.2.2-source.zip (echo [ERROR] Missing: client package WinDivert source archive & exit /b 1)
+if exist "%SELF_TMP%\selfcheck-default-dist" rmdir /s /q "%SELF_TMP%\selfcheck-default-dist"
+mkdir "%SELF_TMP%\selfcheck-default-dist\LSYL Tunnel Client\bin" || exit /b 1
+copy /y "%SELF_TMP%\selfcheck-client-package\bin\WinDivert.dll" "%SELF_TMP%\selfcheck-default-dist\LSYL Tunnel Client\bin\" >nul || exit /b 1
+copy /y "%SELF_TMP%\selfcheck-client-package\bin\WinDivert64.sys" "%SELF_TMP%\selfcheck-default-dist\LSYL Tunnel Client\bin\" >nul || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\sign\write-release-manifest.ps1 -OutputDir "%SELF_TMP%\selfcheck-default-manifest" -DistDir "%SELF_TMP%\selfcheck-default-dist" >nul || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$m=Get-Content -Raw -Encoding UTF8 '%SELF_TMP%\selfcheck-default-manifest\release-manifest.json' | ConvertFrom-Json; $names=@($m.files.file_name); foreach($name in @('WinDivert.dll','WinDivert64.sys')){ if($names -notcontains $name){ Write-Host ('[ERROR] Default release manifest is missing ' + $name); exit 1 } }" || exit /b 1
+rmdir /s /q "%SELF_TMP%\selfcheck-default-manifest"
+rmdir /s /q "%SELF_TMP%\selfcheck-default-dist"
 if exist %SELF_TMP%\selfcheck-client-package\bin\lsyl-tunnel-profile.exe (echo [ERROR] Client package must not include independent profile tool & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\make-installer.cmd (echo [ERROR] Missing: client package installer builder & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\verify-installer-version.ps1 (echo [ERROR] Missing: client package installer version verifier & exit /b 1)
@@ -185,6 +200,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path
 findstr /c:"RollbackClientRuntimeFiles" %SELF_TMP%\selfcheck-client-package\installer\client.iss >nul || (echo [ERROR] Client package installer is missing rollback cleanup logic & exit /b 1)
 findstr /c:"config-compat-check" %SELF_TMP%\selfcheck-client-package\installer\client.iss >nul || (echo [ERROR] Client package installer is missing config compatibility check & exit /b 1)
 findstr /c:"-virtual-ip-helper cleanup" %SELF_TMP%\selfcheck-client-package\installer\client.iss >nul && (echo [ERROR] Client package installer contains obsolete virtual IP alias cleanup & exit /b 1)
+findstr /c:"ShouldInstallPinnedRuntime" %SELF_TMP%\selfcheck-client-package\installer\client.iss >nul || (echo [ERROR] Client package installer is missing unchanged WinDivert runtime detection & exit /b 1)
+findstr /c:"restartreplace" %SELF_TMP%\selfcheck-client-package\installer\client.iss >nul || (echo [ERROR] Client package installer is missing locked WinDivert runtime replacement handling & exit /b 1)
 if exist %SELF_TMP%\selfcheck-client-package\install-client-app.cmd (echo [ERROR] Client package should not include manual install script & exit /b 1)
 if exist %SELF_TMP%\selfcheck-client-package\uninstall-client-app.cmd (echo [ERROR] Client package should not include manual uninstall script & exit /b 1)
 if exist %SELF_TMP%\selfcheck-client-package\uninstall-client-app.ps1 (echo [ERROR] Client package should not include manual uninstall script & exit /b 1)
@@ -193,7 +210,13 @@ findstr /c:"../cert/server.crt" %SELF_TMP%\selfcheck-client-package\conf\client.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "if(-not (Select-String -Path '%SELF_TMP%\selfcheck-client-package\conf\client.yaml' -SimpleMatch 'config_version:' -Quiet)){ Write-Host '[ERROR] Client package config is missing config_version'; exit 1 }" || exit /b 1
 findstr /c:"min_client_version" %SELF_TMP%\selfcheck-client-package\conf\client.yaml >nul || (echo [ERROR] Client package config is missing requires.min_client_version & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%SELF_TMP%\selfcheck-client-package\conf\client.yaml'; $t=Get-Content -Raw -Encoding UTF8 $p; if($t -match 'ciphertext:|key_id:|client_id:\s*demo-client'){ Write-Host '[ERROR] Client package config contains runtime-only credential data or demo client id.'; exit 1 }; if($t -notmatch '(?m)^saved_credential:\s*\{\}' -or $t -notmatch '(?m)^forwards:'){ Write-Host '[ERROR] Client package config was not sanitized correctly or lost forwards.'; exit 1 }" || exit /b 1
-rmdir /s /q %SELF_TMP%\selfcheck-client-package
+if exist %SELF_TMP%\selfcheck-client-config-result.txt del /f /q %SELF_TMP%\selfcheck-client-config-result.txt
+start "" /wait ".\build\bin\client\lsyl-tunnel-client-gui.exe" -config-compat-check -config "%SELF_TMP%\selfcheck-client-package\conf\client.yaml" -result-file "%SELF_TMP%\selfcheck-client-config-result.txt"
+if errorlevel 1 (
+  echo [ERROR] Client package config failed its own upgrade compatibility check.
+  if exist %SELF_TMP%\selfcheck-client-config-result.txt type %SELF_TMP%\selfcheck-client-config-result.txt
+  exit /b 1
+)
 if exist %SELF_TMP%\selfcheck-server-package rmdir /s /q %SELF_TMP%\selfcheck-server-package
 call deploy\windows\app\package-server.cmd %SELF_TMP%\selfcheck-server-package >nul || exit /b 1
 if not exist %SELF_TMP%\selfcheck-server-package\bin\lsyl-tunnel-server.exe (echo [ERROR] Missing: server package cli & exit /b 1)
@@ -236,6 +259,14 @@ findstr /c:"../logs/entry-traffic/entry-traffic.jsonl" %SELF_TMP%\selfcheck-serv
 findstr /c:"../logs/flow-traffic/flow-traffic.jsonl" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1
 findstr /c:"logs\service\server-service.log" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%SELF_TMP%\selfcheck-server-package\conf\server.yaml'; $t=Get-Content -Raw -Encoding UTF8 $p; if($t -match '(?m)username:\s*(alice|bob)\b' -or $t -match '(?m)^\s*-\s*name:\s*(web|sql|rev)\b'){ Write-Host '[ERROR] Server package config contains demo users or demo forwards.'; exit 1 }" || exit /b 1
+set "LSYL_CLIENT_PACKAGE_DIR=%SELF_TMP%\selfcheck-client-package"
+set "LSYL_SERVER_PACKAGE_DIR=%SELF_TMP%\selfcheck-server-package"
+call deploy\windows\sign\sign-release.cmd package >nul
+set "SIGN_RESULT=%ERRORLEVEL%"
+set "LSYL_CLIENT_PACKAGE_DIR="
+set "LSYL_SERVER_PACKAGE_DIR="
+if not "%SIGN_RESULT%"=="0" exit /b %SIGN_RESULT%
+rmdir /s /q %SELF_TMP%\selfcheck-client-package
 rmdir /s /q %SELF_TMP%\selfcheck-server-package
 
 echo [6/6] verify docs and installer config

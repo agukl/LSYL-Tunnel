@@ -253,7 +253,14 @@ exit /b 0
 
 :commit_dist
 call :remove_dir "%PREVIOUS_DIST_DIR%" "previous dist directory" || exit /b 1
-if exist "%FINAL_DIST_DIR%" move "%FINAL_DIST_DIR%" "%PREVIOUS_DIST_DIR%" >nul || exit /b 1
+if exist "%FINAL_DIST_DIR%" (
+  move "%FINAL_DIST_DIR%" "%PREVIOUS_DIST_DIR%" >nul 2>nul
+  if errorlevel 1 (
+    echo [WARN] Existing dist directory cannot be renamed. Refreshing it in place.
+    call :refresh_dist_in_place || exit /b 1
+    exit /b 0
+  )
+)
 move "%STAGE_DIR%" "%FINAL_DIST_DIR%" >nul
 if errorlevel 1 (
   echo [ERROR] Failed to promote staged dist: %STAGE_DIR%
@@ -263,29 +270,37 @@ if errorlevel 1 (
 call :remove_dir "%PREVIOUS_DIST_DIR%" "previous dist directory" || exit /b 1
 exit /b 0
 
+:refresh_dist_in_place
+robocopy "%STAGE_DIR%" "%FINAL_DIST_DIR%" /MIR /R:2 /W:1 /NFL /NDL /NJH /NJS /NP >nul
+if errorlevel 8 (
+  echo [ERROR] Failed to refresh the existing dist directory in place.
+  echo [INFO] Close files opened from dist and retry release.cmd.
+  exit /b 1
+)
+call :verify_dist "%FINAL_DIST_DIR%" || exit /b 1
+call :remove_dir "%STAGE_DIR%" "staged dist directory" || exit /b 1
+exit /b 0
+
 :fail
 set "ERR=%ERRORLEVEL%"
 if "%ERR%"=="0" set "ERR=1"
 echo [ERROR] Release failed. Final dist was not replaced.
 if not "%STAGE_DIR%"=="" if exist "%STAGE_DIR%" echo [INFO] Staged dist left for inspection: %STAGE_DIR%
-endlocal
-exit /b %ERR%
+endlocal & exit /b %ERR%
 
 :fail_keep_stage
 set "ERR=%ERRORLEVEL%"
 if "%ERR%"=="0" set "ERR=1"
 echo [ERROR] Release failed while replacing dist.
 echo [INFO] Staged dist left for inspection: %STAGE_DIR%
-endlocal
-exit /b %ERR%
+endlocal & exit /b %ERR%
 
 :fail_after_commit
 set "ERR=%ERRORLEVEL%"
 if "%ERR%"=="0" set "ERR=1"
 echo [ERROR] Release replaced final dist but failed while writing release manifest.
 echo [INFO] Final dist is available for inspection: %FINAL_DIST_DIR%
-endlocal
-exit /b %ERR%
+endlocal & exit /b %ERR%
 
 :usage
 echo Usage:
