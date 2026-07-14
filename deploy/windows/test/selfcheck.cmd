@@ -128,6 +128,15 @@ findstr /c:"package-only" release.cmd >nul && (echo [ERROR] release.cmd must not
 findstr /c:"autostartservice" deploy\windows\inno\package-server.iss >nul || (echo [ERROR] Server installer is missing service auto-start confirmation task & exit /b 1)
 findstr /c:"-start-type" deploy\windows\inno\package-server.iss >nul || (echo [ERROR] Server installer is missing service start-type registration parameter & exit /b 1)
 findstr /c:"config-compat-check" deploy\windows\inno\package-client.iss >nul || (echo [ERROR] Client installer is missing config compatibility check & exit /b 1)
+findstr /c:"-virtual-ip-helper cleanup" deploy\windows\inno\package-client.iss >nul && (echo [ERROR] Client installer still contains obsolete virtual IP alias cleanup & exit /b 1)
+findstr /c:"WinDivert64.sys" deploy\windows\inno\package-client.iss >nul || (echo [ERROR] Client installer is missing WinDivert driver packaging & exit /b 1)
+findstr /c:"DirectionVirtual" src\client\tunnel\config.go >nul || (echo [ERROR] Client config is missing direction: virtual & exit /b 1)
+findstr /c:"virtual_ip,omitempty" src\client\tunnel\config.go >nul && (echo [ERROR] Client config must use listen_addr instead of virtual_ip & exit /b 1)
+findstr /c:"WinDivertOpen" src\client\tunnel\virtual_redirect_windows.go >nul || (echo [ERROR] Virtual forwarding must use endpoint-specific WinDivert interception & exit /b 1)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path 'src\client\tunnel\virtual_redirect_windows.go' -Pattern 'netsh interface|store=active|store=persistent|virtual-ip-state' -List; if($hit){ Write-Host ('[ERROR] Obsolete whole-IP alias logic remains: ' + $hit.Path + ':' + $hit.LineNumber); exit 1 }" || exit /b 1
+if not exist third_party\windivert\2.2.2\x64\WinDivert.dll (echo [ERROR] Missing WinDivert.dll source dependency & exit /b 1)
+if not exist third_party\windivert\2.2.2\x64\WinDivert64.sys (echo [ERROR] Missing WinDivert64.sys source dependency & exit /b 1)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$sig=Get-AuthenticodeSignature 'third_party\windivert\2.2.2\x64\WinDivert64.sys'; if($sig.Status -ne 'Valid'){ Write-Host ('[ERROR] WinDivert64.sys signature is not valid: ' + $sig.Status); exit 1 }" || exit /b 1
 findstr /c:"config-compat-check" deploy\windows\inno\package-server.iss >nul || (echo [ERROR] Server installer is missing config compatibility check & exit /b 1)
 findstr /c:"reference-config" deploy\windows\inno\package-server.iss >nul && (echo [ERROR] Server installer must not use reference-config YAML shape check & exit /b 1)
 findstr /c:"server-reference.yaml" deploy\windows\inno\package-server.iss >nul && (echo [ERROR] Server installer must not include server-reference.yaml & exit /b 1)
@@ -163,6 +172,10 @@ if exist %SELF_TMP%\selfcheck-client-package rmdir /s /q %SELF_TMP%\selfcheck-cl
 call deploy\windows\app\package-client.cmd %SELF_TMP%\selfcheck-client-package >nul || exit /b 1
 if not exist %SELF_TMP%\selfcheck-client-package\cert\server.crt (echo [ERROR] Missing: client package cert & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\bin\lsyl-tunnel-client-lite.exe (echo [ERROR] Missing: client package Lite exe & exit /b 1)
+if not exist %SELF_TMP%\selfcheck-client-package\bin\WinDivert.dll (echo [ERROR] Missing: client package WinDivert.dll & exit /b 1)
+if not exist %SELF_TMP%\selfcheck-client-package\bin\WinDivert64.sys (echo [ERROR] Missing: client package WinDivert64.sys & exit /b 1)
+if not exist %SELF_TMP%\selfcheck-client-package\licenses\WinDivert\LICENSE (echo [ERROR] Missing: client package WinDivert license & exit /b 1)
+if not exist %SELF_TMP%\selfcheck-client-package\licenses\WinDivert\source\WinDivert-2.2.2-source.zip (echo [ERROR] Missing: client package WinDivert source archive & exit /b 1)
 if exist %SELF_TMP%\selfcheck-client-package\bin\lsyl-tunnel-profile.exe (echo [ERROR] Client package must not include independent profile tool & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\make-installer.cmd (echo [ERROR] Missing: client package installer builder & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\verify-installer-version.ps1 (echo [ERROR] Missing: client package installer version verifier & exit /b 1)
@@ -171,6 +184,7 @@ if not exist %SELF_TMP%\selfcheck-client-package\installer\Languages\ChineseSimp
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path '%SELF_TMP%\selfcheck-client-package\installer\client.iss' -SimpleMatch 'taskkill' -List; if($hit){ Write-Host ('[ERROR] Client package installer must not force-kill processes: ' + $hit.Path + ':' + $hit.LineNumber); exit 1 }" || exit /b 1
 findstr /c:"RollbackClientRuntimeFiles" %SELF_TMP%\selfcheck-client-package\installer\client.iss >nul || (echo [ERROR] Client package installer is missing rollback cleanup logic & exit /b 1)
 findstr /c:"config-compat-check" %SELF_TMP%\selfcheck-client-package\installer\client.iss >nul || (echo [ERROR] Client package installer is missing config compatibility check & exit /b 1)
+findstr /c:"-virtual-ip-helper cleanup" %SELF_TMP%\selfcheck-client-package\installer\client.iss >nul && (echo [ERROR] Client package installer contains obsolete virtual IP alias cleanup & exit /b 1)
 if exist %SELF_TMP%\selfcheck-client-package\install-client-app.cmd (echo [ERROR] Client package should not include manual install script & exit /b 1)
 if exist %SELF_TMP%\selfcheck-client-package\uninstall-client-app.cmd (echo [ERROR] Client package should not include manual uninstall script & exit /b 1)
 if exist %SELF_TMP%\selfcheck-client-package\uninstall-client-app.ps1 (echo [ERROR] Client package should not include manual uninstall script & exit /b 1)

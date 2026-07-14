@@ -17,11 +17,11 @@ type OpenRequest struct {
 	ClientID        string            `json:"client_id,omitempty"`
 	ClientVersion   string            `json:"client_version,omitempty"`
 	ProtocolVersion int               `json:"protocol_version,omitempty"`
-	ForwardName     string            `json:"forward_name,omitempty"`
+	ForwardName     string            `json:"forward_name,omitempty"` // Diagnostic label; never an authorization selector.
 	Direction       string            `json:"direction,omitempty"`
-	ListenAddr      string            `json:"listen_addr,omitempty"`
+	ListenAddr      string            `json:"listen_addr,omitempty"` // Client-selected reverse listener; the server validates but does not downlink it.
 	StreamID        string            `json:"stream_id,omitempty"`
-	Target          string            `json:"target"`
+	Target          string            `json:"target"` // Authoritative for client_to_server; diagnostic metadata for reverse requests.
 }
 
 type OpenResponse struct {
@@ -29,7 +29,7 @@ type OpenResponse struct {
 	Code          string               `json:"code,omitempty"`
 	Message       string               `json:"message,omitempty"`
 	ServerVersion string               `json:"server_version,omitempty"`
-	ListenAddr    string               `json:"listen_addr,omitempty"`
+	ListenAddr    string               `json:"listen_addr,omitempty"` // Legacy field; reverse ports are not returned to clients.
 	StreamID      string               `json:"stream_id,omitempty"`
 	CredentialKey *CredentialPublicKey `json:"credential_key,omitempty"`
 }

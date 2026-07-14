@@ -8,6 +8,7 @@ cd /d "%WORKSPACE%"
 echo [INFO] Client package inputs:
 echo   config: src\client\conf\client.yaml
 echo   certs:  src\client\cert\*
+echo   virtual redirect: third_party\windivert\2.2.2\x64
 echo [INFO] Client package directory will be recreated:
 echo   %PACKAGE_DIR%
 if exist "%PACKAGE_DIR%" (
@@ -23,6 +24,14 @@ if not exist ".\src\client\cert\server.crt" (
   echo [ERROR] Missing src\client\cert\server.crt. Put the server public certificate there before packaging.
   exit /b 1
 )
+if not exist ".\third_party\windivert\2.2.2\x64\WinDivert.dll" (
+  echo [ERROR] Missing third_party\windivert\2.2.2\x64\WinDivert.dll.
+  exit /b 1
+)
+if not exist ".\third_party\windivert\2.2.2\x64\WinDivert64.sys" (
+  echo [ERROR] Missing third_party\windivert\2.2.2\x64\WinDivert64.sys.
+  exit /b 1
+)
 if not exist "%PACKAGE_DIR%" mkdir "%PACKAGE_DIR%" || exit /b 1
 if not exist "%PACKAGE_DIR%\bin" mkdir "%PACKAGE_DIR%\bin" || exit /b 1
 if not exist "%PACKAGE_DIR%\conf" mkdir "%PACKAGE_DIR%\conf" || exit /b 1
@@ -31,8 +40,14 @@ if not exist "%PACKAGE_DIR%\cert" mkdir "%PACKAGE_DIR%\cert" || exit /b 1
 if not exist "%PACKAGE_DIR%\secrets" mkdir "%PACKAGE_DIR%\secrets" || exit /b 1
 if not exist "%PACKAGE_DIR%\tmp\gui" mkdir "%PACKAGE_DIR%\tmp\gui" || exit /b 1
 if not exist "%PACKAGE_DIR%\installer\Languages" mkdir "%PACKAGE_DIR%\installer\Languages" || exit /b 1
+if not exist "%PACKAGE_DIR%\licenses\WinDivert\source" mkdir "%PACKAGE_DIR%\licenses\WinDivert\source" || exit /b 1
 copy /y ".\build\bin\client\lsyl-tunnel-client-gui.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\build\bin\client\lsyl-tunnel-client-lite.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
+copy /y ".\third_party\windivert\2.2.2\x64\WinDivert.dll" "%PACKAGE_DIR%\bin\WinDivert.dll" >nul || exit /b 1
+copy /y ".\third_party\windivert\2.2.2\x64\WinDivert64.sys" "%PACKAGE_DIR%\bin\WinDivert64.sys" >nul || exit /b 1
+copy /y ".\third_party\windivert\2.2.2\LICENSE" "%PACKAGE_DIR%\licenses\WinDivert\LICENSE" >nul || exit /b 1
+copy /y ".\third_party\windivert\2.2.2\README.md" "%PACKAGE_DIR%\licenses\WinDivert\README.md" >nul || exit /b 1
+copy /y ".\third_party\windivert\2.2.2\source\WinDivert-2.2.2-source.zip" "%PACKAGE_DIR%\licenses\WinDivert\source\WinDivert-2.2.2-source.zip" >nul || exit /b 1
 copy /y ".\src\client\conf\client.yaml" "%PACKAGE_DIR%\conf\client.yaml" >nul || exit /b 1
 copy /y ".\src\client\assets\client.ico" "%PACKAGE_DIR%\assets\client.ico" >nul || exit /b 1
 copy /y ".\src\client\assets\client-connected.ico" "%PACKAGE_DIR%\assets\client-connected.ico" >nul || exit /b 1
@@ -75,6 +90,7 @@ copy /y "%SCRIPT_DIR%..\inno\Languages\ChineseSimplified.isl" "%PACKAGE_DIR%\ins
   echo Build the installer, run it as Administrator, then start from Desktop or Start Menu.
   echo Package includes files from src\client\cert as cert\*.
   echo Client runs the tunnel engine inside the GUI and guards it from the tray by default.
+  echo Standard 64-bit virtual forwarding includes WinDivert 2.2.2 runtime and license materials.
   echo Win7 Lite client is bin\lsyl-tunnel-client-lite.exe, built with Go 1.20 for windows/386.
   echo Import a .lsylprofile, then connect or disconnect from the window.
   echo No extra client process or Windows client service is registered.

@@ -3,6 +3,7 @@ package tunnel
 import (
 	"context"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"sync"
@@ -42,7 +43,8 @@ type HealthStatus struct {
 type ForwardStatus struct {
 	Name         string `json:"name"`
 	Direction    string `json:"direction"`
-	ListenPort   int    `json:"listen_port,omitempty"`
+	VirtualIP    string `json:"virtual_ip,omitempty"`
+	VirtualAddr  string `json:"virtual_addr,omitempty"`
 	ListenAddr   string `json:"listen_addr"`
 	ServerTarget string `json:"server_target"`
 	State        string `json:"state"`
@@ -72,7 +74,8 @@ type ForwardCheckSummary struct {
 type forwardRuntime struct {
 	name         string
 	direction    string
-	listenPort   int
+	virtualIP    string
+	virtualAddr  string
 	listenAddr   string
 	serverTarget string
 	active       atomic.Int64
@@ -139,7 +142,8 @@ func (f *forwardRuntime) snapshot() ForwardStatus {
 	return ForwardStatus{
 		Name:         f.name,
 		Direction:    f.direction,
-		ListenPort:   f.listenPort,
+		VirtualIP:    f.virtualIP,
+		VirtualAddr:  f.virtualAddr,
 		ListenAddr:   f.listenAddr,
 		ServerTarget: f.serverTarget,
 		State:        f.state,
@@ -156,7 +160,6 @@ func (c *Client) initForward(name string, fwd ForwardConfig, state, message stri
 	rt := &forwardRuntime{
 		name:         name,
 		direction:    fwd.Direction,
-		listenPort:   fwd.ListenPort,
 		listenAddr:   fwd.ListenAddr,
 		serverTarget: fwd.ServerTarget,
 		state:        state,
@@ -165,6 +168,21 @@ func (c *Client) initForward(name string, fwd ForwardConfig, state, message stri
 	c.forwardsMu.Lock()
 	c.forwards[name] = rt
 	c.forwardsMu.Unlock()
+}
+
+func (c *Client) setForwardAddresses(name, listenAddr, virtualAddr string) {
+	fwd := c.forward(name)
+	if fwd == nil {
+		return
+	}
+	fwd.mu.Lock()
+	fwd.listenAddr = listenAddr
+	fwd.virtualAddr = virtualAddr
+	fwd.virtualIP = ""
+	if host, _, err := net.SplitHostPort(virtualAddr); err == nil {
+		fwd.virtualIP = strings.Trim(host, "[]")
+	}
+	fwd.mu.Unlock()
 }
 
 func (c *Client) forward(name string) *forwardRuntime {
@@ -181,6 +199,9 @@ func (c *Client) setForwardState(name, state, message string) {
 	fwd.mu.Lock()
 	fwd.state = state
 	fwd.message = message
+	if state == ForwardListening || state == ForwardReverseWait || state == ForwardReverseActive {
+		fwd.lastError = ""
+	}
 	fwd.mu.Unlock()
 }
 
@@ -408,7 +429,9 @@ func (c *Client) checkForwardResponse(ctx context.Context, name string, fwd Forw
 	req := newOpenRequest(c.cfg, "forward_check")
 	req.ForwardName = name
 	req.Direction = forwardDirection(fwd)
-	req.ListenAddr = fwd.ListenAddr
+	if req.Direction == DirectionServerToClient {
+		req.ListenAddr = fwd.ListenAddr
+	}
 	req.Target = fwd.ServerTarget
 	if err := protocol.WriteJSON(conn, req); err != nil {
 		return resp, err
@@ -425,7 +448,7 @@ func (c *Client) checkForwardResponse(ctx context.Context, name string, fwd Forw
 
 func forwardDirection(fwd ForwardConfig) string {
 	direction := strings.TrimSpace(fwd.Direction)
-	if direction == "" {
+	if direction == "" || direction == DirectionVirtual {
 		return DirectionClientToServer
 	}
 	return direction
@@ -506,14 +529,16 @@ func classifyHealthError(err error) (string, string) {
 	}
 	text := strings.ToLower(err.Error())
 	switch {
-	case containsAny(text, "client_version_unsupported", "protocol_version_unsupported"):
-		return HealthAuthError, "client version is not compatible with this server"
+	case containsAny(text, "client_version_unsupported"):
+		return HealthAuthError, "客户端版本不在服务端允许范围内，请联系管理员确认两端版本"
+	case containsAny(text, "protocol_version_unsupported", "invalid tunnel request", "unsupported request", "bad_request"):
+		return HealthAuthError, "客户端与服务端协议版本不一致，请联系管理员升级对应一端"
 	case containsAny(text, "auth_failed", "username or password"):
 		return HealthAuthError, "账号或密码不正确，需要重新登录"
 	case containsAny(text, "credential_expired", "saved login has expired"):
 		return HealthAuthError, "保存的登录凭据已过期，需要重新登录"
-	case containsAny(text, "auth_blocked", "too many"):
-		return HealthAuthError, "登录失败次数过多，账号来源暂时被封禁"
+	case isTemporaryAuthBlockText(text):
+		return HealthAuthError, "登录失败次数过多，当前来源 IP 已被临时封禁"
 	case containsAny(text, "no server tls trust data", "appendcertsfrompem"):
 		return HealthAuthError, "服务端信任证书无效，请联系管理员重新下发"
 	case isMissingServerCertError(text):
@@ -522,10 +547,14 @@ func classifyHealthError(err error) (string, string) {
 		return HealthAuthError, "缺少服务端信任证书 server.crt，请联系管理员重新下发客户端安装包"
 	case containsAny(text, "certificate is valid for", "cannot validate certificate", "doesn't contain any ip sans"):
 		return HealthAuthError, "服务端证书和当前地址不匹配，请检查服务端地址或重新下发证书"
+	case containsAny(text, "certificate has expired", "certificate is not yet valid", "has expired or is not yet valid"):
+		return HealthAuthError, "服务端证书已过期或尚未生效，请联系管理员重新下发有效证书"
 	case containsAny(text, "unknown authority", "not trusted"):
 		return HealthAuthError, "服务端证书不受信任，请联系管理员重新下发证书"
 	case containsAny(text, "certificate", "x509", "tls"):
 		return HealthAuthError, "服务端证书校验失败，请联系管理员检查证书"
+	case containsAny(text, "missing port in address", "too many colons in address", "unknown port"):
+		return HealthAuthError, "服务端地址格式不正确，请填写 地址:端口"
 	case containsAny(text, "no such host"):
 		return HealthServerUnavailable, "服务端地址无法解析，请检查域名或网络"
 	case containsAny(text, "connection refused", "actively refused", "connectex"):
@@ -546,18 +575,35 @@ func ForwardErrorMessage(err error) string {
 		return ""
 	}
 	text := strings.ToLower(err.Error())
+	if message, _, ok := classifyVirtualForwardError(text); ok {
+		return message
+	}
 	switch {
-	case containsAny(text, "client_version_unsupported", "protocol_version_unsupported"):
-		return "client version is not compatible with this server"
+	case containsAny(text, "client_version_unsupported"):
+		return "客户端版本不在服务端允许范围内，请联系管理员确认两端版本"
+	case containsAny(text, "protocol_version_unsupported", "invalid tunnel request", "unsupported request", "bad_request"):
+		return "客户端与服务端协议版本不一致，请联系管理员升级对应一端"
 	case containsAny(text, "auth_failed", "username or password"):
 		return "账号或密码不正确，请重新登录"
 	case containsAny(text, "credential_expired", "saved login has expired"):
 		return "保存的登录凭据已过期，请重新输入密码"
-	case containsAny(text, "auth_blocked", "too many"):
-		return "登录失败次数过多，请稍后再试"
+	case containsAny(text, "user_stream_limit", "too many concurrent streams"):
+		return "当前账号并发连接数已达到上限，请关闭部分连接后重试"
+	case isTemporaryAuthBlockText(text):
+		return "登录失败次数过多，当前来源 IP 已被临时封禁，请稍后再试"
+	case containsAny(text, "certificate has expired", "certificate is not yet valid", "has expired or is not yet valid"):
+		return "服务端证书已过期或尚未生效，请联系管理员重新下发有效证书"
+	case containsAny(text, "certificate is valid for", "cannot validate certificate", "doesn't contain any ip sans"):
+		return "服务端证书和当前地址不匹配，请检查服务端地址或重新下发证书"
+	case containsAny(text, "unknown authority", "not trusted"):
+		return "服务端证书不受信任，请联系管理员重新下发证书"
 	case containsAny(text, "certificate", "x509", "tls"):
 		return "服务端证书校验失败，请联系管理员检查证书"
-	case containsAny(text, "target_denied", "not allowed", "not configured on server"):
+	case containsAny(text, "reverse listen address is not configured on server"):
+		return "反向监听地址未在服务端配置，请联系管理员检查保留端口"
+	case containsAny(text, "not allowed to activate this reverse listen address"):
+		return "当前账号无权使用该反向端口，请联系管理员检查端口授权"
+	case containsAny(text, "target_denied", "not allowed"):
 		return "当前账号没有访问该端口的权限，请联系管理员检查端口授权"
 	case containsAny(text, "already activated"):
 		return "该被动端口已被其他客户端占用"
@@ -565,8 +611,10 @@ func ForwardErrorMessage(err error) string {
 		return "服务端被动端口不可用，客户端会自动重试，请联系管理员检查服务端端口占用"
 	case containsAny(text, "already in use", "only one usage", "bind:"):
 		return "本地端口已被占用，请关闭占用程序或调整端口"
+	case containsAny(text, "connect client target"):
+		return "客户端目标服务不可达，请确认对应服务已启动并监听配置端口"
 	case containsAny(text, "target_unreachable", "target service is unreachable"):
-		return "目标服务暂时不可达，请确认对应服务已启动"
+		return "服务端无法访问目标服务，请联系管理员检查目标服务或防火墙"
 	case containsAny(text, "connection refused", "actively refused", "connectex"):
 		return "服务端暂时不可达，客户端会自动重试"
 	case containsAny(text, "timeout", "deadline", "i/o timeout"):
@@ -576,7 +624,7 @@ func ForwardErrorMessage(err error) string {
 	case containsAny(text, "connection reset", "forcibly closed", "wsarecv", "eof"):
 		return "连接被断开，客户端会自动重试"
 	default:
-		return "连接异常，客户端会自动重试"
+		return "规则连接异常，客户端会自动重试；若持续出现请查看客户端日志"
 	}
 }
 
@@ -585,6 +633,9 @@ func IsPermanentForwardError(err error) bool {
 		return false
 	}
 	text := strings.ToLower(err.Error())
+	if _, permanent, ok := classifyVirtualForwardError(text); ok {
+		return permanent
+	}
 	return containsAny(
 		text,
 		"auth_failed",
@@ -608,7 +659,7 @@ func ReverseRetryDelay(err error, failures int) time.Duration {
 	}
 	if err != nil {
 		text := strings.ToLower(err.Error())
-		if containsAny(text, "auth_blocked", "too many", "already activated") {
+		if isTemporaryAuthBlockText(text) || containsAny(text, "already activated") {
 			return 5 * time.Minute
 		}
 	}
@@ -646,6 +697,10 @@ func containsAny(text string, needles ...string) bool {
 		}
 	}
 	return false
+}
+
+func isTemporaryAuthBlockText(text string) bool {
+	return containsAny(text, "auth_blocked", "too many login failures")
 }
 
 func isMissingServerCertError(text string) bool {

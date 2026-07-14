@@ -108,7 +108,7 @@ flowchart TD
    - 客户端把密码换成服务端可识别的短期密封凭据。
    - 本地配置保存密封凭据，不再保存明文密码。
 6. 客户端在当前 GUI 进程内启动隧道引擎。
-7. 对每条正向端口建立本地监听；对每条反向端口建立反向控制连接。
+7. 对每条正向转发建立固定本地监听，或在管理员授权后用 WinDivert 接管证书 IP 的指定业务端口并反射到随机本地端口；对每条反向端口建立反向控制连接。
 8. 用户关闭窗口时隐藏到托盘，不中断连接。
 9. 用户退出客户端时，才真正停止隧道。
 
@@ -122,8 +122,8 @@ flowchart TD
 
 正向代理是 `client_to_server`，意思是：
 
-- 客户端在本机监听一个端口。
-- 本机业务程序连这个端口。
+- 客户端监听配置端口；标准 64 位 Windows 客户端也可在当前连接会话内精确接管证书 IP:业务端口，同一 IP 的其他端口保持正常访问。
+- 业务程序连接固定入口或原有的虚拟 IP:端口。
 - 服务端再去连接服务端侧目标。
 
 ```mermaid
@@ -162,15 +162,15 @@ sequenceDiagram
     participant Client as LSYL 客户端
     participant Target as 客户端侧目标服务
 
-    Client->>Server: reverse_listen
-    Server->>Server: 校验该用户是否允许激活此被动端口
-    Server-->>Client: reverse listen activated
+    Client->>Server: reverse_listen（listen_addr + server_target）
+    Server->>Server: 校验监听地址已配置且归属当前账号
+    Server-->>Client: activated（不返回端口信息）
     Server-->>Client: reverse_ping
     Client-->>Server: reverse_pong
 
     Inbound->>Server: 访问服务端被动端口
     Server-->>Client: reverse_connect
-    Client->>Server: reverse_stream
+    Client->>Server: reverse_stream（listen_addr + stream_id）
     Client->>Target: 连接客户端侧目标服务
     Server<<->>Client: TLS 隧道数据
     Client<<->>Target: 本地目标 TCP 数据
@@ -180,6 +180,8 @@ sequenceDiagram
 
 - 服务端不会主动拨进客户端网络。
 - 客户端始终是主动连接服务端的一侧。
+- 每个服务端反向端口只能归属一个已存在账号，同一账号可以拥有多个端口；客户端通过 `listen_addr` 精确选择端口，规则名不参与授权。
+- 服务端只发送不透明流 ID，不向客户端下发监听地址或端口号，也不改写客户端规则。
 - 反向控制连接有应用层心跳，目的是及时发现客户端离线。
 
 ## 9. 配置流转与生效边界

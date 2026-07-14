@@ -65,7 +65,7 @@ func (a *App) clientProfiles() []clientProfile {
 		if err == nil {
 			if err := tunnel.CheckConfigUpgradeCompatible(path); err != nil {
 				profile.Available = false
-				profile.Message = "config version is not compatible with this client"
+				profile.Message = "需要更高版本客户端"
 			}
 		}
 		if !fileExists(archivedClientCertPath(a.configPath, suffix)) {
@@ -100,7 +100,7 @@ func (a *App) currentClientProfile() clientProfile {
 	if err == nil {
 		if err := tunnel.CheckConfigUpgradeCompatible(a.configPath); err != nil {
 			profile.Available = false
-			profile.Message = "config version is not compatible with this client"
+			profile.Message = "需要更高版本客户端"
 		}
 	}
 	if !fileExists(currentClientCertPath(a.configPath)) {
@@ -154,20 +154,32 @@ func profileSwitchFriendlyError(err error) string {
 	}
 	text := err.Error()
 	switch {
-	case containsAnyText(text, "not compatible with this client", "requires a newer client"):
-		return "target config is not compatible with this client"
+	case containsAnyText(text, "not compatible with this client", "requires a newer client", "requires version >="):
+		return "目标配置需要更高版本的客户端，请升级客户端后再切换。"
 	case containsAnyText(text, "请先断开"):
 		return text
 	case containsAnyText(text, "目标配置不存在", "目标配置缺少配套证书"):
 		return text
-	case containsAnyText(text, "服务端地址相同"):
+	case containsAnyText(text, "服务端地址相同", "当前配置缺少服务端地址"):
 		return text
-	case containsAnyText(text, "读取当前配置失败", "配置文件格式"):
-		return "当前配置文件格式不正确，请联系管理员检查配置。"
 	case containsAnyText(strings.ToLower(text), "access is denied", "拒绝访问", "permission"):
 		return "没有权限切换配置文件，请以管理员身份运行或检查安装目录权限。"
+	case containsAnyText(strings.ToLower(text), "读取当前配置失败") && containsAnyText(strings.ToLower(text), "no such file", "cannot find", "找不到"):
+		return "当前配置文件不存在，请修复或重新安装客户端。"
+	case containsAnyText(text, "读取当前配置失败") && containsAnyText(strings.ToLower(text), "yaml", "unmarshal", "配置文件格式"):
+		return "当前配置文件格式不正确，请联系管理员检查配置。"
+	case containsAnyText(text, "读取当前配置失败"):
+		return "无法读取当前配置文件，请确认文件未被占用且内容完整。"
+	case containsAnyText(text, "配置文件格式"):
+		return "当前配置文件格式不正确，请联系管理员检查配置。"
+	case containsAnyText(text, "目标文件已存在"):
+		return "配置归档文件已存在，无法安全切换，请联系管理员清理重复配置。"
+	case containsAnyText(text, "准备归档", "归档当前"):
+		return "无法归档当前配置，请确认配置文件和证书未被其他程序占用。"
+	case containsAnyText(text, "切换目标"):
+		return "无法启用目标配置，请确认目标配置和证书未被其他程序占用。"
 	default:
-		return "切换客户端配置失败，请检查配置文件和证书是否完整。"
+		return "切换客户端配置失败，未能完成配置文件替换；请重试，若持续出现请联系管理员。"
 	}
 }
 

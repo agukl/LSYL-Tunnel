@@ -38,8 +38,7 @@ type reverseControl struct {
 }
 
 type reverseConnectRequest struct {
-	streamID   string
-	listenAddr string
+	streamID string
 }
 
 var (
@@ -140,6 +139,7 @@ func (s *Server) registerReverseStream(conn net.Conn, req protocol.OpenRequest, 
 		inboundToClient, clientToInbound := transport.ProxyPairWithOptions(inbound, conn, &s.bytesUp, &s.bytesDown, s.proxyOptions())
 		durationMS := time.Since(started).Milliseconds()
 		flowLog := s.flowTrafficEntry(requestID, "stream_closed", "reverse_stream", "closed", remoteHost(conn.RemoteAddr()), req)
+		flowLog.ListenAddr = listenAddr
 		flowLog.Code = "closed"
 		flowLog.DurationMS = durationMS
 		flowLog.BytesUp = inboundToClient
@@ -160,11 +160,10 @@ func (s *Server) runReverseControl(rl *reverseListener, control *reverseControl)
 			select {
 			case req := <-control.requests:
 				resp := protocol.OpenResponse{
-					OK:         true,
-					Code:       "reverse_connect",
-					Message:    "open reverse stream",
-					ListenAddr: req.listenAddr,
-					StreamID:   req.streamID,
+					OK:       true,
+					Code:     "reverse_connect",
+					Message:  "open reverse stream",
+					StreamID: req.streamID,
 				}
 				if err := writeReverseControlResponse(control.conn, resp); err != nil {
 					s.log("reverse control %s write failed: %v", control.forwardName, err)
@@ -224,7 +223,8 @@ func (s *Server) ensureReverseListener(addr string) (*reverseListener, error) {
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("server passive port is unavailable: listen reverse %s: %w", addr, err)
+		s.log("reverse passive listener %s unavailable: %v", addr, err)
+		return nil, fmt.Errorf("server passive port is unavailable")
 	}
 	rl := &reverseListener{
 		addr:     addr,
@@ -303,7 +303,7 @@ func (s *Server) handleReverseInbound(rl *reverseListener, inbound net.Conn) {
 		}
 	})
 	select {
-	case control.requests <- reverseConnectRequest{streamID: streamID, listenAddr: rl.addr}:
+	case control.requests <- reverseConnectRequest{streamID: streamID}:
 	case <-control.done:
 		timer.Stop()
 		if pending := rl.takePending(streamID); pending != nil {

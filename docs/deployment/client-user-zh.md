@@ -105,6 +105,31 @@ forwards:
     server_target: 127.0.0.1:3389
 ```
 
+反向转发客户端通过 `listen_addr` 选择服务端已预留端口，并用 `server_target` 配置客户端本地目标：
+
+```yaml
+forwards:
+  - name: mysql
+    direction: server_to_client
+    listen_addr: 127.0.0.1:13306
+    server_target: 127.0.0.1:3307
+```
+
+`name` 只用于显示和日志，不参与服务端授权，也不需要与服务端规则名一致。客户端会在反向控制连接和数据流请求中提交 `listen_addr`，服务端按该地址与登录账号精确校验端口归属，但不会把端口信息返回客户端或改写客户端配置。`server_target` 由客户端本地使用，同时随反向请求上报供服务端记录和诊断；服务端不会连接或下发这个目标。同一账号可以配置多条反向规则，每条规则都必须填写服务端回环 `listen_addr` 和客户端回环 `server_target`。反向规则不支持 `listen_port`，出现该字段时会明确指出对应规则并保持文件原样。配置错误会阻止本次连接，不会静默修改或跳过该规则。
+
+Windows 客户端需要让业务程序继续访问原地址时，可改用虚拟 IP 接管：
+
+```yaml
+forwards:
+  - direction: virtual
+    listen_addr: ":22"
+    server_target: 10.20.30.40:22
+```
+
+此时客户端从当前 `server.crt` 自动选择虚拟 IPv4，业务程序继续访问解析后的 `IPv4:22`。客户端优先采用 `server_addr` 中已被证书授权的 IPv4；否则证书必须只有一个可用的非本地 IPv4 SAN。证书有多个候选且 `server_addr` 不能唯一确定时，改为显式填写，例如 `listen_addr: "192.0.2.22:22"`。虚拟入口不支持域名或 IPv6，也不会接受证书以外的虚拟 IP。`server_target` 继续表示服务端侧目标，两边端口可以不同。名称是可选项。每次点击连接时，客户端先完成登录认证，再请求管理员授权启动本次会话的端点过滤。取消管理员授权只会使对应虚拟转发规则不可用，客户端仍保持连接；断开后重新连接会再次触发授权。内部随机端口不需要也不能写入配置。
+
+接管范围精确到 `IP:端口`：同一证书 IP 的其他端口不受影响，客户端连接服务端所用的 `server_addr` 端口禁止配置为虚拟业务端口。断开连接或退出客户端时，WinDivert 过滤句柄随提权子进程关闭；异常退出也不会留下网卡地址或路由。该模式只由标准 64 位 Windows 客户端提供，Win7 Lite 和 Android 不支持。
+
 GUI 只会改写 `server_addr`、`username` 和登录凭据。登录成功后会清空 `password`，并写入 `saved_credential`，不会改写端口映射、TLS 信任文件等高级配置。
 
 用于分发的安装包不会携带本机 `saved_credential`。打包脚本会自动清理登录密文，并把 `client_id` 留空；客户端首次成功登录保存配置时会使用本机名作为 `client_id`。

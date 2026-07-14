@@ -272,6 +272,19 @@ func TestValidateAdminForwardsForSaveRejectsPassivePortAssignedToDifferentUsers(
 	}
 }
 
+func TestValidateAdminForwardsForSaveAllowsMultiplePassivePortsForOneUser(t *testing.T) {
+	issues := validateAdminForwardsForSave(adminConfig{
+		Users: []adminUser{{Username: "alice"}},
+		Forwards: []adminForward{
+			{Direction: tunnel.DirectionServerToClient, Port: "18080", Owner: "alice"},
+			{Direction: tunnel.DirectionServerToClient, Port: "18081", Owner: "alice"},
+		},
+	})
+	if issues.hasErrors() {
+		t.Fatalf("unexpected validation errors for multiple reverse ports: %+v", issues)
+	}
+}
+
 func TestValidateAdminForwardsForSaveChecksPassivePortAvailability(t *testing.T) {
 	ln, port := listenLocalTCP(t)
 	defer ln.Close()

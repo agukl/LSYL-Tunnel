@@ -199,6 +199,22 @@ if exist "%VERIFY_DIR%\LSYL Tunnel Client" (
     echo [ERROR] Client kit is incomplete: missing make-installer.cmd
     exit /b 1
   )
+  if not exist "%VERIFY_DIR%\LSYL Tunnel Client\bin\WinDivert.dll" (
+    echo [ERROR] Client kit is incomplete: missing WinDivert.dll
+    exit /b 1
+  )
+  if not exist "%VERIFY_DIR%\LSYL Tunnel Client\bin\WinDivert64.sys" (
+    echo [ERROR] Client kit is incomplete: missing WinDivert64.sys
+    exit /b 1
+  )
+  if not exist "%VERIFY_DIR%\LSYL Tunnel Client\licenses\WinDivert\LICENSE" (
+    echo [ERROR] Client kit is incomplete: missing WinDivert license
+    exit /b 1
+  )
+  if not exist "%VERIFY_DIR%\LSYL Tunnel Client\licenses\WinDivert\source\WinDivert-2.2.2-source.zip" (
+    echo [ERROR] Client kit is incomplete: missing WinDivert source archive
+    exit /b 1
+  )
   if not exist "%VERIFY_DIR%\make-installers.cmd" (
     echo [ERROR] Client kit dist is missing make-installers.cmd
     exit /b 1

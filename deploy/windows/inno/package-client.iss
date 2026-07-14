@@ -39,16 +39,20 @@ Name: "{app}\cert"; Permissions: users-modify; Flags: uninsneveruninstall
 Name: "{app}\secrets"; Permissions: users-modify; Flags: uninsneveruninstall
 Name: "{app}\tmp"
 Name: "{app}\tmp\gui"; Permissions: users-modify
+Name: "{app}\licenses\WinDivert\source"
 
 [Files]
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-lite.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
+Source: "{#SourceRoot}\bin\WinDivert.dll"; DestDir: "{app}\bin"; Flags: ignoreversion
+Source: "{#SourceRoot}\bin\WinDivert64.sys"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestName: "lsyl-tunnel-client-gui-quit.exe"; Flags: dontcopy
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestName: "lsyl-tunnel-client-gui-check.exe"; Flags: dontcopy
 Source: "{#SourceRoot}\assets\client.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#SourceRoot}\assets\client-connected.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#SourceRoot}\conf\client.yaml"; DestDir: "{app}\conf"; Flags: ignoreversion uninsneveruninstall
 Source: "{#SourceRoot}\cert\*"; DestDir: "{app}\cert"; Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall
+Source: "{#SourceRoot}\licenses\WinDivert\*"; DestDir: "{app}\licenses\WinDivert"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\LSYL Tunnel Client"; Filename: "{app}\bin\lsyl-tunnel-client-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\assets\client.ico"
@@ -63,6 +67,7 @@ Type: files; Name: "{app}\uninstall-client-app.ps1"
 Type: filesandordirs; Name: "{app}\bin"
 Type: filesandordirs; Name: "{app}\assets"
 Type: filesandordirs; Name: "{app}\tmp"
+Type: filesandordirs; Name: "{app}\licenses"
 
 [Code]
 var

@@ -134,7 +134,7 @@ deploy\windows\app\write-dist-tools.cmd "D:\out\dist"
 
 | 命令 | 用途 | 默认输出 |
 | --- | --- | --- |
-| `package-client.cmd [目录]` | 重新构建客户端安装包所需二进制，复制客户端配置和证书，清理运行态字段 | `build\tmp\dist-work\LSYL Tunnel Client` |
+| `package-client.cmd [目录]` | 重新构建客户端安装包所需二进制，复制客户端配置、证书、WinDivert 运行时及许可材料，清理运行态字段 | `build\tmp\dist-work\LSYL Tunnel Client` |
 | `package-server.cmd [目录]` | 重新构建服务端安装包所需二进制，复制服务端配置和 Inno 模板 | `build\tmp\dist-work\LSYL Tunnel Server` |
 | `build-android-apk.cmd [apk]` | 构建或复制 Android APK 到目标文件 | 指定 APK |
 | `write-dist-tools.cmd [dist]` | 给带客户端 kit 的 dist 写入客户端重打包入口和 README | 指定 dist |
@@ -150,6 +150,8 @@ set "MOBILE_APK=D:\signed\LSYL-Tunnel-Android.apk"
 ```
 
 未设置 `MOBILE_APK` 时，脚本必须能运行 Gradle，并会清理旧的 `mobile\android\app\build\outputs\apk` 后重新构建；不会默认复用历史 APK。
+
+标准 64 位 Windows 客户端的虚拟端点接管依赖 `third_party\windivert\2.2.2\x64`。打包脚本只复制已固定版本的 DLL、驱动、许可和对应源码归档；Win7 Lite 与 Android 构建链不引用该目录。
 
 ## Inno 安装器脚本
 

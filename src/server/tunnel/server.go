@@ -295,7 +295,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		s.recordPermanentBlockedHit(remoteIP)
 		return
 	case blockedTemporary:
-		resp := protocol.OpenResponse{OK: false, Code: "auth_blocked", Message: "too many login failures, try later"}
+		resp := protocol.OpenResponse{OK: false, Code: "auth_blocked", Message: "too many login failures, temporarily blocked; try later"}
 		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "auth", Result: "blocked", RemoteIP: remoteIP, Code: "auth_blocked", Message: "too many login failures"})
 		recordRequest(protocol.OpenRequest{}, "blocked", "blocked", resp, nil)
 		_ = protocol.WriteJSON(conn, resp)
@@ -322,13 +322,21 @@ func (s *Server) handleConn(conn net.Conn) {
 	if !ok || user.Disabled || authCode != "" || !passutil.VerifyPassword(password, user.PasswordHash) {
 		s.authFailed.Add(1)
 		s.fails.addFailure(remoteIP)
-		if authCode == "" {
+		temporarilyBlocked := s.fails.blockKind(remoteIP) == blockedTemporary
+		if temporarilyBlocked {
+			authCode = "auth_blocked"
+			authMessage = "too many login failures, temporarily blocked; try later"
+		} else if authCode == "" {
 			authCode = "auth_failed"
 			authMessage = "username or password is incorrect"
 		}
+		result := "failed"
+		if temporarilyBlocked {
+			result = "blocked"
+		}
 		resp := protocol.OpenResponse{OK: false, Code: authCode, Message: authMessage}
-		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "auth", Result: "failed", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: req.ListenAddr, Code: authCode, Message: authMessage})
-		recordRequest(req, "failed", "failed", resp, nil)
+		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "auth", Result: result, RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: req.ListenAddr, Code: authCode, Message: authMessage})
+		recordRequest(req, result, result, resp, nil)
 		_ = protocol.WriteJSON(conn, resp)
 		return
 	}
@@ -541,18 +549,14 @@ func (s *Server) flowTrafficEntry(requestID, event, kind, result, remoteIP strin
 }
 
 func (s *Server) authorize(user UserConfig, target string) error {
-	return s.authorizeTarget(user, DirectionClientToServer, target)
+	return s.authorizeTarget(user, target)
 }
 
 func (s *Server) authorizeOpen(user UserConfig, req protocol.OpenRequest) error {
 	if direction := strings.TrimSpace(req.Direction); direction != "" && direction != DirectionClientToServer {
 		return fmt.Errorf("request direction is invalid")
 	}
-	return s.authorizeTarget(user, DirectionClientToServer, req.Target)
-}
-
-func (s *Server) authorizeReverse(user UserConfig, listenAddr string) error {
-	return s.authorizeTarget(user, DirectionServerToClient, listenAddr)
+	return s.authorizeTarget(user, req.Target)
 }
 
 func (s *Server) authorizeForwardCheck(user UserConfig, req protocol.OpenRequest) error {
@@ -562,44 +566,73 @@ func (s *Server) authorizeForwardCheck(user UserConfig, req protocol.OpenRequest
 	}
 	switch direction {
 	case DirectionClientToServer:
-		return s.authorizeTarget(user, DirectionClientToServer, req.Target)
+		return s.authorizeTarget(user, req.Target)
 	case DirectionServerToClient:
-		return s.authorizeTarget(user, DirectionServerToClient, req.ListenAddr)
+		listenAddr := strings.TrimSpace(req.ListenAddr)
+		if listenAddr == "" {
+			return fmt.Errorf("reverse listen address is required")
+		}
+		if !s.isConfiguredReverseListener(listenAddr) {
+			return fmt.Errorf("reverse listen address is not configured on server")
+		}
+		return s.authorizeReverse(user, listenAddr)
 	default:
 		return fmt.Errorf("request direction is invalid")
 	}
 }
 
-func (s *Server) authorizeTarget(user UserConfig, direction, target string) error {
+func (s *Server) authorizeReverse(user UserConfig, listenAddr string) error {
+	username := strings.TrimSpace(user.Username)
+	normalizedListenAddr := normalizeTarget(listenAddr)
+	for i := range s.cfg.Forwards {
+		fwd := &s.cfg.Forwards[i]
+		if strings.TrimSpace(fwd.Direction) != DirectionServerToClient {
+			continue
+		}
+		configuredAddr := configuredReverseListenAddr(*fwd)
+		if configuredAddr == "" || normalizeTarget(configuredAddr) != normalizedListenAddr {
+			continue
+		}
+		if allowedUser(fwd.AllowedUsers, username) {
+			return nil
+		}
+		break
+	}
+	return fmt.Errorf("user is not allowed to activate this reverse listen address")
+}
+
+func configuredReverseListenAddr(fwd ForwardConfig) string {
+	if addr := strings.TrimSpace(fwd.ListenAddr); addr != "" {
+		return addr
+	}
+	if fwd.ListenPort > 0 && fwd.ListenPort <= 65535 {
+		return net.JoinHostPort("127.0.0.1", strconv.Itoa(fwd.ListenPort))
+	}
+	return ""
+}
+
+func (s *Server) authorizeTarget(user UserConfig, target string) error {
 	host, _, err := splitHostPort(target)
 	if err != nil {
 		return fmt.Errorf("target address is invalid")
 	}
-	forward := s.allowedConfiguredForward(user.Username, direction, target)
+	forward := s.allowedConfiguredForward(user.Username, target)
 	if forward == nil {
 		return fmt.Errorf("user is not allowed to access this target")
 	}
 	if isLoopbackName(host) {
 		return nil
 	}
-	if direction == DirectionClientToServer && isPrivateTargetIP(host) {
+	if isPrivateTargetIP(host) {
 		return nil
 	}
 	return fmt.Errorf("target is not allowed")
 }
 
-func (s *Server) userAllowedByConfiguredForward(username, direction, target string) bool {
-	return s.allowedConfiguredForward(username, direction, target) != nil
-}
-
-func (s *Server) allowedConfiguredForward(username, direction, target string) *ForwardConfig {
+func (s *Server) allowedConfiguredForward(username, target string) *ForwardConfig {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return nil
-	}
-	direction = strings.TrimSpace(direction)
-	if direction == "" {
-		direction = DirectionClientToServer
 	}
 	normalizedTarget := normalizeTarget(target)
 	for i := range s.cfg.Forwards {
@@ -608,16 +641,13 @@ func (s *Server) allowedConfiguredForward(username, direction, target string) *F
 		if configuredDirection == "" {
 			configuredDirection = DirectionClientToServer
 		}
-		if configuredDirection != direction {
+		if configuredDirection != DirectionClientToServer {
 			continue
 		}
 		if !allowedUser(fwd.AllowedUsers, username) {
 			continue
 		}
 		forwardTarget := strings.TrimSpace(fwd.ServerTarget)
-		if configuredDirection == DirectionServerToClient {
-			forwardTarget = strings.TrimSpace(fwd.ListenAddr)
-		}
 		if forwardTarget != "" && normalizeTarget(forwardTarget) == normalizedTarget {
 			return fwd
 		}

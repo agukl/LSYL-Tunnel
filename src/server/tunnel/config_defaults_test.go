@@ -232,6 +232,20 @@ func TestValidateConfigRequiresUniqueSingleOwnerReversePorts(t *testing.T) {
 	}
 }
 
+func TestValidateConfigAllowsMultipleReversePortsPerOwner(t *testing.T) {
+	base := Config{
+		TLS:  TLSConfig{CertFile: "server.crt", KeyFile: "server.key"},
+		Auth: AuthConfig{Users: []UserConfig{{Username: "alice", PasswordHash: "plain:secret"}}},
+		Forwards: []ForwardConfig{
+			{Direction: DirectionServerToClient, ListenPort: 18080, AllowedUsers: []string{"alice"}},
+			{Name: "web", Direction: DirectionServerToClient, ListenPort: 18081, AllowedUsers: []string{"alice"}},
+		},
+	}
+	if err := ValidateConfig(base); err != nil {
+		t.Fatalf("ValidateConfig() rejected multiple reverse ports for one owner: %v", err)
+	}
+}
+
 func TestLoadConfigRejectsNonLoopbackLegacyReverseAddress(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.yaml")
 	data := []byte(`tls:

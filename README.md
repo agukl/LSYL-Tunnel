@@ -23,6 +23,7 @@ build/tmp/              Local test, GUI, and packaging scratch files
 runtime/data/           Local development runtime state
 runtime/logs/           Local development runtime logs, grouped by log type
 deploy/windows/         Windows scripts grouped by build/run/cert/service/app/inno/test
+third_party/windivert/  Vendored WinDivert runtime, license, notice, and matching source archive
 docs/                   Chinese documentation
 ```
 
@@ -106,9 +107,10 @@ The server GUI is a local Web operations console. Frontend assets live in `src/s
 
 The server installer generates a self-signed server TLS identity during install when `certs/server.crt` or `certs/server.key` is missing. During upgrades, it preserves the installed `conf/server.yaml` and blocks installation if the installed config version requires a newer server. Administrators distribute only `server.crt` to clients; `server.key` stays on the server. Server uninstall keeps `conf`, `certs`, `data`, and `logs` by default.
 
-Forward entries support two directions:
+Forward entries support three modes:
 
 - `client_to_server`: the client listens locally, and the server connects to a server-side target.
+- `virtual`: the standard 64-bit Windows client intercepts one certificate-authorized `IP:port` endpoint and maps it through a random session-local listener; other ports keep their normal network path.
 - `server_to_client`: the server creates a passive local listening port, and an authenticated client activates it; the server never dials the client.
 
 ## Security Model

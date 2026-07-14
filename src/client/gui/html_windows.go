@@ -874,11 +874,18 @@ function routeHTML(state){
   if(items.length){
     for(var i=0;i<items.length;i++){
       var item = items[i] || {};
-      var direction = item.direction === 'server_to_client'
-        ? '服务端被动端口 ' + (item.listen_port || compactAddr(item.listen_addr)) + ' -> ' + compactAddr(item.server_target)
-        : compactAddr(item.listen_addr) + ' -> 服务端 ' + compactAddr(item.server_target);
+      var reverse = item.direction === 'server_to_client';
+      var clientEndpoint = reverse
+        ? compactAddr(item.server_target)
+        : compactAddr(item.virtual_addr || item.listen_addr);
+      var serverEndpoint = reverse
+        ? compactAddr(item.listen_addr)
+        : compactAddr(item.server_target);
       var hasIssue = hasRouteItemIssue(item);
-      var line = (item.name || '转发') + ': ' + forwardStateText(item.state) + '，' + direction;
+      var line = (item.name || '转发') + ': ' + clientEndpoint;
+      if(!reverse || item.listen_addr){
+        line += (reverse ? ' ← ' : ' → ') + serverEndpoint;
+      }
       if(hasIssue){
         var issue = item.message || item.last_error || '';
         if(issue) line += '，' + issue;
@@ -929,16 +936,6 @@ function healthText(health){
   if(health.state === 'auth_error') return health.message || '认证异常';
   if(health.state === 'server_unavailable') return health.message || '服务端不可达';
   return health.message || '检查中';
-}
-function forwardStateText(state){
-  if(state === 'listening') return '正常监听';
-  if(state === 'listen_failed') return '端口异常';
-  if(state === 'reverse_waiting') return '等待被动连接';
-  if(state === 'reverse_active') return '被动已激活';
-  if(state === 'retrying') return '重试中';
-  if(state === 'rejected') return '已暂停';
-  if(state === 'starting') return '启动中';
-  return state || '未知';
 }
 function compactAddr(addr){
   addr = addr || '';

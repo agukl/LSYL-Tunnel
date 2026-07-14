@@ -3,10 +3,35 @@
 package gui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestProfileSwitchFriendlyError(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "newer client", raw: "target config is not compatible with this client: client config_version 4 requires a newer client", want: "目标配置需要更高版本的客户端，请升级客户端后再切换。"},
+		{name: "permission", raw: "归档当前配置失败: Access is denied", want: "没有权限切换配置文件，请以管理员身份运行或检查安装目录权限。"},
+		{name: "read permission", raw: "读取当前配置失败: Access is denied", want: "没有权限切换配置文件，请以管理员身份运行或检查安装目录权限。"},
+		{name: "current config missing", raw: "读取当前配置失败: The system cannot find the file specified", want: "当前配置文件不存在，请修复或重新安装客户端。"},
+		{name: "current config malformed", raw: "读取当前配置失败: yaml: cannot unmarshal", want: "当前配置文件格式不正确，请联系管理员检查配置。"},
+		{name: "archive collision", raw: "切换目标配置失败: 目标文件已存在", want: "配置归档文件已存在，无法安全切换，请联系管理员清理重复配置。"},
+		{name: "current files busy", raw: "归档当前证书失败: file is in use", want: "无法归档当前配置，请确认配置文件和证书未被其他程序占用。"},
+		{name: "target files busy", raw: "切换目标配置失败: file is in use", want: "无法启用目标配置，请确认目标配置和证书未被其他程序占用。"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := profileSwitchFriendlyError(errors.New(tt.raw)); got != tt.want {
+				t.Fatalf("profileSwitchFriendlyError() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestClientProfileFileSuffix(t *testing.T) {
 	tests := []struct {

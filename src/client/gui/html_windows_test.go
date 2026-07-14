@@ -30,6 +30,9 @@ func TestClientHTMLTextAndScriptAreIntact(t *testing.T) {
 		"function exportMobileProfile",
 		"id=\"versionBadge\"",
 		"function setVersion",
+		"reverse ? ' ← ' : ' → '",
+		"var clientEndpoint = reverse",
+		"var serverEndpoint = reverse",
 		"server_version",
 		"var savedPasswordMask = '********';",
 		"var lastProfilesSignature = '';",
@@ -55,6 +58,10 @@ func TestClientHTMLTextAndScriptAreIntact(t *testing.T) {
 		"?/" + "div",
 		"id=\"profileSwitchBtn\"",
 		"updateProfileSwitchButton",
+		"正常监听",
+		"被动已激活",
+		"服务端被动端口 ",
+		" -> 服务端 ",
 	}
 	for _, text := range forbidden {
 		if strings.Contains(clientHTML, text) {

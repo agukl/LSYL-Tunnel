@@ -417,7 +417,7 @@ func routesSummary(cfg tunnel.Config) string {
 			name = "forward"
 		}
 		if fwd.Direction == tunnel.DirectionServerToClient {
-			lines = append(lines, fmt.Sprintf("%s: 服务端被动端口 %d -> %s", name, fwd.ListenPort, fwd.ServerTarget))
+			lines = append(lines, fmt.Sprintf("%s: %s <- %s", name, fwd.ServerTarget, fwd.ListenAddr))
 			continue
 		}
 		lines = append(lines, fmt.Sprintf("%s: %s -> 服务端 %s", name, fwd.ListenAddr, fwd.ServerTarget))
@@ -493,14 +493,36 @@ func friendlyLiteError(err error) string {
 		return "登录凭据已过期，请让客户端重新生成配置后再导入。"
 	case strings.Contains(text, "auth_failed") || strings.Contains(text, "username or password"):
 		return "登录凭据无效，请确认账号或重新导入配置。"
-	case strings.Contains(text, "client_version_unsupported") || strings.Contains(text, "protocol_version_unsupported"):
-		return "client version is not compatible with this server"
+	case strings.Contains(text, "auth_blocked") || strings.Contains(text, "too many login failures"):
+		return "登录失败次数过多，当前来源 IP 已被临时封禁，请稍后再试。"
+	case strings.Contains(text, "user_stream_limit") || strings.Contains(text, "too many concurrent streams"):
+		return "当前账号并发连接数已达到上限，请关闭部分连接后重试。"
+	case strings.Contains(text, "client_version_unsupported"):
+		return "客户端版本不在服务端允许范围内，请联系管理员确认两端版本。"
+	case strings.Contains(text, "protocol_version_unsupported") || strings.Contains(text, "bad_request"):
+		return "客户端与服务端协议版本不一致，请联系管理员升级对应一端。"
 	case strings.Contains(text, "server_sealed") || strings.Contains(text, "saved_credential"):
 		return "配置里的登录凭据不可用，请重新导出 .lsylprofile。"
+	case strings.Contains(text, "username is required"):
+		return "导入文件缺少用户名，请重新导出 .lsylprofile。"
 	case strings.Contains(text, "insecure_skip_verify") || strings.Contains(text, "tls.min_version"):
-		return "配置不符合移动端安全要求，请重新导出。"
+		return "配置不符合轻量客户端安全要求，请重新导出 .lsylprofile。"
+	case strings.Contains(text, "server certificate") && (strings.Contains(text, "no such file") || strings.Contains(text, "cannot find") || strings.Contains(text, "系统找不到")):
+		return "服务端证书文件缺失，请重新导入 .lsylprofile。"
+	case strings.Contains(text, "certificate has expired") || strings.Contains(text, "not yet valid"):
+		return "服务端证书已过期或尚未生效，请重新导出 .lsylprofile。"
+	case strings.Contains(text, "certificate is valid for") || strings.Contains(text, "cannot validate certificate"):
+		return "服务端证书和当前地址不匹配，请联系管理员检查服务端地址或证书。"
+	case strings.Contains(text, "unknown authority") || strings.Contains(text, "not trusted"):
+		return "服务端证书不受信任，请重新导出 .lsylprofile。"
 	case strings.Contains(text, "certificate") || strings.Contains(text, "x509") || strings.Contains(text, "tls"):
 		return "服务端证书校验失败，请确认配置和服务器地址。"
+	case strings.Contains(text, "target_denied") || strings.Contains(text, "not allowed to access"):
+		return "当前账号没有访问该目标的权限。"
+	case strings.Contains(text, "target_unreachable") || strings.Contains(text, "target service is unreachable"):
+		return "服务端无法访问目标服务，请联系管理员检查目标服务或防火墙。"
+	case strings.Contains(text, "server_addr is invalid") || (strings.Contains(text, "dial tcp") && (strings.Contains(text, "missing port in address") || strings.Contains(text, "too many colons in address"))):
+		return "服务端地址格式不正确，应填写为 地址:端口。"
 	case strings.Contains(text, "already in use") || strings.Contains(text, "only one usage") || strings.Contains(text, "bind:"):
 		return "本地端口已被占用，请关闭占用程序后重试。"
 	case strings.Contains(text, "connection refused") || strings.Contains(text, "actively refused") || strings.Contains(text, "connectex"):
@@ -509,13 +531,35 @@ func friendlyLiteError(err error) string {
 		return "连接超时，请检查网络或防火墙。"
 	case strings.Contains(text, "no such host"):
 		return "服务端地址无法解析，请检查域名或网络。"
-	case strings.Contains(text, "no such file") || strings.Contains(text, "cannot find") || strings.Contains(text, "系统找不到"):
-		return "配置文件或证书文件缺失，请重新导入配置。"
+	case strings.Contains(text, "network is unreachable") || strings.Contains(text, "no route to host"):
+		return "网络不可达，请检查本机网络和服务端地址。"
+	case strings.Contains(text, "connection reset") || strings.Contains(text, "forcibly closed") || strings.Contains(text, "wsarecv") || strings.Contains(text, "eof"):
+		return "连接被服务端断开，请稍后重试或联系管理员。"
 	case strings.Contains(text, "profile package is missing"):
 		return "导入文件不完整，缺少 profile.json 或 server.crt。"
-	case strings.Contains(text, "client_to_server") || strings.Contains(text, "127.0.0.1") || strings.Contains(text, "below 1024"):
-		return "导入文件包含轻量客户端不支持的端口映射，请重新导出移动端配置。"
+	case strings.Contains(text, "mobile profile only supports client_to_server"):
+		return "轻量客户端只支持正向转发，请重新导出 .lsylprofile。"
+	case strings.Contains(text, "at least one client_to_server forward"):
+		return "导入文件没有可用的正向转发规则，请重新导出 .lsylprofile。"
+	case strings.Contains(text, "listen_addr must use 127.0.0.1"):
+		return "轻量客户端的本地监听必须使用 127.0.0.1，请重新导出 .lsylprofile。"
+	case strings.Contains(text, "below 1024"):
+		return "轻量客户端的本地监听端口必须大于等于 1024，请重新导出 .lsylprofile。"
+	case strings.Contains(text, "listen_addr is invalid"):
+		return "本地监听地址格式不正确，应填写为 127.0.0.1:端口。"
+	case strings.Contains(text, "server_target is invalid"):
+		return "转发目标地址格式不正确，应填写为 地址:端口。"
+	case strings.Contains(text, "duplicate forward name"):
+		return "导入文件包含重名的转发规则，请重新导出 .lsylprofile。"
+	case strings.Contains(text, "duplicate mobile listen address"):
+		return "导入文件包含重复的本地监听端口，请重新导出 .lsylprofile。"
+	case strings.Contains(text, "parse profile.json") || strings.Contains(text, "unsupported profile version") || strings.Contains(text, "mobile profile must not contain"):
+		return "导入文件格式或版本不受支持，请使用当前客户端重新导出 .lsylprofile。"
+	case strings.Contains(text, "invalid profile file") || strings.Contains(text, "read profile file") || strings.Contains(text, "open .lsylprofile"):
+		return "无法读取 .lsylprofile，请确认文件未损坏且未被其他程序占用。"
+	case strings.Contains(text, "no such file") || strings.Contains(text, "cannot find") || strings.Contains(text, "系统找不到"):
+		return "配置文件或证书文件缺失，请重新导入配置。"
 	default:
-		return err.Error()
+		return "操作失败，暂时无法识别具体原因；请重试，若持续出现请联系管理员查看客户端日志。"
 	}
 }

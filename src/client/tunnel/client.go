@@ -18,19 +18,30 @@ import (
 )
 
 type Client struct {
-	cfg           Config
-	ctx           context.Context
-	listeners     map[string]net.Listener
-	forwards      map[string]*forwardRuntime
-	forwardsMu    sync.Mutex
-	healthMu      sync.Mutex
-	health        HealthStatus
-	serverVersion string
-	logf          transport.LogFunc
-	closed        chan struct{}
-	closeOnce     sync.Once
-	active        atomic.Int64
-	total         atomic.Int64
+	cfg                    Config
+	ctx                    context.Context
+	listeners              map[string]net.Listener
+	virtualAddrs           map[string]string
+	virtualResolver        *virtualAddressResolver
+	virtualRedirectSession virtualRedirectSession
+	forwards               map[string]*forwardRuntime
+	forwardsMu             sync.Mutex
+	healthMu               sync.Mutex
+	health                 HealthStatus
+	serverVersion          string
+	logf                   transport.LogFunc
+	closed                 chan struct{}
+	closeOnce              sync.Once
+	active                 atomic.Int64
+	total                  atomic.Int64
+}
+
+type preparedVirtualForward struct {
+	name        string
+	fwd         ForwardConfig
+	listener    net.Listener
+	virtualAddr string
+	rule        virtualRedirectRule
 }
 
 var (
@@ -125,15 +136,20 @@ func tlsDialer(timeout time.Duration, tlsCfg *tls.Config) tls.Dialer {
 func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Client, error) {
 	ApplyDefaults(&cfg)
 	client := &Client{
-		cfg:       cfg,
-		ctx:       ctx,
-		listeners: map[string]net.Listener{},
-		forwards:  map[string]*forwardRuntime{},
-		logf:      logf,
-		closed:    make(chan struct{}),
+		cfg:          cfg,
+		ctx:          ctx,
+		listeners:    map[string]net.Listener{},
+		virtualAddrs: map[string]string{},
+		forwards:     map[string]*forwardRuntime{},
+		logf:         logf,
+		closed:       make(chan struct{}),
 	}
 	client.setHealth(HealthChecking, "等待服务端健康检查", "", false)
 	usableForwards := 0
+	blockingStartupFailures := 0
+	virtualAuthorizationCancelled := false
+	var unusableErr error
+	virtualForwards := make([]preparedVirtualForward, 0)
 	for _, fwd := range cfg.Forwards {
 		name := forwardName(fwd)
 		if fwd.Direction == DirectionServerToClient {
@@ -143,14 +159,60 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Client, er
 			usableForwards++
 			continue
 		}
-		client.initForward(name, fwd, ForwardStarting, "正在监听本地端口")
+		client.initForward(name, fwd, ForwardStarting, "正在监听客户端入口")
+		if fwd.Direction == DirectionVirtual {
+			prepared, err := client.prepareVirtualForwardListener(name, fwd)
+			if err != nil {
+				blockingStartupFailures++
+				unusableErr = errors.Join(unusableErr, err)
+				continue
+			}
+			virtualForwards = append(virtualForwards, prepared)
+			continue
+		}
 		if err := client.ensureForwardListener(name, fwd); err != nil {
+			blockingStartupFailures++
+			unusableErr = errors.Join(unusableErr, err)
 			continue
 		}
 		usableForwards++
 	}
-	if usableForwards == 0 {
+	if len(virtualForwards) > 0 {
+		rules := make([]virtualRedirectRule, 0, len(virtualForwards))
+		for _, prepared := range virtualForwards {
+			rules = append(rules, prepared.rule)
+		}
+		session, redirectErr := startVirtualRedirectSessionFn(ctx, rules)
+		if redirectErr == nil && session == nil {
+			redirectErr = fmt.Errorf("virtual redirect helper did not start")
+		}
+		if redirectErr != nil {
+			if isVirtualAuthorizationCancelled(redirectErr) {
+				virtualAuthorizationCancelled = true
+			} else {
+				blockingStartupFailures++
+			}
+			unusableErr = errors.Join(unusableErr, redirectErr)
+			for _, prepared := range virtualForwards {
+				client.stopForwardListener(prepared.name)
+				client.setForwardState(prepared.name, ForwardListenFailed, ForwardErrorMessage(redirectErr))
+				client.log("forward %s virtual endpoint setup failed: %v", prepared.name, redirectErr)
+			}
+		} else {
+			client.virtualRedirectSession = session
+			for _, prepared := range virtualForwards {
+				client.activateVirtualForward(prepared)
+				usableForwards++
+			}
+			go client.watchVirtualRedirectSession(session)
+		}
+	}
+	allowConnectedWithoutForward := virtualAuthorizationCancelled && blockingStartupFailures == 0
+	if usableForwards == 0 && !allowConnectedWithoutForward {
 		_ = client.Close()
+		if unusableErr != nil {
+			return nil, fmt.Errorf("no usable forward is available: %w", unusableErr)
+		}
 		return nil, fmt.Errorf("no usable forward is available")
 	}
 	go func() {
@@ -163,8 +225,12 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Client, er
 
 func (c *Client) ForwardAddr(name string) string {
 	c.forwardsMu.Lock()
+	virtualAddr := c.virtualAddrs[name]
 	ln := c.listeners[name]
 	c.forwardsMu.Unlock()
+	if virtualAddr != "" {
+		return virtualAddr
+	}
 	if ln == nil {
 		return ""
 	}
@@ -177,6 +243,11 @@ func (c *Client) Close() error {
 		close(c.closed)
 		for _, ln := range c.closeAllListeners() {
 			if e := ln.Close(); e != nil && err == nil {
+				err = e
+			}
+		}
+		if c.virtualRedirectSession != nil {
+			if e := c.virtualRedirectSession.Close(); e != nil && err == nil {
 				err = e
 			}
 		}
@@ -210,7 +281,6 @@ func (c *Client) ensureForwardListener(name string, fwd ForwardConfig) error {
 		return nil
 	}
 	c.forwardsMu.Unlock()
-
 	ln, err := net.Listen("tcp", fwd.ListenAddr)
 	if err != nil {
 		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
@@ -227,10 +297,94 @@ func (c *Client) ensureForwardListener(name string, fwd ForwardConfig) error {
 	c.listeners[name] = ln
 	c.forwardsMu.Unlock()
 
+	c.setForwardAddresses(name, ln.Addr().String(), "")
 	c.setForwardState(name, ForwardListening, "本地端口监听中")
 	c.log("forward %s listening on %s -> %s", name, ln.Addr(), fwd.ServerTarget)
 	go c.acceptLoop(c.ctx, ln, name, fwd)
 	return nil
+}
+
+func (c *Client) prepareVirtualForwardListener(name string, fwd ForwardConfig) (preparedVirtualForward, error) {
+	virtualHost, virtualPort, err := parseVirtualListenAddr(fwd.ListenAddr)
+	if err != nil {
+		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
+		return preparedVirtualForward{}, err
+	}
+	if c.virtualResolver == nil {
+		c.virtualResolver, err = newVirtualAddressResolver(c.cfg)
+		if err != nil {
+			c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
+			return preparedVirtualForward{}, err
+		}
+	}
+	virtualAddr, err := c.virtualResolver.resolve(virtualHost, virtualPort)
+	if err != nil {
+		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
+		return preparedVirtualForward{}, err
+	}
+	internal, err := net.Listen("tcp4", "0.0.0.0:0")
+	if err != nil {
+		listenerErr := fmt.Errorf("allocate virtual local redirect listener: %w", err)
+		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(listenerErr))
+		c.log("forward %s random local redirect listen failed: %v", name, err)
+		return preparedVirtualForward{}, listenerErr
+	}
+	localAddr, ok := internal.Addr().(*net.TCPAddr)
+	if !ok || localAddr.Port <= 0 || localAddr.Port > 65535 {
+		_ = internal.Close()
+		err := fmt.Errorf("forward %s did not allocate a valid local redirect port", name)
+		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
+		return preparedVirtualForward{}, err
+	}
+	rule, err := newVirtualRedirectRule(virtualAddr, localAddr.Port)
+	if err != nil {
+		_ = internal.Close()
+		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
+		return preparedVirtualForward{}, err
+	}
+
+	c.forwardsMu.Lock()
+	if c.listeners[name] != nil {
+		c.forwardsMu.Unlock()
+		_ = internal.Close()
+		return preparedVirtualForward{}, fmt.Errorf("virtual forward %s listener already exists", name)
+	}
+	c.listeners[name] = internal
+	c.virtualAddrs[name] = virtualAddr
+	c.forwardsMu.Unlock()
+
+	c.setForwardAddresses(name, internal.Addr().String(), virtualAddr)
+	c.log("forward %s prepared virtual endpoint %s on local redirect port %d", name, virtualAddr, localAddr.Port)
+	return preparedVirtualForward{name: name, fwd: fwd, listener: internal, virtualAddr: virtualAddr, rule: rule}, nil
+}
+
+func (c *Client) activateVirtualForward(prepared preparedVirtualForward) {
+	c.setForwardState(prepared.name, ForwardListening, "虚拟端点已接管")
+	c.log("forward %s virtual endpoint %s -> local redirect %s -> %s", prepared.name, prepared.virtualAddr, prepared.listener.Addr(), prepared.fwd.ServerTarget)
+	go c.acceptLoop(c.ctx, prepared.listener, prepared.name, prepared.fwd)
+}
+
+func (c *Client) watchVirtualRedirectSession(session virtualRedirectSession) {
+	if session == nil || session.Done() == nil {
+		return
+	}
+	<-session.Done()
+	select {
+	case <-c.closed:
+		return
+	default:
+	}
+	err := session.Err()
+	if err == nil {
+		err = fmt.Errorf("virtual redirect helper stopped unexpectedly")
+	}
+	for _, fwd := range c.cfg.Forwards {
+		if fwd.Direction == DirectionVirtual {
+			c.setForwardState(forwardName(fwd), ForwardListenFailed, ForwardErrorMessage(err))
+		}
+	}
+	c.log("virtual redirect session stopped: %v", err)
+	_ = c.Close()
 }
 
 func (c *Client) closeAllListeners() []net.Listener {
@@ -241,6 +395,7 @@ func (c *Client) closeAllListeners() []net.Listener {
 		listeners = append(listeners, ln)
 	}
 	c.listeners = map[string]net.Listener{}
+	c.virtualAddrs = map[string]string{}
 	return listeners
 }
 
@@ -250,6 +405,7 @@ func (c *Client) stopForwardListener(name string) {
 	if ln != nil {
 		delete(c.listeners, name)
 	}
+	delete(c.virtualAddrs, name)
 	c.forwardsMu.Unlock()
 	if ln != nil {
 		_ = ln.Close()
@@ -410,7 +566,7 @@ func (c *Client) maintainReverseListen(ctx context.Context, name string, fwd For
 		return responseError(resp, "server rejected reverse forward")
 	}
 	c.setForwardState(name, ForwardReverseActive, "服务端被动端口已激活")
-	c.log("reverse listen %s activated on server %s", name, fwd.ListenAddr)
+	c.log("reverse forward %s activated", name)
 	_ = remote.SetDeadline(time.Time{})
 	for {
 		var event protocol.OpenResponse
@@ -436,15 +592,11 @@ func (c *Client) maintainReverseListen(ctx context.Context, name string, fwd For
 		if event.Code != "reverse_connect" || event.StreamID == "" {
 			continue
 		}
-		listenAddr := event.ListenAddr
-		if listenAddr == "" {
-			listenAddr = fwd.ListenAddr
-		}
-		go c.openReverseStream(ctx, name, fwd, listenAddr, event.StreamID)
+		go c.openReverseStream(ctx, name, fwd, event.StreamID)
 	}
 }
 
-func (c *Client) openReverseStream(ctx context.Context, name string, fwd ForwardConfig, listenAddr, streamID string) {
+func (c *Client) openReverseStream(ctx context.Context, name string, fwd ForwardConfig, streamID string) {
 	tlsCfg, err := c.clientTLSConfig()
 	if err != nil {
 		c.recordForwardError(name, err)
@@ -479,7 +631,7 @@ func (c *Client) openReverseStream(ctx context.Context, name string, fwd Forward
 	req := newOpenRequest(c.cfg, "reverse_stream")
 	req.ForwardName = name
 	req.Direction = DirectionServerToClient
-	req.ListenAddr = listenAddr
+	req.ListenAddr = fwd.ListenAddr
 	req.StreamID = streamID
 	req.Target = fwd.ServerTarget
 	if err := protocol.WriteJSON(remote, req); err != nil {
@@ -506,14 +658,15 @@ func (c *Client) openReverseStream(ctx context.Context, name string, fwd Forward
 	_ = remote.SetDeadline(time.Time{})
 	target, err := net.DialTimeout("tcp", fwd.ServerTarget, timeout)
 	if err != nil {
-		c.recordForwardError(name, err)
+		targetErr := fmt.Errorf("connect client target %s: %w", fwd.ServerTarget, err)
+		c.recordForwardError(name, targetErr)
 		c.log("connect client target %s failed: %v", fwd.ServerTarget, err)
 		return
 	}
 	defer target.Close()
 	streamDone := c.beginForwardStream(name)
 	defer streamDone()
-	c.log("reverse stream open %s server %s -> client %s", name, fwd.ListenAddr, fwd.ServerTarget)
+	c.log("reverse stream open %s -> client target %s", name, fwd.ServerTarget)
 	transport.ProxyPair(remote, target, nil, nil)
 }
 

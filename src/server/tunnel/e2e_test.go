@@ -152,7 +152,7 @@ func TestAccountTunnelReverseForwarding(t *testing.T) {
 			PasswordHash: "plain:secret",
 		}}},
 		Forwards: []ForwardConfig{{
-			Name:         "reverse-echo",
+			Name:         "server-reserved-port",
 			Direction:    DirectionServerToClient,
 			ListenAddr:   reverseAddr,
 			AllowedUsers: []string{"alice"},
@@ -172,7 +172,7 @@ func TestAccountTunnelReverseForwarding(t *testing.T) {
 		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost", MinVersion: "1.2"},
 		Connection: tunnel.ConnectionConfig{DialTimeoutSec: 3},
 		Forwards: []tunnel.ForwardConfig{{
-			Name:         "reverse-echo",
+			Name:         "client-local-echo",
 			Direction:    tunnel.DirectionServerToClient,
 			ListenAddr:   reverseAddr,
 			ServerTarget: echoLn.Addr().String(),
@@ -184,6 +184,32 @@ func TestAccountTunnelReverseForwarding(t *testing.T) {
 	defer client.Close()
 
 	echoTCPWithRetry(t, reverseAddr, []byte("hello-reverse"), 5*time.Second)
+	stats := client.Stats()
+	if len(stats.Items) != 1 || stats.Items[0].ListenAddr != reverseAddr {
+		t.Fatalf("client reverse status did not retain configured listener: %+v", stats.Items)
+	}
+	server.eventMu.Lock()
+	events := append([]RuntimeEvent(nil), server.recentEvents...)
+	server.eventMu.Unlock()
+	foundActivation := false
+	for _, event := range events {
+		if event.Kind != "reverse_listen" || event.Result != "activated" {
+			continue
+		}
+		foundActivation = true
+		if event.Target != echoLn.Addr().String() {
+			t.Fatalf("reverse activation target = %q, want client target %q", event.Target, echoLn.Addr())
+		}
+		if event.ForwardName != "client-local-echo" {
+			t.Fatalf("reverse activation label = %q, want client-local-echo", event.ForwardName)
+		}
+		if event.ListenAddr != reverseAddr {
+			t.Fatalf("server event listen address = %q, want internal %q", event.ListenAddr, reverseAddr)
+		}
+	}
+	if !foundActivation {
+		t.Fatal("reverse activation event was not recorded")
+	}
 	if server.totalStreams.Load() != 1 {
 		t.Fatalf("expected one reverse stream, got %d", server.totalStreams.Load())
 	}
@@ -207,7 +233,6 @@ func TestReverseControlHeartbeatReleasesStaleActivation(t *testing.T) {
 	})
 
 	certFile, keyFile := writeTestCertificate(t)
-	echoLn := startEchoServer(t)
 	reverseAddr := freeTCPAddr(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -232,19 +257,20 @@ func TestReverseControlHeartbeatReleasesStaleActivation(t *testing.T) {
 	}
 	defer server.Close()
 
-	stale := activateReverseControlForTest(t, server.Addr(), certFile, "stale-client", reverseAddr, echoLn.Addr().String())
+	stale := activateReverseControlForTest(t, server.Addr(), certFile, "stale-client", "reverse-echo", reverseAddr, "127.0.0.1:1")
 	defer stale.Close()
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		fresh := dialTLSForTest(t, server.Addr(), certFile)
 		err := protocol.WriteJSON(fresh, currentTestRequest(protocol.OpenRequest{
-			Type:       "reverse_listen",
-			Username:   "alice",
-			Password:   "secret",
-			ClientID:   "fresh-client",
-			ListenAddr: reverseAddr,
-			Target:     echoLn.Addr().String(),
+			Type:        "reverse_listen",
+			Username:    "alice",
+			Password:    "secret",
+			ClientID:    "fresh-client",
+			ForwardName: "reverse-echo",
+			ListenAddr:  reverseAddr,
+			Target:      "127.0.0.1:1",
 		}))
 		if err != nil {
 			_ = fresh.Close()
@@ -330,8 +356,6 @@ func TestServerStartsWithUnreachableConfiguredForwardTarget(t *testing.T) {
 
 func TestServerRejectsUnconfiguredReverseActivation(t *testing.T) {
 	certFile, keyFile := writeTestCertificate(t)
-	echoLn := startEchoServer(t)
-	reverseAddr := freeTCPAddr(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -352,12 +376,13 @@ func TestServerRejectsUnconfiguredReverseActivation(t *testing.T) {
 	conn := dialTLSForTest(t, server.Addr(), certFile)
 	defer conn.Close()
 	if err := protocol.WriteJSON(conn, currentTestRequest(protocol.OpenRequest{
-		Type:       "reverse_listen",
-		Username:   "alice",
-		Password:   "secret",
-		ClientID:   "rogue-reverse-client",
-		ListenAddr: reverseAddr,
-		Target:     echoLn.Addr().String(),
+		Type:        "reverse_listen",
+		Username:    "alice",
+		Password:    "secret",
+		ClientID:    "rogue-reverse-client",
+		ForwardName: "rogue-reverse",
+		ListenAddr:  "127.0.0.1:18080",
+		Target:      "127.0.0.1:8080",
 	})); err != nil {
 		t.Fatal(err)
 	}
@@ -400,6 +425,51 @@ func TestAccountTunnelRejectsWrongPassword(t *testing.T) {
 	}
 	if resp.OK || resp.Code != "auth_failed" {
 		t.Fatalf("expected auth_failed, got %+v", resp)
+	}
+}
+
+func TestAccountTunnelReportsTemporaryBlockOnThreshold(t *testing.T) {
+	certFile, keyFile := writeTestCertificate(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server, err := Start(ctx, Config{
+		ListenAddr: "127.0.0.1:0",
+		TLS:        TLSConfig{CertFile: certFile, KeyFile: keyFile, MinVersion: "1.2"},
+		Auth: AuthConfig{Users: []UserConfig{{
+			Username:     "alice",
+			PasswordHash: "plain:secret",
+		}}},
+		Security: SecurityConfig{HandshakeTimeoutSec: 3, DialTimeoutSec: 1, MaxHandshakeBytes: 32768, AuthFailThreshold: 2, AuthFailWindowSec: 60, AuthFailBlockSec: 60},
+	}, t.Logf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	clientCfg := tunnel.Config{
+		ServerAddr: server.Addr(),
+		Username:   "alice",
+		Password:   "wrong",
+		ClientID:   "blocked-login-client",
+		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost", MinVersion: "1.2"},
+		Connection: tunnel.ConnectionConfig{DialTimeoutSec: 3},
+	}
+	resp, err := tunnel.CheckLoginResponse(ctx, clientCfg)
+	if err == nil || resp.Code != "auth_failed" {
+		t.Fatalf("first failed login = %+v, %v, want auth_failed", resp, err)
+	}
+	resp, err = tunnel.CheckLoginResponse(ctx, clientCfg)
+	if err == nil || resp.Code != "auth_blocked" {
+		t.Fatalf("threshold login = %+v, %v, want auth_blocked", resp, err)
+	}
+	if !strings.Contains(resp.Message, "temporarily blocked") {
+		t.Fatalf("threshold login message = %q, want temporary block", resp.Message)
+	}
+
+	clientCfg.Password = "secret"
+	resp, err = tunnel.CheckLoginResponse(ctx, clientCfg)
+	if err == nil || resp.Code != "auth_blocked" {
+		t.Fatalf("login during temporary block = %+v, %v, want auth_blocked", resp, err)
 	}
 }
 
@@ -1036,16 +1106,17 @@ func assertTCPListenFails(t *testing.T, addr string) {
 	}
 }
 
-func activateReverseControlForTest(t *testing.T, serverAddr, caFile, clientID, listenAddr, target string) *tls.Conn {
+func activateReverseControlForTest(t *testing.T, serverAddr, caFile, clientID, forwardName, listenAddr, target string) *tls.Conn {
 	t.Helper()
 	conn := dialTLSForTest(t, serverAddr, caFile)
 	if err := protocol.WriteJSON(conn, currentTestRequest(protocol.OpenRequest{
-		Type:       "reverse_listen",
-		Username:   "alice",
-		Password:   "secret",
-		ClientID:   clientID,
-		ListenAddr: listenAddr,
-		Target:     target,
+		Type:        "reverse_listen",
+		Username:    "alice",
+		Password:    "secret",
+		ClientID:    clientID,
+		ForwardName: forwardName,
+		ListenAddr:  listenAddr,
+		Target:      target,
 	})); err != nil {
 		_ = conn.Close()
 		t.Fatal(err)
@@ -1058,6 +1129,10 @@ func activateReverseControlForTest(t *testing.T, serverAddr, caFile, clientID, l
 	if !resp.OK {
 		_ = conn.Close()
 		t.Fatalf("reverse control activation failed: %+v", resp)
+	}
+	if resp.ListenAddr != "" {
+		_ = conn.Close()
+		t.Fatalf("reverse control response exposed server listener: %+v", resp)
 	}
 	return conn
 }

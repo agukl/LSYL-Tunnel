@@ -35,6 +35,9 @@ func (a *App) saveLoginForm(form loginForm) error {
 func (a *App) prepareLoginConfig(form loginForm) (tunnel.Config, error) {
 	cfg, err := readClientConfigRaw(a.configPath)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			return cfg, fmt.Errorf("read client config: %w", err)
+		}
 		cfg = defaultClientConfig(a.configPath)
 	}
 	cfg.ServerAddr = strings.TrimSpace(form.ServerAddr)
@@ -96,14 +99,10 @@ func (a *App) routeSummary() string {
 			name = "转发"
 		}
 		if fwd.Direction == tunnel.DirectionServerToClient {
-			port := fmt.Sprintf("%d", fwd.ListenPort)
-			if fwd.ListenPort <= 0 {
-				port = compactDisplayAddr(fwd.ListenAddr)
-			}
-			lines = append(lines, fmt.Sprintf("%s: 服务端被动端口 %s -> %s", name, port, compactDisplayAddr(fwd.ServerTarget)))
+			lines = append(lines, fmt.Sprintf("%s: %s ← %s", name, compactDisplayAddr(fwd.ServerTarget), compactDisplayAddr(fwd.ListenAddr)))
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("%s: %s -> 服务端 %s", name, compactDisplayAddr(fwd.ListenAddr), compactDisplayAddr(fwd.ServerTarget)))
+		lines = append(lines, fmt.Sprintf("%s: %s → %s", name, compactDisplayAddr(fwd.ListenAddr), compactDisplayAddr(fwd.ServerTarget)))
 	}
 	return strings.Join(lines, "\n")
 }
