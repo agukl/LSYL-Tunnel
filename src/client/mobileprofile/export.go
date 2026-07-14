@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
 	"lsyltunnel/src/client/tunnel"
 	"lsyltunnel/src/internal/protocol"
 )
@@ -93,15 +92,10 @@ func Export(configFile, certFile, target string, force bool) (Result, error) {
 }
 
 func LoadConfig(path string) (tunnel.Config, error) {
-	var cfg tunnel.Config
-	data, err := os.ReadFile(path)
+	cfg, err := tunnel.LoadConfigRaw(path)
 	if err != nil {
 		return cfg, fmt.Errorf("read client config: %w", err)
 	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("parse client config: %w", err)
-	}
-	tunnel.ApplyDefaults(&cfg)
 	return cfg, nil
 }
 

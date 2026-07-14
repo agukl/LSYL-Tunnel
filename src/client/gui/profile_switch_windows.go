@@ -3,6 +3,7 @@
 package gui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,18 +61,18 @@ func (a *App) clientProfiles() []clientProfile {
 		}
 		if err != nil {
 			profile.Available = false
-			profile.Message = "配置文件格式不正确"
+			profile.Message = clientProfileCompatibilityMessage(err)
 		}
-		if err == nil {
-			if err := tunnel.CheckConfigUpgradeCompatible(path); err != nil {
-				profile.Available = false
-				profile.Message = "需要更高版本客户端"
-			}
-		}
-		if !fileExists(archivedClientCertPath(a.configPath, suffix)) {
+		certPath := archivedClientCertPath(a.configPath, suffix)
+		if !fileExists(certPath) {
 			profile.Available = false
 			if profile.Message == "" {
 				profile.Message = "缺少配套证书"
+			}
+		} else if err == nil {
+			if err := tunnel.CheckConfigUpgradeCompatibleWithCACert(path, certPath); err != nil {
+				profile.Available = false
+				profile.Message = clientProfileCompatibilityMessage(err)
 			}
 		}
 		profiles = append(profiles, profile)
@@ -95,18 +96,18 @@ func (a *App) currentClientProfile() clientProfile {
 	}
 	if err != nil {
 		profile.Available = false
-		profile.Message = "配置文件不可读"
+		profile.Message = clientProfileCompatibilityMessage(err)
 	}
-	if err == nil {
-		if err := tunnel.CheckConfigUpgradeCompatible(a.configPath); err != nil {
-			profile.Available = false
-			profile.Message = "需要更高版本客户端"
-		}
-	}
-	if !fileExists(currentClientCertPath(a.configPath)) {
+	certPath := currentClientCertPath(a.configPath)
+	if !fileExists(certPath) {
 		profile.Available = false
 		if profile.Message == "" {
 			profile.Message = "缺少当前证书"
+		}
+	} else if err == nil {
+		if err := tunnel.CheckConfigUpgradeCompatible(a.configPath); err != nil {
+			profile.Available = false
+			profile.Message = clientProfileCompatibilityMessage(err)
 		}
 	}
 	return profile
@@ -142,8 +143,8 @@ func (a *App) switchClientProfile(profileID string) error {
 	if !fileExists(paths.TargetCert) {
 		return fmt.Errorf("目标配置缺少配套证书")
 	}
-	if err := tunnel.CheckConfigUpgradeCompatible(paths.TargetConfig); err != nil {
-		return fmt.Errorf("target config is not compatible with this client: %w", err)
+	if err := tunnel.CheckConfigUpgradeCompatibleWithCACert(paths.TargetConfig, paths.TargetCert); err != nil {
+		return fmt.Errorf("目标配置校验失败: %w", err)
 	}
 	return switchClientProfileFiles(paths)
 }
@@ -153,8 +154,22 @@ func profileSwitchFriendlyError(err error) string {
 		return ""
 	}
 	text := err.Error()
+	if strings.Contains(text, "目标配置校验失败") {
+		switch clientProfileCompatibilityMessage(err) {
+		case "需要更高版本客户端":
+			return "目标配置需要更高版本的客户端，请升级客户端后再切换。"
+		case "配置结构不兼容":
+			return "目标配置结构与当前客户端不兼容，请联系管理员重新下发配置。"
+		case "配置与证书不匹配":
+			return "目标配置与配套证书不匹配，请联系管理员重新下发配置。"
+		case "配置文件或证书缺失":
+			return "目标配置文件或配套证书不可读，请检查文件是否完整。"
+		default:
+			return "目标配置内容无效，请联系管理员检查转发规则和服务端地址。"
+		}
+	}
 	switch {
-	case containsAnyText(text, "not compatible with this client", "requires a newer client", "requires version >="):
+	case containsAnyText(text, "requires a newer client", "requires version >="):
 		return "目标配置需要更高版本的客户端，请升级客户端后再切换。"
 	case containsAnyText(text, "请先断开"):
 		return text
@@ -180,6 +195,32 @@ func profileSwitchFriendlyError(err error) string {
 		return "无法启用目标配置，请确认目标配置和证书未被其他程序占用。"
 	default:
 		return "切换客户端配置失败，未能完成配置文件替换；请重试，若持续出现请联系管理员。"
+	}
+}
+
+func clientProfileCompatibilityMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(text, "requires a newer client"),
+		strings.Contains(text, "current client supports config_version"),
+		(strings.Contains(text, "client config requires version >=") && strings.Contains(text, "current version")):
+		return "需要更高版本客户端"
+	case errors.Is(err, os.ErrNotExist):
+		return "配置文件或证书缺失"
+	case containsAnyText(text, "access is denied", "permission denied", "拒绝访问"):
+		return "配置文件不可读"
+	case containsAnyText(text,
+		"field ", "unknown field", "missing required field", "duplicate field",
+		"must be a mapping", "must be a list", "must be a value", "exactly one yaml document",
+		"yaml:", "cannot unmarshal", "did not find expected"):
+		return "配置结构不兼容"
+	case containsAnyText(text, "certificate", "x509", "no pem", "doesn't contain any ip sans"):
+		return "配置与证书不匹配"
+	default:
+		return "配置内容不可用"
 	}
 }
 

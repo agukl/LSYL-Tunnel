@@ -15,7 +15,10 @@ func TestProfileSwitchFriendlyError(t *testing.T) {
 		raw  string
 		want string
 	}{
-		{name: "newer client", raw: "target config is not compatible with this client: client config_version 4 requires a newer client", want: "目标配置需要更高版本的客户端，请升级客户端后再切换。"},
+		{name: "newer client", raw: "目标配置校验失败: client config_version 4 requires a newer client", want: "目标配置需要更高版本的客户端，请升级客户端后再切换。"},
+		{name: "incompatible structure", raw: "目标配置校验失败: field legacy_virtual_ip not found in type tunnel.Config", want: "目标配置结构与当前客户端不兼容，请联系管理员重新下发配置。"},
+		{name: "certificate mismatch", raw: "目标配置校验失败: x509: certificate doesn't contain any IP SANs", want: "目标配置与配套证书不匹配，请联系管理员重新下发配置。"},
+		{name: "invalid content", raw: "目标配置校验失败: forward web requires server_target", want: "目标配置内容无效，请联系管理员检查转发规则和服务端地址。"},
 		{name: "permission", raw: "归档当前配置失败: Access is denied", want: "没有权限切换配置文件，请以管理员身份运行或检查安装目录权限。"},
 		{name: "read permission", raw: "读取当前配置失败: Access is denied", want: "没有权限切换配置文件，请以管理员身份运行或检查安装目录权限。"},
 		{name: "current config missing", raw: "读取当前配置失败: The system cannot find the file specified", want: "当前配置文件不存在，请修复或重新安装客户端。"},

@@ -21,7 +21,6 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
 	"lsyltunnel/src/client/mobileprofile"
 	"lsyltunnel/src/client/tunnel"
 )
@@ -756,15 +755,10 @@ func exportMobileProfile(confFile, certFile, target string, force bool) error {
 }
 
 func readClientConfigFile(path string) (tunnel.Config, error) {
-	var cfg tunnel.Config
-	data, err := os.ReadFile(path)
+	cfg, err := tunnel.LoadConfigRaw(path)
 	if err != nil {
 		return cfg, fmt.Errorf("read client config: %w", err)
 	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("parse client config: %w", err)
-	}
-	tunnel.ApplyDefaults(&cfg)
 	return cfg, nil
 }
 
@@ -1229,14 +1223,9 @@ func describePath(info pathInfo) string {
 
 func printConfigSummary(out io.Writer, configFile string) {
 	fmt.Fprintf(out, "Config file: %s\n", configFile)
-	data, err := os.ReadFile(configFile)
+	cfg, err := tunnel.LoadConfigRaw(configFile)
 	if err != nil {
 		fmt.Fprintf(out, "Config:      not readable: %v\n", err)
-		return
-	}
-	var cfg tunnel.Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		fmt.Fprintf(out, "Config:      invalid yaml: %v\n", err)
 		return
 	}
 	fmt.Fprintf(out, "Server:      %s\n", cfg.ServerAddr)

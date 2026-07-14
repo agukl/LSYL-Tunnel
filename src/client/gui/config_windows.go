@@ -147,16 +147,7 @@ func isCompactLocalHost(host string) bool {
 }
 
 func readClientConfigRaw(path string) (tunnel.Config, error) {
-	var cfg tunnel.Config
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return cfg, err
-	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return cfg, err
-	}
-	tunnel.ApplyDefaults(&cfg)
-	return cfg, nil
+	return tunnel.LoadConfigRaw(path)
 }
 
 func runtimeClientConfigFromRaw(configPath string, cfg tunnel.Config) (tunnel.Config, error) {

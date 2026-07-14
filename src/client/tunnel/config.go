@@ -37,21 +37,31 @@ type ForwardConfig struct {
 }
 
 func (f *ForwardConfig) UnmarshalYAML(node *yaml.Node) error {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return fmt.Errorf("forward must be a mapping")
+	}
 	type rawForwardConfig ForwardConfig
 	var raw rawForwardConfig
 	if err := node.Decode(&raw); err != nil {
 		return err
 	}
 	direction := strings.TrimSpace(raw.Direction)
-	if direction == DirectionServerToClient {
-		name := strings.TrimSpace(raw.Name)
-		if name == "" {
-			name = "<unnamed>"
-		}
-		for i := 0; i+1 < len(node.Content); i += 2 {
-			if node.Content[i].Value == "listen_port" {
+	name := strings.TrimSpace(raw.Name)
+	if name == "" {
+		name = "<unnamed>"
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		field := node.Content[i].Value
+		switch field {
+		case "name", "direction", "listen_addr", "server_target":
+			continue
+		case "listen_port":
+			if direction == DirectionServerToClient {
 				return fmt.Errorf("forward %q server_to_client client config must not include listen_port; use listen_addr and server_target", name)
 			}
+			fallthrough
+		default:
+			return fmt.Errorf("forward %q contains unknown field %q", name, field)
 		}
 	}
 	*f = ForwardConfig(raw)
@@ -81,16 +91,11 @@ type Config struct {
 }
 
 func LoadConfig(path string) (Config, error) {
-	var cfg Config
-	data, err := os.ReadFile(path)
+	cfg, err := LoadConfigRaw(path)
 	if err != nil {
 		return cfg, err
 	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return cfg, err
-	}
 	base := filepath.Dir(path)
-	ApplyDefaults(&cfg)
 	cfg.TLS.CACertFile = resolveConfigPath(base, cfg.TLS.CACertFile)
 	cfg.PasswordFile = resolveConfigPath(base, cfg.PasswordFile)
 	if cfg.Password == "" && strings.TrimSpace(cfg.PasswordEnv) != "" {
@@ -104,6 +109,22 @@ func LoadConfig(path string) (Config, error) {
 		cfg.Password = strings.TrimRight(string(data), "\r\n")
 	}
 	return cfg, ValidateConfig(cfg)
+}
+
+// LoadConfigRaw strictly decodes config without resolving secrets or validating
+// runtime-only values. GUI and packaging tools use it before login is available.
+func LoadConfigRaw(path string) (Config, error) {
+	var cfg Config
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return cfg, err
+	}
+	cfg, err = decodeClientConfig(data)
+	if err != nil {
+		return cfg, err
+	}
+	ApplyDefaults(&cfg)
+	return cfg, nil
 }
 
 func SaveConfig(path string, cfg Config) error {
@@ -318,26 +339,23 @@ func ValidateConfigVersion(cfg Config) error {
 	if cfg.ConfigVersion > appversion.ClientConfigVersion {
 		return fmt.Errorf("client config_version %d requires a newer client; current client supports config_version %d", cfg.ConfigVersion, appversion.ClientConfigVersion)
 	}
+	if cfg.ConfigVersion >= 2 {
+		minimum := strings.TrimSpace(cfg.Requires.MinClientVersion)
+		if minimum == "" {
+			return fmt.Errorf("client config_version %d requires requires.min_client_version", cfg.ConfigVersion)
+		}
+		less, err := appversion.Less(minimum, appversion.ClientConfigRequiresClientVersion)
+		if err != nil {
+			return fmt.Errorf("client config requires invalid minimum version %q: %w", minimum, err)
+		}
+		if less {
+			return fmt.Errorf("client config_version %d requires min_client_version >= %s", cfg.ConfigVersion, appversion.ClientConfigRequiresClientVersion)
+		}
+	}
 	if err := appversion.CheckMin(appversion.AppVersion, cfg.Requires.MinClientVersion, "client config"); err != nil {
 		return err
 	}
 	return nil
-}
-
-func CheckConfigUpgradeCompatible(path string) error {
-	var cfg Config
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return err
-	}
-	ApplyDefaults(&cfg)
-	if err := ValidateConfigVersion(cfg); err != nil {
-		return err
-	}
-	return validateReverseForwardFields(cfg.Forwards)
 }
 
 func resolveConfigPath(base, p string) string {

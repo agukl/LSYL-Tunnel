@@ -105,12 +105,34 @@ forwards:
 func TestCheckConfigUpgradeCompatibleAllowsMultipleReverseRules(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.yaml")
 	data := []byte(`config_version: 1
+requires:
+  min_client_version: "1.1.0"
 server_addr: 127.0.0.1:9443
+username: ""
+password: ""
+password_env: ""
+password_file: ""
+saved_credential:
+  type: ""
+  key_id: ""
+  expires_at: ""
+  ciphertext: ""
+client_id: ""
+log_level: info
+tls:
+  ca_cert_file: ""
+  server_name: ""
+  min_version: "1.3"
+  insecure_skip_verify: true
+connection:
+  dial_timeout_sec: 5
 forwards:
-  - direction: server_to_client
+  - name: mysql
+    direction: server_to_client
     listen_addr: 127.0.0.1:13306
     server_target: 127.0.0.1:3307
-  - direction: server_to_client
+  - name: web
+    direction: server_to_client
     listen_addr: 127.0.0.1:18080
     server_target: 127.0.0.1:8080
 `)
@@ -119,6 +141,206 @@ forwards:
 	}
 	if err := CheckConfigUpgradeCompatible(path); err != nil {
 		t.Fatalf("CheckConfigUpgradeCompatible() rejected multiple reverse rules: %v", err)
+	}
+}
+
+func TestCheckConfigUpgradeCompatibleAcceptsCompleteV2Config(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client.yaml")
+	data := []byte(`config_version: 2
+requires:
+  min_client_version: "2.1.0"
+server_addr: 127.0.0.1:9443
+username: ""
+password: ""
+password_env: ""
+password_file: ""
+saved_credential:
+  type: ""
+  key_id: ""
+  expires_at: ""
+  ciphertext: ""
+client_id: workstation
+log_level: info
+tls:
+  ca_cert_file: ""
+  server_name: ""
+  min_version: "1.3"
+  insecure_skip_verify: true
+connection:
+  dial_timeout_sec: 5
+forwards:
+  - name: web
+    direction: client_to_server
+    listen_addr: 127.0.0.1:18080
+    server_target: 10.20.30.40:8080
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckConfigUpgradeCompatible(path); err != nil {
+		t.Fatalf("CheckConfigUpgradeCompatible() rejected complete V2 config: %v", err)
+	}
+}
+
+func TestCheckConfigUpgradeCompatibleAcceptsEmptySavedCredential(t *testing.T) {
+	for _, tt := range []struct {
+		name             string
+		configVersion    int
+		minClientVersion string
+	}{
+		{name: "v1", configVersion: 1, minClientVersion: "1.1.0"},
+		{name: "v2", configVersion: 2, minClientVersion: "2.1.0"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "client.yaml")
+			data := []byte(fmt.Sprintf(`config_version: %d
+requires:
+  min_client_version: %q
+server_addr: 127.0.0.1:9443
+username: ""
+password: ""
+password_env: ""
+password_file: ""
+saved_credential: {}
+client_id: workstation
+log_level: info
+tls:
+  ca_cert_file: ""
+  server_name: ""
+  min_version: "1.3"
+  insecure_skip_verify: true
+connection:
+  dial_timeout_sec: 5
+forwards:
+  - name: web
+    direction: client_to_server
+    listen_addr: 127.0.0.1:18080
+    server_target: 10.20.30.40:8080
+`, tt.configVersion, tt.minClientVersion))
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := CheckConfigUpgradeCompatible(path); err != nil {
+				t.Fatalf("CheckConfigUpgradeCompatible() rejected empty saved credential: %v", err)
+			}
+		})
+	}
+}
+
+func TestCheckConfigUpgradeCompatibleRejectsPartialSavedCredential(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client.yaml")
+	data := []byte(`config_version: 2
+requires:
+  min_client_version: "2.1.0"
+server_addr: 127.0.0.1:9443
+username: ""
+password: ""
+password_env: ""
+password_file: ""
+saved_credential:
+  type: server_sealed
+client_id: workstation
+log_level: info
+tls:
+  ca_cert_file: ""
+  server_name: ""
+  min_version: "1.3"
+  insecure_skip_verify: true
+connection:
+  dial_timeout_sec: 5
+forwards:
+  - name: web
+    direction: client_to_server
+    listen_addr: 127.0.0.1:18080
+    server_target: 10.20.30.40:8080
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckConfigUpgradeCompatible(path)
+	if err == nil || !strings.Contains(err.Error(), "client config.saved_credential is missing required field key_id") {
+		t.Fatalf("CheckConfigUpgradeCompatible() error = %v, want missing key_id", err)
+	}
+}
+
+func TestCheckConfigUpgradeCompatibleWithCACertUsesPairedProfileCertificate(t *testing.T) {
+	certFile := writeTestServerCertificate(t, "192.0.2.22")
+	path := filepath.Join(t.TempDir(), "client.archived.yaml")
+	data := []byte(`config_version: 2
+requires:
+  min_client_version: "2.1.0"
+server_addr: 192.0.2.22:3443
+username: ""
+password: ""
+password_env: ""
+password_file: ""
+saved_credential:
+  type: ""
+  key_id: ""
+  expires_at: ""
+  ciphertext: ""
+client_id: workstation
+log_level: info
+tls:
+  ca_cert_file: ../cert/server.crt
+  server_name: ""
+  min_version: "1.3"
+  insecure_skip_verify: false
+connection:
+  dial_timeout_sec: 5
+forwards:
+  - name: ssh
+    direction: virtual
+    listen_addr: ":22"
+    server_target: 127.0.0.1:22
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckConfigUpgradeCompatibleWithCACert(path, certFile); err != nil {
+		t.Fatalf("paired profile certificate was rejected: %v", err)
+	}
+}
+
+func TestCheckConfigUpgradeCompatibleRejectsUnknownAndMissingV2Fields(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want string
+	}{
+		{
+			name: "unknown top-level field",
+			data: "config_version: 2\nlegacy_virtual_ip: 192.0.2.22\n",
+			want: "field legacy_virtual_ip not found",
+		},
+		{
+			name: "unknown forward field",
+			data: `config_version: 2
+forwards:
+  - name: ssh
+    direction: virtual
+    virtual_ip: 192.0.2.22
+    server_target: 127.0.0.1:22
+`,
+			want: `unknown field "virtual_ip"`,
+		},
+		{
+			name: "missing required structure",
+			data: "config_version: 2\nserver_addr: 127.0.0.1:9443\n",
+			want: "missing required field requires",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "client.yaml")
+			if err := os.WriteFile(path, []byte(tt.data), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			err := CheckConfigUpgradeCompatible(path)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("CheckConfigUpgradeCompatible() error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 
@@ -398,8 +620,8 @@ forwards:
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), "virtual listen_addr") {
-		t.Fatalf("LoadConfig() error = %v, want virtual listen_addr error", err)
+	if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), `unknown field "virtual_ip"`) {
+		t.Fatalf("LoadConfig() error = %v, want unknown virtual_ip field error", err)
 	}
 }
 

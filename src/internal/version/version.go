@@ -7,11 +7,11 @@ import (
 )
 
 const (
-	AppVersion          = "2.0.1"
+	AppVersion          = "2.1.0"
 	LegacyClientVersion = "1.1.0"
 
-	ClientConfigVersion               = 1
-	ClientConfigRequiresClientVersion = "1.1.0"
+	ClientConfigVersion               = 2
+	ClientConfigRequiresClientVersion = "2.1.0"
 	ServerConfigVersion               = 1
 	ServerConfigRequiresServerVersion = "2.0.0"
 
