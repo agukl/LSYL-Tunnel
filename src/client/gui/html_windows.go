@@ -362,75 +362,11 @@ button:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:no
 .profile-switch {
   display:none;
   margin-top:0;
-  overflow:visible;
-  position:relative;
 }
-.profile-dropdown {
-  position:relative;
-}
-.profile-dropdown-btn {
-  position:relative;
-  width:100%;
-  height:40px;
-  padding:0 38px 0 12px;
-  border:1px solid #c6dadd;
-  border-radius:12px;
-  color:#173a46;
-  background:linear-gradient(180deg, #ffffff 0%, #f3fbfc 100%);
-  font-size:13px;
-  font-weight:900;
-  text-align:left;
-  box-shadow:0 8px 18px rgba(33,91,101,.08), inset 0 1px 0 rgba(255,255,255,.9);
-}
-.profile-dropdown-btn:hover {
-  background:linear-gradient(180deg, #ffffff 0%, #edf8f9 100%);
-  transform:none;
-}
-.profile-dropdown-btn:active {
-  transform:none;
-}
-.profile-dropdown-btn:after {
-  content:"";
-  position:absolute;
-  right:14px;
-  top:15px;
-  width:8px;
-  height:8px;
-  border-right:2px solid #2f6a74;
-  border-bottom:2px solid #2f6a74;
-  transform:rotate(45deg);
-}
-.profile-dropdown.open .profile-dropdown-btn {
-  border-color:#10998c;
-  box-shadow:0 0 0 4px rgba(16,153,140,.12), 0 10px 18px rgba(33,91,101,.11);
-}
-.profile-dropdown.open .profile-dropdown-btn:after {
-  top:18px;
-  transform:rotate(225deg);
-}
-.profile-dropdown-btn-text {
-  display:block;
-  overflow:hidden;
-  white-space:nowrap;
-  text-overflow:ellipsis;
-}
-.profile-dropdown-list {
-  display:none;
-  position:absolute;
-  left:0;
-  right:0;
-  top:44px;
-  z-index:75;
-  max-height:168px;
-  overflow:auto;
-  padding:5px;
-  border:1px solid rgba(133,177,184,.55);
-  border-radius:12px;
-  background:#ffffff;
-  box-shadow:0 16px 30px rgba(24,75,84,.18);
-}
-.profile-dropdown.open .profile-dropdown-list {
-  display:block;
+.profile-list {
+  max-height:260px;
+  overflow-x:hidden;
+  overflow-y:auto;
 }
 .profile-option {
   display:block;
@@ -478,14 +414,6 @@ button:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:no
   font-size:11px;
   line-height:15px;
   font-weight:800;
-}
-.profile-hint {
-  clear:both;
-  padding-top:7px;
-  color:#6a818d;
-  font-size:12px;
-  font-weight:800;
-  line-height:1.45;
 }
 .danger {
   color:#915f00;
@@ -583,13 +511,7 @@ button:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:no
   <div id="logoMenu" class="logo-menu">
     <div id="profileSwitch" class="profile-switch">
       <div class="logo-menu-title">切换客户端配置</div>
-      <div id="profileDropdown" class="profile-dropdown">
-        <button id="profileDropdownBtn" class="profile-dropdown-btn" onclick="return toggleProfileDropdown(event)" type="button">
-          <span id="profileDropdownText" class="profile-dropdown-btn-text">当前配置</span>
-        </button>
-        <div id="profileDropdownList" class="profile-dropdown-list"></div>
-      </div>
-      <div id="profileHint" class="profile-hint"></div>
+      <div id="profileList" class="profile-list" role="menu"></div>
     </div>
     <button id="mobileExportMenuBtn" class="secondary menu-action" onclick="return exportMobileProfile(event)">导出移动端配置</button>
     <div id="logoMenuEmpty" class="logo-menu-empty">暂无可切换配置</div>
@@ -647,8 +569,6 @@ var lastState = null;
 var forceNextForm = false;
 var savedPasswordMask = '********';
 var lastProfilesSignature = '';
-var logoMenuOpen = false;
-var profileDropdownOpen = false;
 function el(id){ return document.getElementById(id); }
 function now(){ return new Date().getTime(); }
 function stopEvent(evt){
@@ -773,14 +693,7 @@ function clearMessages(){
   el('runMsg').className = 'inline-message';
   el('runMsg').innerText = '';
 }
-function closeProfileDropdown(){
-  profileDropdownOpen = false;
-  var drop = el('profileDropdown');
-  if(drop) drop.className = 'profile-dropdown';
-}
 function hideLogoMenu(){
-  logoMenuOpen = false;
-  closeProfileDropdown();
   var menu = el('logoMenu');
   if(menu) menu.className = 'logo-menu';
 }
@@ -792,23 +705,12 @@ function syncLogoMenu(state, running){
   if(exportBtn) exportBtn.style.display = running ? 'block' : 'none';
   if(empty) empty.style.display = (!running && !canSwitch) ? 'block' : 'none';
 }
-function toggleProfileDropdown(evt){
-  stopEvent(evt);
-  var btn = el('profileDropdownBtn');
-  if(!btn || btn.disabled) return false;
-  profileDropdownOpen = !profileDropdownOpen;
-  var drop = el('profileDropdown');
-  if(drop) drop.className = profileDropdownOpen ? 'profile-dropdown open' : 'profile-dropdown';
-  return false;
-}
 function showLogoMenu(evt){
   stopEvent(evt);
   var state = lastState || {};
   var running = !!state.running;
-  closeProfileDropdown();
   renderProfiles(state, running);
   syncLogoMenu(state, running);
-  logoMenuOpen = true;
   var menu = el('logoMenu');
   if(menu) menu.className = 'logo-menu open';
   return false;
@@ -988,29 +890,16 @@ function profileListSignature(profiles){
 }
 function renderProfiles(state, running){
   var box = el('profileSwitch');
-  var btn = el('profileDropdownBtn');
-  var btnText = el('profileDropdownText');
-  var list = el('profileDropdownList');
-  var hint = el('profileHint');
+  var list = el('profileList');
   var profiles = (state && state.profiles) || [];
   if(!box) return;
   if(running || profiles.length < 2){
     box.style.display = 'none';
     lastProfilesSignature = '';
-    closeProfileDropdown();
-    if(btn) btn.disabled = true;
     if(list) list.innerHTML = '';
     return;
   }
   box.style.display = 'block';
-  var currentText = '';
-  for(var currentIndex=0;currentIndex<profiles.length;currentIndex++){
-    var currentProfile = profiles[currentIndex] || {};
-    if(currentProfile.current){
-      currentText = currentProfile.label || currentProfile.server_addr || currentProfile.id || '';
-    }
-  }
-  if(btnText) btnText.innerText = currentText || '当前配置';
   var signature = profileListSignature(profiles);
   if(signature !== lastProfilesSignature){
     if(list) list.innerHTML = '';
@@ -1022,6 +911,7 @@ function renderProfiles(state, running){
       item.setAttribute('data-profile-id', p.id || '');
       item.setAttribute('data-profile-current', p.current ? '1' : '0');
       item.setAttribute('data-profile-available', p.available ? '1' : '0');
+      item.setAttribute('role', 'menuitem');
       item.onclick = switchProfileOption;
       item.disabled = !p.available || p.current || busy;
       var main = document.createElement('span');
@@ -1036,8 +926,6 @@ function renderProfiles(state, running){
     }
     lastProfilesSignature = signature;
   }
-  if(hint) hint.innerText = currentText ? ('当前使用：' + currentText) : '';
-  if(btn) btn.disabled = running || busy || profiles.length < 2;
   if(list){
     var buttons = list.getElementsByTagName('button');
     for(var j=0;j<buttons.length;j++){
@@ -1050,9 +938,9 @@ function profileOptionMainText(profile){
   return profile.label || profile.server_addr || profile.id || '未命名配置';
 }
 function profileOptionMetaText(profile){
-  if(!profile.available && profile.message) return profile.message;
-  if(profile.current) return profile.server_addr ? ('当前使用 · ' + profile.server_addr) : '当前使用';
-  return profile.server_addr || '可切换配置';
+  if(!profile.available) return profile.message || '不可用';
+  if(profile.current) return '当前使用';
+  return '';
 }
 function switchProfileOption(evt){
   stopEvent(evt);
@@ -1064,9 +952,6 @@ function switchProfileOption(evt){
 function switchProfile(profileID){
   if(!profileID || profileID === '__current__') return false;
   busy = true;
-  var btn = el('profileDropdownBtn');
-  if(btn) btn.disabled = true;
-  closeProfileDropdown();
   hideLogoMenu();
   showMessage('正在切换客户端配置。', false);
   api('/api/profile/switch', { id: profileID }, function(r){

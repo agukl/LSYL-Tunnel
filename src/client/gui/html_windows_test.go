@@ -22,9 +22,8 @@ func TestClientHTMLTextAndScriptAreIntact(t *testing.T) {
 		"function showLogoMenu",
 		"function installLogoMenuDismiss",
 		"id=\"mobileExportMenuBtn\"",
-		"id=\"profileDropdownBtn\"",
-		"id=\"profileDropdownList\"",
-		"function toggleProfileDropdown",
+		"id=\"profileList\" class=\"profile-list\" role=\"menu\"",
+		"item.setAttribute('role', 'menuitem');",
 		"function switchProfileOption",
 		"/api/mobile/export",
 		"function exportMobileProfile",
@@ -38,6 +37,9 @@ func TestClientHTMLTextAndScriptAreIntact(t *testing.T) {
 		"var lastProfilesSignature = '';",
 		"function profileListSignature",
 		"if(signature !== lastProfilesSignature)",
+		"max-height:260px;",
+		"if(profile.current) return '当前使用';",
+		"if(!profile.available) return profile.message || '不可用';",
 	}
 	for _, text := range required {
 		if !strings.Contains(clientHTML, text) {
@@ -62,6 +64,14 @@ func TestClientHTMLTextAndScriptAreIntact(t *testing.T) {
 		"被动已激活",
 		"服务端被动端口 ",
 		" -> 服务端 ",
+		"('当前使用 · ' + profile.server_addr)",
+		"return profile.server_addr || '可切换配置';",
+		"return '可切换';",
+		"profileDropdown",
+		"profile-dropdown",
+		"profileHint",
+		"profile-hint",
+		"toggleProfileDropdown",
 	}
 	for _, text := range forbidden {
 		if strings.Contains(clientHTML, text) {
