@@ -499,6 +499,14 @@ func friendlyLiteError(err error) string {
 		return "当前账号并发连接数已达到上限，请关闭部分连接后重试。"
 	case strings.Contains(text, "client_version_unsupported"):
 		return "客户端版本不在服务端允许范围内，请联系管理员确认两端版本。"
+	case strings.Contains(text, "client config_version") && strings.Contains(text, "requires a newer client") ||
+		(strings.Contains(text, "client config requires version") && strings.Contains(text, "current version")):
+		return "当前配置需要更高版本的客户端，请升级后重新导入配置。"
+	case (strings.Contains(text, "field ") && strings.Contains(text, "not found in type")) ||
+		strings.Contains(text, "contains unknown field") || strings.Contains(text, "missing required field") ||
+		strings.Contains(text, "duplicate field") || strings.Contains(text, "must be a mapping") ||
+		strings.Contains(text, "must be a list") || strings.Contains(text, "exactly one yaml document"):
+		return "配置文件结构与当前客户端不兼容，请重新导出并导入配置。"
 	case strings.Contains(text, "protocol_version_unsupported") || strings.Contains(text, "bad_request"):
 		return "客户端与服务端协议版本不一致，请联系管理员升级对应一端。"
 	case strings.Contains(text, "server_sealed") || strings.Contains(text, "saved_credential"):

@@ -15,6 +15,8 @@ func TestFriendlyLiteError(t *testing.T) {
 	}{
 		{name: "temporary auth block", raw: "auth_blocked: too many login failures", want: "登录失败次数过多，当前来源 IP 已被临时封禁，请稍后再试。"},
 		{name: "client version", raw: "client_version_unsupported: minimum client_version is 2.0.1", want: "客户端版本不在服务端允许范围内，请联系管理员确认两端版本。"},
+		{name: "config version", raw: "client config_version 3 requires a newer client", want: "当前配置需要更高版本的客户端，请升级后重新导入配置。"},
+		{name: "config structure", raw: `forward "web" contains unknown field "listen_port"`, want: "配置文件结构与当前客户端不兼容，请重新导出并导入配置。"},
 		{name: "protocol version", raw: "protocol_version_unsupported: required protocol_version is 2", want: "客户端与服务端协议版本不一致，请联系管理员升级对应一端。"},
 		{name: "missing username", raw: "username is required", want: "导入文件缺少用户名，请重新导出 .lsylprofile。"},
 		{name: "missing certificate", raw: "invalid server certificate: The system cannot find the file specified", want: "服务端证书文件缺失，请重新导入 .lsylprofile。"},

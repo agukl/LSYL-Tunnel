@@ -133,6 +133,12 @@ func TestVirtualForwardErrorClassification(t *testing.T) {
 			permanent: true,
 		},
 		{
+			name:      "component integrity failed",
+			raw:       "WinDivert64.sys integrity check failed: SHA-256 mismatch",
+			want:      "虚拟端点接管组件完整性校验失败，请修复或重新安装标准客户端",
+			permanent: true,
+		},
+		{
 			name:      "component load failed",
 			raw:       "load WinDivert.dll: The specified module could not be found",
 			want:      "虚拟端点接管组件加载失败，请修复或重新安装标准客户端",

@@ -80,6 +80,11 @@ func TestFriendlyErrorText(t *testing.T) {
 			want: "当前配置需要更高版本的客户端，请先升级客户端。",
 		},
 		{
+			name: "invalid config version declaration",
+			raw:  "client config_version 2 requires min_client_version >= 2.1.0",
+			want: "客户端配置版本声明不完整或不匹配，请联系管理员重新下发配置。",
+		},
+		{
 			name: "unsupported direction",
 			raw:  `forward "ssh" has unsupported direction`,
 			want: "转发规则 \"ssh\" 配置错误：direction 不受支持，请联系管理员检查客户端配置。",
@@ -252,7 +257,17 @@ func TestFriendlyErrorText(t *testing.T) {
 		{
 			name: "unknown config field",
 			raw:  "yaml: unmarshal errors: field legacy_mode not found in type tunnel.Config",
-			want: "配置文件包含当前客户端不支持的字段，请联系管理员检查配置版本。",
+			want: "配置文件结构与当前客户端不兼容，请联系管理员重新下发配置。",
+		},
+		{
+			name: "unknown forward field",
+			raw:  `forward "ssh" contains unknown field "virtual_ip"`,
+			want: "转发规则 \"ssh\" 配置错误：包含当前客户端不支持的字段，请联系管理员重新生成配置。",
+		},
+		{
+			name: "missing config structure",
+			raw:  "client config is missing required field requires",
+			want: "配置文件结构与当前客户端不兼容，请联系管理员重新下发配置。",
 		},
 		{
 			name: "uac cancelled",

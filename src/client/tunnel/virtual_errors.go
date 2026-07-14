@@ -69,8 +69,12 @@ func classifyVirtualForwardError(raw string) (message string, permanent bool, ok
 		return "虚拟 IP 接管仅支持标准 64 位 Windows 客户端", true, true
 	case containsAny(text, "administrator authorization for virtual forwarding was cancelled"):
 		return "IP 接管需要管理员授权，本次授权已取消", false, true
-	case containsAny(text, "windivert.dll is missing"):
+	case containsAny(text, "virtual redirect is inactive"):
+		return "IP 接管未启用，请断开后重新连接并授权", false, true
+	case containsAny(text, "windivert.dll is missing", "windivert64.sys is missing"):
 		return "虚拟端点接管组件缺失，请修复或重新安装标准客户端", true, true
+	case containsAny(text, "windivert.dll integrity check failed", "windivert64.sys integrity check failed"):
+		return "虚拟端点接管组件完整性校验失败，请修复或重新安装标准客户端", true, true
 	case containsAny(text, "unsupported windivert address layout", "load windivert.dll", " from windivert.dll"):
 		return "虚拟端点接管组件加载失败，请修复或重新安装标准客户端", true, true
 	case containsAny(text, "windivertopen failed"):

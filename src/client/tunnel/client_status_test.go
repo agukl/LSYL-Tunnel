@@ -13,6 +13,8 @@ import (
 type testVirtualRedirectSession struct {
 	done chan struct{}
 	once sync.Once
+	mu   sync.Mutex
+	err  error
 }
 
 func (s *testVirtualRedirectSession) Close() error {
@@ -22,7 +24,18 @@ func (s *testVirtualRedirectSession) Close() error {
 
 func (s *testVirtualRedirectSession) Done() <-chan struct{} { return s.done }
 
-func (s *testVirtualRedirectSession) Err() error { return nil }
+func (s *testVirtualRedirectSession) Err() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.err
+}
+
+func (s *testVirtualRedirectSession) fail(err error) {
+	s.mu.Lock()
+	s.err = err
+	s.mu.Unlock()
+	s.once.Do(func() { close(s.done) })
+}
 
 func TestStartSoftFailsOccupiedForward(t *testing.T) {
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")
@@ -128,21 +141,23 @@ func TestVirtualForwardUsesRandomLocalRedirectListener(t *testing.T) {
 		t.Fatalf("virtual status = %+v, entry = %q", status, entryAddr)
 	}
 	host, port, err := net.SplitHostPort(status.ListenAddr)
-	if err != nil || host != "0.0.0.0" || port == "0" {
+	if err != nil || host != "127.0.0.1" || port == "0" {
 		t.Fatalf("random local redirect address = %q, error = %v", status.ListenAddr, err)
 	}
 }
 
-func TestStartVirtualForwardsShareRedirectSession(t *testing.T) {
+func TestStartVirtualForwardsUseIndependentRedirectSessions(t *testing.T) {
 	originalStart := startVirtualRedirectSessionFn
 	t.Cleanup(func() { startVirtualRedirectSessionFn = originalStart })
 
-	session := &testVirtualRedirectSession{done: make(chan struct{})}
-	var capturedRules []virtualRedirectRule
+	var sessions []*testVirtualRedirectSession
+	var capturedRules [][]virtualRedirectRule
 	startCalls := 0
 	startVirtualRedirectSessionFn = func(_ context.Context, rules []virtualRedirectRule) (virtualRedirectSession, error) {
 		startCalls++
-		capturedRules = append([]virtualRedirectRule(nil), rules...)
+		capturedRules = append(capturedRules, append([]virtualRedirectRule(nil), rules...))
+		session := &testVirtualRedirectSession{done: make(chan struct{})}
+		sessions = append(sessions, session)
 		return session, nil
 	}
 
@@ -164,20 +179,23 @@ func TestStartVirtualForwardsShareRedirectSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if startCalls != 1 {
-		t.Fatalf("redirect session start calls = %d, want 1", startCalls)
+	if startCalls != 2 {
+		t.Fatalf("redirect session start calls = %d, want 2", startCalls)
 	}
 	if len(capturedRules) != 2 {
-		t.Fatalf("redirect rules = %+v, want 2 rules", capturedRules)
+		t.Fatalf("redirect session rules = %+v, want 2 sessions", capturedRules)
 	}
-	if capturedRules[0].VirtualIP != "192.0.2.22" || capturedRules[0].VirtualPort != 22 || capturedRules[0].LocalPort == 0 {
+	if len(capturedRules[0]) != 1 || len(capturedRules[1]) != 1 {
+		t.Fatalf("redirect session rules = %+v, want one rule per session", capturedRules)
+	}
+	if capturedRules[0][0].VirtualIP != "192.0.2.22" || capturedRules[0][0].VirtualPort != 22 || capturedRules[0][0].LocalPort == 0 {
 		t.Fatalf("first redirect rule = %+v", capturedRules[0])
 	}
-	if capturedRules[1].VirtualIP != "192.0.2.22" || capturedRules[1].VirtualPort != 443 || capturedRules[1].LocalPort == 0 {
+	if capturedRules[1][0].VirtualIP != "192.0.2.22" || capturedRules[1][0].VirtualPort != 443 || capturedRules[1][0].LocalPort == 0 {
 		t.Fatalf("second redirect rule = %+v", capturedRules[1])
 	}
-	if capturedRules[0].LocalPort == capturedRules[1].LocalPort {
-		t.Fatalf("virtual forwards share local redirect port %d", capturedRules[0].LocalPort)
+	if capturedRules[0][0].LocalPort == capturedRules[1][0].LocalPort {
+		t.Fatalf("virtual forwards share local redirect port %d", capturedRules[0][0].LocalPort)
 	}
 	if got := client.ForwardAddr("virtual-ssh"); got != "192.0.2.22:22" {
 		t.Fatalf("virtual ssh address = %q", got)
@@ -189,10 +207,172 @@ func TestStartVirtualForwardsShareRedirectSession(t *testing.T) {
 	if err := client.Close(); err != nil {
 		t.Fatal(err)
 	}
+	for index, session := range sessions {
+		select {
+		case <-session.done:
+		default:
+			t.Fatalf("redirect session %d was not closed with the client", index)
+		}
+	}
+}
+
+func TestVirtualRedirectSessionFailureOnlyStopsItsRule(t *testing.T) {
+	originalStart := startVirtualRedirectSessionFn
+	t.Cleanup(func() { startVirtualRedirectSessionFn = originalStart })
+
+	var sessions []*testVirtualRedirectSession
+	startVirtualRedirectSessionFn = func(context.Context, []virtualRedirectRule) (virtualRedirectSession, error) {
+		session := &testVirtualRedirectSession{done: make(chan struct{})}
+		sessions = append(sessions, session)
+		return session, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client, err := Start(ctx, Config{
+		ServerAddr: "127.0.0.1:1",
+		Username:   "alice",
+		Password:   "secret",
+		TLS: TLSConfig{
+			CACertFile:         writeTestServerCertificate(t, "192.0.2.22"),
+			InsecureSkipVerify: true,
+		},
+		Forwards: []ForwardConfig{
+			{Name: "virtual-ssh", Direction: DirectionVirtual, ListenAddr: ":22", ServerTarget: "10.20.30.40:22"},
+			{Name: "virtual-web", Direction: DirectionVirtual, ListenAddr: ":443", ServerTarget: "10.20.30.41:8443"},
+		},
+	}, t.Logf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if len(sessions) != 2 {
+		t.Fatalf("redirect session count = %d, want 2", len(sessions))
+	}
+
+	sessions[0].fail(errors.New("WinDivert receive failed"))
+	deadline := time.Now().Add(2 * time.Second)
+	for forwardStateForTest(client.Stats(), "virtual-ssh") != ForwardListenFailed && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := forwardStateForTest(client.Stats(), "virtual-ssh"); got != ForwardListenFailed {
+		t.Fatalf("failed virtual rule state = %q, want %q", got, ForwardListenFailed)
+	}
+	if got := forwardStateForTest(client.Stats(), "virtual-web"); got != ForwardListening {
+		t.Fatalf("unrelated virtual rule state = %q, want %q", got, ForwardListening)
+	}
+	if got := client.ForwardAddr("virtual-ssh"); got != "" {
+		t.Fatalf("failed virtual rule address = %q, want empty", got)
+	}
+	if got := client.ForwardAddr("virtual-web"); got != "192.0.2.22:443" {
+		t.Fatalf("unrelated virtual rule address = %q", got)
+	}
+	select {
+	case <-sessions[1].done:
+		t.Fatal("unrelated virtual redirect session was closed")
+	default:
+	}
+	select {
+	case <-client.Done():
+		t.Fatal("client stopped after one virtual redirect session failed")
+	default:
+	}
+}
+
+func TestVirtualAuthorizationCancellationOnlyDisablesCancelledRule(t *testing.T) {
+	originalStart := startVirtualRedirectSessionFn
+	t.Cleanup(func() { startVirtualRedirectSessionFn = originalStart })
+
+	startCalls := 0
+	var activeSession *testVirtualRedirectSession
+	startVirtualRedirectSessionFn = func(context.Context, []virtualRedirectRule) (virtualRedirectSession, error) {
+		startCalls++
+		if startCalls == 1 {
+			return nil, errors.New("administrator authorization for virtual forwarding was cancelled")
+		}
+		activeSession = &testVirtualRedirectSession{done: make(chan struct{})}
+		return activeSession, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client, err := Start(ctx, Config{
+		ServerAddr: "127.0.0.1:1",
+		Username:   "alice",
+		Password:   "secret",
+		TLS: TLSConfig{
+			CACertFile:         writeTestServerCertificate(t, "192.0.2.22"),
+			InsecureSkipVerify: true,
+		},
+		Forwards: []ForwardConfig{
+			{Name: "virtual-ssh", Direction: DirectionVirtual, ListenAddr: ":22", ServerTarget: "10.20.30.40:22"},
+			{Name: "virtual-web", Direction: DirectionVirtual, ListenAddr: ":443", ServerTarget: "10.20.30.41:8443"},
+		},
+	}, t.Logf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if startCalls != 2 || activeSession == nil {
+		t.Fatalf("redirect starts = %d, active session = %v", startCalls, activeSession != nil)
+	}
+	if got := forwardStateForTest(client.Stats(), "virtual-ssh"); got != ForwardListenFailed {
+		t.Fatalf("cancelled virtual rule state = %q, want %q", got, ForwardListenFailed)
+	}
+	if got := forwardStateForTest(client.Stats(), "virtual-web"); got != ForwardListening {
+		t.Fatalf("authorized virtual rule state = %q, want %q", got, ForwardListening)
+	}
+	if got := client.ForwardAddr("virtual-web"); got != "192.0.2.22:443" {
+		t.Fatalf("authorized virtual rule address = %q", got)
+	}
+}
+
+func TestRestoreCheckedVirtualForwardDoesNotCreateOrdinaryListener(t *testing.T) {
+	client := &Client{
+		listeners:               map[string]net.Listener{},
+		virtualAddrs:            map[string]string{},
+		virtualRedirectSessions: map[string]virtualRedirectSession{},
+		forwards:                map[string]*forwardRuntime{},
+		closed:                  make(chan struct{}),
+	}
+	fwd := ForwardConfig{
+		Name:         "virtual-ssh",
+		Direction:    DirectionVirtual,
+		ListenAddr:   "127.0.0.1:0",
+		ServerTarget: "10.20.30.40:22",
+	}
+	client.initForward(fwd.Name, fwd, ForwardListenFailed, "")
+
+	err := client.restoreCheckedForward(fwd.Name, fwd)
+	if err == nil || !strings.Contains(err.Error(), "virtual redirect is inactive") {
+		t.Fatalf("restoreCheckedForward() error = %v, want inactive virtual redirect", err)
+	}
+	if got := client.ForwardAddr(fwd.Name); got != "" {
+		t.Fatalf("inactive virtual rule created ordinary listener %q", got)
+	}
+}
+
+func TestStopVirtualForwardClosesRedirectSession(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := &testVirtualRedirectSession{done: make(chan struct{})}
+	client := &Client{
+		listeners:               map[string]net.Listener{"virtual-ssh": listener},
+		virtualAddrs:            map[string]string{"virtual-ssh": "192.0.2.22:22"},
+		virtualRedirectSessions: map[string]virtualRedirectSession{"virtual-ssh": session},
+	}
+
+	client.stopForwardListener("virtual-ssh")
+
 	select {
 	case <-session.done:
 	default:
-		t.Fatal("redirect session was not closed with the client")
+		t.Fatal("redirect session remained active after the virtual rule stopped")
+	}
+	if got := client.ForwardAddr("virtual-ssh"); got != "" {
+		t.Fatalf("stopped virtual rule address = %q, want empty", got)
 	}
 }
 

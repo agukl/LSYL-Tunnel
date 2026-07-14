@@ -5,13 +5,16 @@ package tunnel
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,40 +30,67 @@ import (
 )
 
 const (
-	virtualRedirectHelperFlag      = "virtual-redirect-helper"
-	virtualRedirectHelperSession   = "session"
-	virtualRedirectHelperAnchor    = "anchor"
-	virtualRedirectHelperTimeout   = 60 * time.Second
-	virtualRedirectShutdownTimeout = 8 * time.Second
-	virtualRedirectResultDirectory = "virtual-redirect-helper-results"
-	winDivertPriority              = 123
-	winDivertMTUMax                = 40 + 0xffff
-	seeMaskNoCloseProcess          = 0x00000040
+	virtualRedirectHelperFlag       = "virtual-redirect-helper"
+	virtualRedirectHelperSession    = "session"
+	virtualRedirectHelperAnchor     = "anchor"
+	virtualRedirectHelperTimeout    = 60 * time.Second
+	virtualRedirectShutdownTimeout  = 8 * time.Second
+	virtualRedirectControlMaxBytes  = 64 * 1024
+	virtualRedirectHandshakeTimeout = 3 * time.Second
+	winDivertPriority               = 123
+	winDivertMTUMax                 = 40 + 0xffff
+	winDivertFlagOutbound           = uint32(1 << 17)
+	winDivertFlagLoopback           = uint32(1 << 18)
+	seeMaskNoCloseProcess           = 0x00000040
+	winDivertDLLSHA256              = "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
+	winDivertDriverSHA256           = "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
 )
 
 type virtualRedirectHelperOptions struct {
-	Action      string
-	Rules       []virtualRedirectRule
-	ResultToken string
-	AnchorPID   uint32
+	Action       string
+	Rules        []virtualRedirectRule
+	ControlAddr  string
+	ControlToken string
+	AnchorPID    uint32
 }
 
 type virtualRedirectHelperResult struct {
-	Ready   bool   `json:"ready"`
-	Stopped bool   `json:"stopped"`
-	Error   string `json:"error,omitempty"`
+	Token     string `json:"token"`
+	Connected bool   `json:"connected,omitempty"`
+	Ready     bool   `json:"ready,omitempty"`
+	Stopped   bool   `json:"stopped,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 type windowsVirtualRedirectSession struct {
 	anchorStdin   io.WriteCloser
 	anchorCmd     *exec.Cmd
 	helperProcess windows.Handle
-	resultPath    string
+	control       *virtualRedirectControlServer
 	done          chan struct{}
 	closing       atomic.Bool
 	closeOnce     sync.Once
 	mu            sync.Mutex
 	err           error
+}
+
+type virtualRedirectControlServer struct {
+	listener  net.Listener
+	token     string
+	results   chan virtualRedirectHelperResult
+	done      chan struct{}
+	closing   atomic.Bool
+	closeOnce sync.Once
+	mu        sync.Mutex
+	conn      net.Conn
+	decoder   *json.Decoder
+	last      virtualRedirectHelperResult
+	err       error
+}
+
+type virtualRedirectControlClient struct {
+	conn  net.Conn
+	token string
 }
 
 type winDivertAddress struct {
@@ -124,30 +154,31 @@ func startVirtualRedirectSession(ctx context.Context, rules []virtualRedirectRul
 	if err != nil {
 		return nil, err
 	}
-	resultPath, err := virtualRedirectResultPath(token)
+	control, err := newVirtualRedirectControlServer(token)
 	if err != nil {
-		return nil, err
-	}
-	if err := prepareVirtualRedirectResultPath(resultPath); err != nil {
 		return nil, err
 	}
 
 	exe, err := os.Executable()
 	if err != nil {
+		_ = control.Close()
 		return nil, err
 	}
 	anchorCmd := exec.Command(exe, "-"+virtualRedirectHelperFlag, virtualRedirectHelperAnchor)
 	anchorCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	anchorStdin, err := anchorCmd.StdinPipe()
 	if err != nil {
+		_ = control.Close()
 		return nil, fmt.Errorf("create virtual redirect session anchor: %w", err)
 	}
 	if err := anchorCmd.Start(); err != nil {
 		_ = anchorStdin.Close()
+		_ = control.Close()
 		return nil, fmt.Errorf("start virtual redirect session anchor: %w", err)
 	}
 
 	failAnchor := func(cause error) (virtualRedirectSession, error) {
+		_ = control.Close()
 		_ = anchorStdin.Close()
 		_ = anchorCmd.Process.Kill()
 		_ = anchorCmd.Wait()
@@ -160,7 +191,8 @@ func startVirtualRedirectSession(ctx context.Context, rules []virtualRedirectRul
 	args := []string{
 		"-" + virtualRedirectHelperFlag, virtualRedirectHelperSession,
 		"-virtual-redirect-rules", rulesText,
-		"-virtual-redirect-result", token,
+		"-virtual-redirect-control", control.Address(),
+		"-virtual-redirect-token", token,
 		"-virtual-redirect-anchor-pid", strconv.Itoa(anchorCmd.Process.Pid),
 	}
 	helperProcess, err := shellExecuteElevated(exe, virtualRedirectCommandLine(args...), filepath.Dir(exe))
@@ -175,7 +207,7 @@ func startVirtualRedirectSession(ctx context.Context, rules []virtualRedirectRul
 		anchorStdin:   anchorStdin,
 		anchorCmd:     anchorCmd,
 		helperProcess: helperProcess,
-		resultPath:    resultPath,
+		control:       control,
 		done:          make(chan struct{}),
 	}
 	go session.monitorHelper()
@@ -188,14 +220,15 @@ func startVirtualRedirectSession(ctx context.Context, rules []virtualRedirectRul
 func (s *windowsVirtualRedirectSession) waitUntilReady(ctx context.Context, timeout time.Duration) error {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
 	for {
-		result, ready, err := readVirtualRedirectHelperResult(s.resultPath)
-		if err != nil {
-			return err
-		}
-		if ready {
+		select {
+		case result, ok := <-s.control.Results():
+			if !ok {
+				if err := s.control.Err(); err != nil {
+					return err
+				}
+				return fmt.Errorf("virtual redirect administrator helper closed its control channel before setup completed")
+			}
 			if result.Error != "" {
 				return errors.New(result.Error)
 			}
@@ -205,8 +238,6 @@ func (s *windowsVirtualRedirectSession) waitUntilReady(ctx context.Context, time
 			if result.Ready {
 				return nil
 			}
-		}
-		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-s.done:
@@ -216,7 +247,6 @@ func (s *windowsVirtualRedirectSession) waitUntilReady(ctx context.Context, time
 			return fmt.Errorf("virtual redirect helper stopped before setup completed")
 		case <-timer.C:
 			return fmt.Errorf("virtual redirect administrator helper timed out")
-		case <-ticker.C:
 		}
 	}
 }
@@ -229,10 +259,16 @@ func (s *windowsVirtualRedirectSession) monitorHelper() {
 	} else if status != windows.WAIT_OBJECT_0 {
 		sessionErr = fmt.Errorf("wait for virtual redirect helper returned %d", status)
 	}
-	result, ready, resultErr := readVirtualRedirectHelperResult(s.resultPath)
-	if resultErr != nil {
-		sessionErr = errors.Join(sessionErr, resultErr)
-	} else if ready && result.Error != "" {
+	select {
+	case <-s.control.Done():
+	case <-time.After(2 * time.Second):
+		sessionErr = errors.Join(sessionErr, fmt.Errorf("virtual redirect helper control channel did not close"))
+		_ = s.control.Close()
+	}
+	if controlErr := s.control.Err(); controlErr != nil {
+		sessionErr = errors.Join(sessionErr, controlErr)
+	}
+	if result := s.control.LastResult(); result.Error != "" {
 		sessionErr = errors.Join(sessionErr, errors.New(result.Error))
 	}
 	var exitCode uint32
@@ -272,11 +308,15 @@ func (s *windowsVirtualRedirectSession) Close() error {
 		case <-time.After(virtualRedirectShutdownTimeout):
 			closeErr = errors.Join(closeErr, fmt.Errorf("virtual redirect helper shutdown timed out"))
 		}
+		if s.control != nil {
+			if err := s.control.Close(); err != nil {
+				closeErr = errors.Join(closeErr, err)
+			}
+		}
 		if s.helperProcess != 0 {
 			_ = windows.CloseHandle(s.helperProcess)
 			s.helperProcess = 0
 		}
-		_ = os.Remove(s.resultPath)
 		s.mu.Lock()
 		s.err = errors.Join(s.err, closeErr)
 		s.mu.Unlock()
@@ -348,7 +388,8 @@ func parseVirtualRedirectHelperArgs(args []string) (virtualRedirectHelperOptions
 	fs.SetOutput(io.Discard)
 	action := fs.String(virtualRedirectHelperFlag, "", "")
 	rulesText := fs.String("virtual-redirect-rules", "", "")
-	resultToken := fs.String("virtual-redirect-result", "", "")
+	controlAddr := fs.String("virtual-redirect-control", "", "")
+	controlToken := fs.String("virtual-redirect-token", "", "")
 	anchorPID := fs.Uint("virtual-redirect-anchor-pid", 0, "")
 	if err := fs.Parse(args); err != nil {
 		return opts, true, err
@@ -366,9 +407,13 @@ func parseVirtualRedirectHelperArgs(args []string) (virtualRedirectHelperOptions
 		if err != nil {
 			return opts, true, err
 		}
-		opts.ResultToken = strings.ToLower(strings.TrimSpace(*resultToken))
-		if !validVirtualRedirectToken(opts.ResultToken) {
-			return opts, true, fmt.Errorf("invalid virtual redirect helper result token")
+		opts.ControlAddr, err = normalizeVirtualRedirectControlAddress(*controlAddr)
+		if err != nil {
+			return opts, true, err
+		}
+		opts.ControlToken = strings.ToLower(strings.TrimSpace(*controlToken))
+		if !validVirtualRedirectToken(opts.ControlToken) {
+			return opts, true, fmt.Errorf("invalid virtual redirect helper control token")
 		}
 		if *anchorPID == 0 || *anchorPID > uint(^uint32(0)) {
 			return opts, true, fmt.Errorf("virtual redirect helper requires a valid anchor PID")
@@ -379,38 +424,43 @@ func parseVirtualRedirectHelperArgs(args []string) (virtualRedirectHelperOptions
 }
 
 func runVirtualRedirectSessionHelper(opts virtualRedirectHelperOptions) error {
+	control, err := connectVirtualRedirectControl(opts.ControlAddr, opts.ControlToken)
+	if err != nil {
+		return err
+	}
+	defer control.Close()
 	anchor, err := windows.OpenProcess(windows.SYNCHRONIZE, false, opts.AnchorPID)
 	if err != nil {
-		return finishVirtualRedirectHelper(opts.ResultToken, false, fmt.Errorf("open virtual redirect session anchor: %w", err))
+		return finishVirtualRedirectHelper(control, false, fmt.Errorf("open virtual redirect session anchor: %w", err))
 	}
 	defer windows.CloseHandle(anchor)
 	if status, err := windows.WaitForSingleObject(anchor, 0); err != nil || status != uint32(windows.WAIT_TIMEOUT) {
 		if err == nil {
 			err = fmt.Errorf("virtual redirect session ended before setup completed")
 		}
-		return finishVirtualRedirectHelper(opts.ResultToken, false, err)
+		return finishVirtualRedirectHelper(control, false, err)
 	}
 
 	redirect, err := openWinDivertRedirect(opts.Rules)
 	if err != nil {
-		return finishVirtualRedirectHelper(opts.ResultToken, false, err)
+		return finishVirtualRedirectHelper(control, false, err)
 	}
-	if err := writeVirtualRedirectHelperResult(opts.ResultToken, virtualRedirectHelperResult{Ready: true}); err != nil {
+	if err := control.Send(virtualRedirectHelperResult{Ready: true}); err != nil {
 		redirect.Close()
 		redirect.Release()
 		return err
 	}
 	runErr := redirect.Run(anchor)
-	return finishVirtualRedirectHelper(opts.ResultToken, true, runErr)
+	return finishVirtualRedirectHelper(control, true, runErr)
 }
 
-func finishVirtualRedirectHelper(token string, ready bool, actionErr error) error {
+func finishVirtualRedirectHelper(control *virtualRedirectControlClient, ready bool, actionErr error) error {
 	result := virtualRedirectHelperResult{Ready: ready, Stopped: true}
 	if actionErr != nil {
 		result.Error = actionErr.Error()
 	}
-	writeErr := writeVirtualRedirectHelperResult(token, result)
-	return errors.Join(actionErr, writeErr)
+	sendErr := control.Send(result)
+	return errors.Join(actionErr, sendErr)
 }
 
 func openWinDivertRedirect(rules []virtualRedirectRule) (*winDivertRedirect, error) {
@@ -486,17 +536,29 @@ func (r *winDivertRedirect) packetLoop() error {
 			}
 			return err
 		}
-		outbound := address.Flags&(1<<17) != 0
-		newOutbound, action := rewriteVirtualRedirectPacket(packet[:packetLen], outbound, r.table)
+		route := virtualRedirectPacketRoute{
+			Outbound: address.Flags&winDivertFlagOutbound != 0,
+			Loopback: address.Flags&winDivertFlagLoopback != 0,
+			IfIdx:    binary.LittleEndian.Uint32(address.Data[0:4]),
+			SubIfIdx: binary.LittleEndian.Uint32(address.Data[4:8]),
+		}
+		newRoute, action := rewriteVirtualRedirectPacket(packet[:packetLen], route, &r.table)
 		if action == virtualRedirectDrop {
 			continue
 		}
 		if action == virtualRedirectInject {
-			if newOutbound {
-				address.Flags |= 1 << 17
+			if newRoute.Outbound {
+				address.Flags |= winDivertFlagOutbound
 			} else {
-				address.Flags &^= 1 << 17
+				address.Flags &^= winDivertFlagOutbound
 			}
+			if newRoute.Loopback {
+				address.Flags |= winDivertFlagLoopback
+			} else {
+				address.Flags &^= winDivertFlagLoopback
+			}
+			binary.LittleEndian.PutUint32(address.Data[0:4], newRoute.IfIdx)
+			binary.LittleEndian.PutUint32(address.Data[4:8], newRoute.SubIfIdx)
 			if err := r.api.CalcChecksums(packet[:packetLen], &address); err != nil {
 				return err
 			}
@@ -624,25 +686,54 @@ func (a *winDivertAPI) Release() {
 }
 
 func resolveWinDivertDLL() (string, error) {
-	candidates := make([]string, 0, 4)
-	if dir := strings.TrimSpace(os.Getenv("LSYL_WINDIVERT_DIR")); dir != "" {
-		candidates = append(candidates, filepath.Join(dir, "WinDivert.dll"))
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("locate the standard Windows client executable: %w", err)
 	}
-	if exe, err := os.Executable(); err == nil {
-		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "WinDivert.dll"))
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		candidates = append(candidates,
-			filepath.Join(cwd, "third_party", "windivert", "2.2.2", "x64", "WinDivert.dll"),
-			filepath.Join(cwd, "tool", "windivert", "x64", "WinDivert.dll"),
-		)
-	}
-	for _, candidate := range candidates {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, nil
+	return resolveWinDivertDLLForExecutable(exe)
+}
+
+func resolveWinDivertDLLForExecutable(exe string) (string, error) {
+	dir := filepath.Dir(exe)
+	dllPath := filepath.Join(dir, "WinDivert.dll")
+	driverPath := filepath.Join(dir, "WinDivert64.sys")
+	if err := verifyFileSHA256(dllPath, winDivertDLLSHA256); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("WinDivert.dll is missing; repair the standard 64-bit Windows client installation")
 		}
+		return "", fmt.Errorf("WinDivert.dll integrity check failed: %w", err)
 	}
-	return "", fmt.Errorf("WinDivert.dll is missing; repair the standard 64-bit Windows client installation")
+	if err := verifyFileSHA256(driverPath, winDivertDriverSHA256); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("WinDivert64.sys is missing; repair the standard 64-bit Windows client installation")
+		}
+		return "", fmt.Errorf("WinDivert64.sys integrity check failed: %w", err)
+	}
+	return dllPath, nil
+}
+
+func verifyFileSHA256(path, expected string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("component is not a regular file")
+	}
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return err
+	}
+	actual := hex.EncodeToString(hash.Sum(nil))
+	if !strings.EqualFold(actual, strings.TrimSpace(expected)) {
+		return fmt.Errorf("SHA-256 mismatch")
+	}
+	return nil
 }
 
 func normalizeWindowsCallError(err error) error {
@@ -712,76 +803,199 @@ func decodeVirtualRedirectRules(value string) ([]virtualRedirectRule, error) {
 	return normalizeVirtualRedirectRules(rules)
 }
 
-func writeVirtualRedirectHelperResult(token string, result virtualRedirectHelperResult) error {
-	path, err := virtualRedirectResultPath(token)
-	if err != nil {
-		return err
+func newVirtualRedirectControlServer(token string) (*virtualRedirectControlServer, error) {
+	token = strings.ToLower(strings.TrimSpace(token))
+	if !validVirtualRedirectToken(token) {
+		return nil, fmt.Errorf("invalid virtual redirect helper control token")
 	}
-	cleanupOldVirtualRedirectResults(filepath.Dir(path))
-	return writeVirtualRedirectJSONAtomic(path, result)
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("listen for virtual redirect helper control: %w", err)
+	}
+	server := &virtualRedirectControlServer{
+		listener: listener,
+		token:    token,
+		results:  make(chan virtualRedirectHelperResult, 4),
+		done:     make(chan struct{}),
+	}
+	go server.run()
+	return server, nil
 }
 
-func readVirtualRedirectHelperResult(path string) (virtualRedirectHelperResult, bool, error) {
+func (s *virtualRedirectControlServer) run() {
+	defer close(s.done)
+	defer close(s.results)
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			if !s.closing.Load() {
+				s.setError(fmt.Errorf("accept virtual redirect helper control: %w", err))
+			}
+			return
+		}
+		if !s.authenticate(conn) {
+			_ = conn.Close()
+			continue
+		}
+		s.mu.Lock()
+		s.conn = conn
+		s.mu.Unlock()
+		_ = s.listener.Close()
+		s.readAuthenticated()
+		_ = conn.Close()
+		return
+	}
+}
+
+func (s *virtualRedirectControlServer) authenticate(conn net.Conn) bool {
+	_ = conn.SetReadDeadline(time.Now().Add(virtualRedirectHandshakeTimeout))
+	decoder := json.NewDecoder(io.LimitReader(conn, virtualRedirectControlMaxBytes))
 	var result virtualRedirectHelperResult
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return result, false, nil
+	if err := decoder.Decode(&result); err != nil || !result.Connected || result.Token != s.token {
+		return false
 	}
-	if err != nil {
-		return result, false, err
-	}
-	if err := json.Unmarshal(data, &result); err != nil {
-		return result, false, fmt.Errorf("read virtual redirect helper result: %w", err)
-	}
-	return result, true, nil
+	_ = conn.SetReadDeadline(time.Time{})
+	s.recordResult(result)
+	s.decoder = decoder
+	return true
 }
 
-func writeVirtualRedirectJSONAtomic(path string, value any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+func (s *virtualRedirectControlServer) readAuthenticated() {
+	decoder := s.decoder
+	for {
+		var result virtualRedirectHelperResult
+		err := decoder.Decode(&result)
+		if err != nil {
+			if !s.closing.Load() && !errors.Is(err, io.EOF) {
+				s.setError(fmt.Errorf("read virtual redirect helper control: %w", err))
+			} else if !s.closing.Load() && !s.LastResult().Stopped {
+				s.setError(fmt.Errorf("virtual redirect helper control connection closed unexpectedly"))
+			}
+			return
+		}
+		if result.Token != s.token {
+			s.setError(fmt.Errorf("virtual redirect helper control token changed during the session"))
+			return
+		}
+		s.recordResult(result)
+		if result.Stopped {
+			return
+		}
 	}
-	data, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	from, _ := windows.UTF16PtrFromString(tmpPath)
-	to, _ := windows.UTF16PtrFromString(path)
-	return windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
 }
 
-func prepareVirtualRedirectResultPath(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+func (s *virtualRedirectControlServer) recordResult(result virtualRedirectHelperResult) {
+	s.mu.Lock()
+	s.last = result
+	s.mu.Unlock()
+	s.results <- result
+}
+
+func (s *virtualRedirectControlServer) setError(err error) {
+	if err == nil {
+		return
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove stale virtual redirect helper result: %w", err)
+	s.mu.Lock()
+	s.err = errors.Join(s.err, err)
+	s.mu.Unlock()
+}
+
+func (s *virtualRedirectControlServer) Address() string {
+	if s == nil || s.listener == nil {
+		return ""
 	}
-	cleanupOldVirtualRedirectResults(filepath.Dir(path))
+	return s.listener.Addr().String()
+}
+
+func (s *virtualRedirectControlServer) Results() <-chan virtualRedirectHelperResult {
+	return s.results
+}
+
+func (s *virtualRedirectControlServer) Done() <-chan struct{} {
+	return s.done
+}
+
+func (s *virtualRedirectControlServer) LastResult() virtualRedirectHelperResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.last
+}
+
+func (s *virtualRedirectControlServer) Err() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.err
+}
+
+func (s *virtualRedirectControlServer) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.closeOnce.Do(func() {
+		s.closing.Store(true)
+		if s.listener != nil {
+			_ = s.listener.Close()
+		}
+		s.mu.Lock()
+		conn := s.conn
+		s.mu.Unlock()
+		if conn != nil {
+			_ = conn.Close()
+		}
+	})
 	return nil
 }
 
-func virtualRedirectResultPath(token string) (string, error) {
+func connectVirtualRedirectControl(address, token string) (*virtualRedirectControlClient, error) {
+	address, err := normalizeVirtualRedirectControlAddress(address)
+	if err != nil {
+		return nil, err
+	}
+	token = strings.ToLower(strings.TrimSpace(token))
 	if !validVirtualRedirectToken(token) {
-		return "", fmt.Errorf("invalid virtual redirect helper result token")
+		return nil, fmt.Errorf("invalid virtual redirect helper control token")
 	}
-	root, err := os.UserCacheDir()
-	if err != nil || strings.TrimSpace(root) == "" {
-		root = os.TempDir()
+	conn, err := net.DialTimeout("tcp4", address, 5*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("connect virtual redirect helper control: %w", err)
 	}
-	return filepath.Join(root, "LSYL Tunnel", virtualRedirectResultDirectory, token+".json"), nil
+	client := &virtualRedirectControlClient{conn: conn, token: token}
+	if err := client.Send(virtualRedirectHelperResult{Connected: true}); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return client, nil
+}
+
+func (c *virtualRedirectControlClient) Send(result virtualRedirectHelperResult) error {
+	if c == nil || c.conn == nil {
+		return fmt.Errorf("virtual redirect helper control is unavailable")
+	}
+	result.Token = c.token
+	if err := json.NewEncoder(c.conn).Encode(result); err != nil {
+		return fmt.Errorf("send virtual redirect helper control result: %w", err)
+	}
+	return nil
+}
+
+func (c *virtualRedirectControlClient) Close() error {
+	if c == nil || c.conn == nil {
+		return nil
+	}
+	return c.conn.Close()
+}
+
+func normalizeVirtualRedirectControlAddress(value string) (string, error) {
+	host, portText, err := net.SplitHostPort(strings.TrimSpace(value))
+	if err != nil {
+		return "", fmt.Errorf("virtual redirect helper control must use loopback IPv4:port")
+	}
+	ip := net.ParseIP(host)
+	port, portErr := strconv.Atoi(portText)
+	if portErr != nil || port < 1 || port > 65535 || ip == nil || ip.To4() == nil || !ip.IsLoopback() {
+		return "", fmt.Errorf("virtual redirect helper control must use loopback IPv4:port")
+	}
+	return net.JoinHostPort(ip.To4().String(), strconv.Itoa(port)), nil
 }
 
 func newVirtualRedirectToken() (string, error) {
@@ -798,23 +1012,6 @@ func validVirtualRedirectToken(token string) bool {
 	}
 	_, err := hex.DecodeString(token)
 	return err == nil
-}
-
-func cleanupOldVirtualRedirectResults(dir string) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	cutoff := time.Now().Add(-24 * time.Hour)
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".json") {
-			continue
-		}
-		info, err := entry.Info()
-		if err == nil && info.ModTime().Before(cutoff) {
-			_ = os.Remove(filepath.Join(dir, entry.Name()))
-		}
-	}
 }
 
 func virtualRedirectCommandLine(args ...string) string {

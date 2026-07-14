@@ -264,6 +264,8 @@ func friendlyErrorText(raw string) string {
 		return "请输入服务端地址。"
 	case strings.Contains(text, "client config_version must be >= 0"):
 		return "客户端配置版本无效，请联系管理员重新下发配置。"
+	case strings.Contains(text, "requires min_client_version >=") || strings.Contains(text, "requires requires.min_client_version"):
+		return "客户端配置版本声明不完整或不匹配，请联系管理员重新下发配置。"
 	case strings.Contains(text, "requires a newer client") || (strings.Contains(text, "client config requires version") && strings.Contains(text, "current version")):
 		return "当前配置需要更高版本的客户端，请先升级客户端。"
 	case (containsAnyText(text, "server_addr", "dial tcp") && containsAnyText(text, "missing port in address", "too many colons in address", "unknown port")):
@@ -276,6 +278,8 @@ func friendlyErrorText(raw string) string {
 		return "本地端口已被占用，请关闭占用程序或调整端口。"
 	case strings.Contains(text, "has unsupported direction"):
 		return forwardRuleConfigMessage(raw, "direction 不受支持，请联系管理员检查客户端配置。")
+	case strings.Contains(text, "contains unknown field"):
+		return forwardRuleConfigMessage(raw, "包含当前客户端不支持的字段，请联系管理员重新生成配置。")
 	case strings.Contains(text, "requires server_target"):
 		return forwardRuleConfigMessage(raw, "缺少业务目标 server_target，请联系管理员重新生成客户端配置。")
 	case strings.Contains(text, "server_target must include a host and port"):
@@ -328,8 +332,9 @@ func friendlyErrorText(raw string) string {
 		return "连接被服务端断开，请稍后重试或联系管理员。"
 	case strings.Contains(text, "access is denied") || strings.Contains(text, "拒绝访问"):
 		return "权限不足，请以管理员身份运行或检查安装目录权限。"
-	case strings.Contains(text, "field ") && strings.Contains(text, "not found in type"):
-		return "配置文件包含当前客户端不支持的字段，请联系管理员检查配置版本。"
+	case (strings.Contains(text, "field ") && strings.Contains(text, "not found in type")) ||
+		containsAnyText(text, "missing required field", "duplicate field", "must be a mapping", "must be a list", "must be a value", "exactly one yaml document"):
+		return "配置文件结构与当前客户端不兼容，请联系管理员重新下发配置。"
 	case strings.Contains(text, "yaml") || strings.Contains(text, "cannot unmarshal") || strings.Contains(text, "did not find expected"):
 		return "配置文件格式不正确，请联系管理员检查配置。"
 	case strings.Contains(text, "no such file") || strings.Contains(text, "cannot find") || strings.Contains(text, "找不到"):

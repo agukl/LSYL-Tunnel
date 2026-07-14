@@ -389,11 +389,25 @@ func (c *Client) checkForwardNow(ctx context.Context, name string, fwd ForwardCo
 		}
 		return "failed"
 	}
-	switch forwardDirection(fwd) {
-	case DirectionClientToServer:
+	if err := c.restoreCheckedForward(name, fwd); err != nil {
+		c.recordForwardError(name, err)
+		if fwd.Direction == DirectionVirtual {
+			c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
+		}
+		return "failed"
+	}
+	return "allowed"
+}
+
+func (c *Client) restoreCheckedForward(name string, fwd ForwardConfig) error {
+	switch strings.TrimSpace(fwd.Direction) {
+	case DirectionVirtual:
+		if !c.virtualForwardActive(name) {
+			return fmt.Errorf("virtual redirect is inactive; disconnect and reconnect to request administrator authorization")
+		}
+	case "", DirectionClientToServer:
 		if err := c.ensureForwardListener(name, fwd); err != nil {
-			c.recordForwardError(name, err)
-			return "failed"
+			return err
 		}
 	case DirectionServerToClient:
 		if current := c.forward(name); current != nil {
@@ -406,7 +420,7 @@ func (c *Client) checkForwardNow(ctx context.Context, name string, fwd ForwardCo
 			}
 		}
 	}
-	return "allowed"
+	return nil
 }
 
 func (c *Client) checkForwardResponse(ctx context.Context, name string, fwd ForwardConfig) (protocol.OpenResponse, error) {

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type virtualRedirectSession interface {
@@ -26,6 +27,12 @@ type virtualRedirectPacketAction uint8
 const (
 	// Each endpoint expands into several WinDivert filter tests; keep headroom below its 256-object limit.
 	maxVirtualRedirectEndpoints = 48
+	maxVirtualRedirectFlows     = 8192
+	virtualRedirectEvictSample  = 32
+	virtualRedirectFlowIdleTTL  = 24 * time.Hour
+	virtualRedirectClosingTTL   = 10 * time.Minute
+	virtualRedirectSweepPeriod  = time.Minute
+	virtualRedirectLoopbackIPv4 = uint32(0x7f000001)
 
 	virtualRedirectPass virtualRedirectPacketAction = iota
 	virtualRedirectInject
@@ -38,9 +45,41 @@ type virtualRedirectEndpointKey struct {
 }
 
 type virtualRedirectTable struct {
-	targets    map[virtualRedirectEndpointKey]virtualRedirectRule
-	responses  map[virtualRedirectEndpointKey]virtualRedirectRule
-	localPorts map[uint16]struct{}
+	targets         map[virtualRedirectEndpointKey]virtualRedirectRule
+	responses       map[uint16]virtualRedirectRule
+	targetFlows     map[virtualRedirectTargetFlowKey]*virtualRedirectFlow
+	responseFlows   map[virtualRedirectResponseFlowKey]*virtualRedirectFlow
+	nextNATPort     uint16
+	lastFlowCleanup time.Time
+}
+
+type virtualRedirectTargetFlowKey struct {
+	SourceIP   uint32
+	SourcePort uint16
+	TargetIP   uint32
+	TargetPort uint16
+}
+
+type virtualRedirectResponseFlowKey struct {
+	LocalPort uint16
+	NATPort   uint16
+}
+
+type virtualRedirectFlow struct {
+	targetKey   virtualRedirectTargetFlowKey
+	responseKey virtualRedirectResponseFlowKey
+	rule        virtualRedirectRule
+	lastSeen    time.Time
+	closing     bool
+	ifIdx       uint32
+	subIfIdx    uint32
+}
+
+type virtualRedirectPacketRoute struct {
+	Outbound bool
+	Loopback bool
+	IfIdx    uint32
+	SubIfIdx uint32
 }
 
 var startVirtualRedirectSessionFn = startVirtualRedirectSession
@@ -110,15 +149,17 @@ func newVirtualRedirectTable(rules []virtualRedirectRule) (virtualRedirectTable,
 		return virtualRedirectTable{}, err
 	}
 	table := virtualRedirectTable{
-		targets:    make(map[virtualRedirectEndpointKey]virtualRedirectRule, len(rules)),
-		responses:  make(map[virtualRedirectEndpointKey]virtualRedirectRule, len(rules)),
-		localPorts: make(map[uint16]struct{}, len(rules)),
+		targets:         make(map[virtualRedirectEndpointKey]virtualRedirectRule, len(rules)),
+		responses:       make(map[uint16]virtualRedirectRule, len(rules)),
+		targetFlows:     make(map[virtualRedirectTargetFlowKey]*virtualRedirectFlow),
+		responseFlows:   make(map[virtualRedirectResponseFlowKey]*virtualRedirectFlow),
+		nextNATPort:     49152,
+		lastFlowCleanup: time.Now(),
 	}
 	for _, rule := range rules {
 		ip := binary.BigEndian.Uint32(net.ParseIP(rule.VirtualIP).To4())
 		table.targets[virtualRedirectEndpointKey{IP: ip, Port: rule.VirtualPort}] = rule
-		table.responses[virtualRedirectEndpointKey{IP: ip, Port: rule.LocalPort}] = rule
-		table.localPorts[rule.LocalPort] = struct{}{}
+		table.responses[rule.LocalPort] = rule
 	}
 	return table, nil
 }
@@ -133,43 +174,171 @@ func buildVirtualRedirectFilter(rules []virtualRedirectRule) (string, error) {
 	}
 	targets := make([]string, 0, len(rules))
 	responses := make([]string, 0, len(rules))
-	inboundPorts := make([]string, 0, len(rules))
 	for _, rule := range rules {
 		targets = append(targets, fmt.Sprintf("(ip.DstAddr == %s and tcp.DstPort == %d)", rule.VirtualIP, rule.VirtualPort))
-		responses = append(responses, fmt.Sprintf("(ip.DstAddr == %s and tcp.SrcPort == %d)", rule.VirtualIP, rule.LocalPort))
-		inboundPorts = append(inboundPorts, fmt.Sprintf("tcp.DstPort == %d", rule.LocalPort))
+		responses = append(responses, fmt.Sprintf("(loopback and ip.SrcAddr == 127.0.0.1 and ip.DstAddr == 127.0.0.1 and tcp.SrcPort == %d)", rule.LocalPort))
 	}
-	return "ip and tcp and ((outbound and (" + strings.Join(append(targets, responses...), " or ") + ")) or (inbound and not impostor and (" + strings.Join(inboundPorts, " or ") + ")))", nil
+	return "ip and tcp and outbound and (" + strings.Join(append(targets, responses...), " or ") + ")", nil
 }
 
-func rewriteVirtualRedirectPacket(packet []byte, outbound bool, table virtualRedirectTable) (bool, virtualRedirectPacketAction) {
+func rewriteVirtualRedirectPacket(packet []byte, route virtualRedirectPacketRoute, table *virtualRedirectTable) (virtualRedirectPacketRoute, virtualRedirectPacketAction) {
+	if table == nil {
+		return route, virtualRedirectPass
+	}
 	ihl, srcIP, dstIP, srcPort, dstPort, ok := parseVirtualRedirectIPv4TCP(packet)
 	if !ok {
-		return outbound, virtualRedirectPass
+		return route, virtualRedirectPass
 	}
-	_ = ihl
+	tcpFlags := packet[ihl+13]
+	srcIPValue := binary.BigEndian.Uint32(srcIP)
 	srcPortValue := binary.BigEndian.Uint16(srcPort)
 	dstPortValue := binary.BigEndian.Uint16(dstPort)
 	dstIPValue := binary.BigEndian.Uint32(dstIP)
 
-	if !outbound {
-		if _, protected := table.localPorts[dstPortValue]; protected {
-			return false, virtualRedirectDrop
-		}
-		return false, virtualRedirectPass
+	if !route.Outbound {
+		return route, virtualRedirectPass
 	}
 
 	if rule, found := table.targets[virtualRedirectEndpointKey{IP: dstIPValue, Port: dstPortValue}]; found {
+		flow, ok := table.ensureTargetFlow(virtualRedirectTargetFlowKey{
+			SourceIP:   srcIPValue,
+			SourcePort: srcPortValue,
+			TargetIP:   dstIPValue,
+			TargetPort: dstPortValue,
+		}, rule, route.IfIdx, route.SubIfIdx)
+		if !ok {
+			return route, virtualRedirectDrop
+		}
+		binary.BigEndian.PutUint32(srcIP, virtualRedirectLoopbackIPv4)
+		binary.BigEndian.PutUint16(srcPort, flow.responseKey.NATPort)
+		binary.BigEndian.PutUint32(dstIP, virtualRedirectLoopbackIPv4)
 		binary.BigEndian.PutUint16(dstPort, rule.LocalPort)
-		swapIPv4Addresses(srcIP, dstIP)
-		return false, virtualRedirectInject
+		table.updateFlowState(flow, tcpFlags)
+		return virtualRedirectPacketRoute{Outbound: true, Loopback: true, IfIdx: 1}, virtualRedirectInject
 	}
-	if rule, found := table.responses[virtualRedirectEndpointKey{IP: dstIPValue, Port: srcPortValue}]; found {
+	if rule, found := table.responses[srcPortValue]; found && route.Loopback && srcIPValue == virtualRedirectLoopbackIPv4 && dstIPValue == virtualRedirectLoopbackIPv4 {
+		flow := table.responseFlows[virtualRedirectResponseFlowKey{
+			LocalPort: srcPortValue,
+			NATPort:   dstPortValue,
+		}]
+		if flow == nil || flow.rule != rule {
+			return route, virtualRedirectPass
+		}
+		binary.BigEndian.PutUint32(srcIP, flow.targetKey.TargetIP)
 		binary.BigEndian.PutUint16(srcPort, rule.VirtualPort)
-		swapIPv4Addresses(srcIP, dstIP)
-		return false, virtualRedirectInject
+		binary.BigEndian.PutUint32(dstIP, flow.targetKey.SourceIP)
+		binary.BigEndian.PutUint16(dstPort, flow.targetKey.SourcePort)
+		table.updateFlowState(flow, tcpFlags)
+		return virtualRedirectPacketRoute{IfIdx: flow.ifIdx, SubIfIdx: flow.subIfIdx}, virtualRedirectInject
 	}
-	return true, virtualRedirectPass
+	return route, virtualRedirectPass
+}
+
+func (t *virtualRedirectTable) ensureTargetFlow(key virtualRedirectTargetFlowKey, rule virtualRedirectRule, ifIdx, subIfIdx uint32) (*virtualRedirectFlow, bool) {
+	now := time.Now()
+	t.cleanupFlows(now)
+	if flow := t.targetFlows[key]; flow != nil {
+		flow.lastSeen = now
+		flow.ifIdx = ifIdx
+		flow.subIfIdx = subIfIdx
+		return flow, true
+	}
+	if len(t.targetFlows) >= maxVirtualRedirectFlows {
+		t.evictStaleFlow()
+	}
+	natPort, ok := t.allocateNATPort(key.SourcePort, rule.LocalPort)
+	if !ok {
+		return nil, false
+	}
+	responseKey := virtualRedirectResponseFlowKey{LocalPort: rule.LocalPort, NATPort: natPort}
+	flow := &virtualRedirectFlow{
+		targetKey:   key,
+		responseKey: responseKey,
+		rule:        rule,
+		lastSeen:    now,
+		ifIdx:       ifIdx,
+		subIfIdx:    subIfIdx,
+	}
+	t.targetFlows[key] = flow
+	t.responseFlows[responseKey] = flow
+	return flow, true
+}
+
+func (t *virtualRedirectTable) evictStaleFlow() {
+	var candidate *virtualRedirectFlow
+	checked := 0
+	for _, flow := range t.targetFlows {
+		if candidate == nil || flow.lastSeen.Before(candidate.lastSeen) {
+			candidate = flow
+		}
+		checked++
+		if checked >= virtualRedirectEvictSample {
+			break
+		}
+	}
+	t.removeFlow(candidate)
+}
+
+func (t *virtualRedirectTable) allocateNATPort(preferred uint16, localPort uint16) (uint16, bool) {
+	if preferred != 0 && preferred != localPort {
+		key := virtualRedirectResponseFlowKey{LocalPort: localPort, NATPort: preferred}
+		if t.responseFlows[key] == nil {
+			return preferred, true
+		}
+	}
+	for attempts := 0; attempts < 65535; attempts++ {
+		port := t.nextNATPort
+		t.nextNATPort++
+		if t.nextNATPort == 0 {
+			t.nextNATPort = 1024
+		}
+		if port == 0 || port == localPort {
+			continue
+		}
+		key := virtualRedirectResponseFlowKey{LocalPort: localPort, NATPort: port}
+		if t.responseFlows[key] == nil {
+			return port, true
+		}
+	}
+	return 0, false
+}
+
+func (t *virtualRedirectTable) updateFlowState(flow *virtualRedirectFlow, tcpFlags byte) {
+	flow.lastSeen = time.Now()
+	if tcpFlags&0x02 != 0 {
+		flow.closing = false
+	}
+	if tcpFlags&0x04 != 0 {
+		t.removeFlow(flow)
+		return
+	}
+	if tcpFlags&0x01 != 0 {
+		flow.closing = true
+	}
+}
+
+func (t *virtualRedirectTable) cleanupFlows(now time.Time) {
+	if now.Sub(t.lastFlowCleanup) < virtualRedirectSweepPeriod {
+		return
+	}
+	t.lastFlowCleanup = now
+	for _, flow := range t.targetFlows {
+		ttl := virtualRedirectFlowIdleTTL
+		if flow.closing {
+			ttl = virtualRedirectClosingTTL
+		}
+		if now.Sub(flow.lastSeen) >= ttl {
+			t.removeFlow(flow)
+		}
+	}
+}
+
+func (t *virtualRedirectTable) removeFlow(flow *virtualRedirectFlow) {
+	if flow == nil {
+		return
+	}
+	delete(t.targetFlows, flow.targetKey)
+	delete(t.responseFlows, flow.responseKey)
 }
 
 func parseVirtualRedirectIPv4TCP(packet []byte) (int, []byte, []byte, []byte, []byte, bool) {
@@ -181,11 +350,4 @@ func parseVirtualRedirectIPv4TCP(packet []byte) (int, []byte, []byte, []byte, []
 		return 0, nil, nil, nil, nil, false
 	}
 	return ihl, packet[12:16], packet[16:20], packet[ihl : ihl+2], packet[ihl+2 : ihl+4], true
-}
-
-func swapIPv4Addresses(left, right []byte) {
-	var value [4]byte
-	copy(value[:], left)
-	copy(left, right)
-	copy(right, value[:])
 }
