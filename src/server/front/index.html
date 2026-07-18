@@ -39,16 +39,12 @@
       <section class="status-strip">
         <div class="status-pill" id="servicePill"><span></span><strong>读取中</strong></div>
         <div class="status-text" id="summaryText">正在读取服务端状态...</div>
+        <button class="btn small muted status-refresh" type="button" data-action="refresh">刷新</button>
       </section>
       <div id="configLockBanner" class="hint-card error hidden"></div>
 
       <section id="overview" class="panel tab-panel active">
-        <div class="panel-head">
-          <div>
-            <h2>运行总览</h2>
-            <p>这里展示服务入口以及当前服务运行指标。</p>
-          </div>
-        </div>
+        <h2 class="panel-title">运行总览</h2>
         <div class="cards">
           <div class="card"><small>隧道入口</small><strong id="listenAddrView">-</strong></div>
           <div class="card"><small>入口连接</small><strong id="activeConnectionsView">0</strong></div>
@@ -65,21 +61,12 @@
         </div>
         <div class="hint-card" id="validationBox"></div>
         <div class="panel-actions">
-          <button class="btn muted" data-action="refresh">刷新</button>
           <button class="btn success" data-action="restart">重启服务</button>
         </div>
       </section>
 
       <section id="business" class="panel tab-panel log-panel business-panel">
-        <div class="panel-head">
-          <div>
-            <h2>业务流水</h2>
-            <p>这里从底层日志提炼业务视图，合并连接生命周期，并补齐失败请求和转发检查。</p>
-          </div>
-          <div class="panel-head-tools">
-            <button class="btn small muted" data-action="refresh">刷新</button>
-          </div>
-        </div>
+        <h2 class="panel-title">业务流水</h2>
         <div class="detail-grid business-summary">
           <div class="detail-card warn"><small>业务失败</small><strong id="businessFailedCountView">0</strong></div>
           <div class="detail-card"><small>业务记录</small><strong id="businessCountView">0</strong></div>
@@ -109,14 +96,7 @@
       </section>
 
       <section id="requests" class="panel tab-panel log-panel request-panel">
-        <div class="panel-head">
-          <div>
-            <h2>请求流水</h2>
-          </div>
-          <div class="panel-head-tools">
-            <button class="btn small muted" data-action="refresh">刷新</button>
-          </div>
-        </div>
+        <h2 class="panel-title">请求流水</h2>
         <div class="detail-section">
           <div class="table-wrap detail-table-wrap">
             <table class="data-table detail-table readable-table request-log-table" id="requestTable">
@@ -139,15 +119,7 @@
       </section>
 
       <section id="blocks" class="panel tab-panel">
-        <div class="panel-head">
-          <div>
-            <h2>封禁查看</h2>
-            <p>临时封禁来自运行状态，永久封禁来自永久封禁文件；两类封禁分开查看。</p>
-          </div>
-          <div class="panel-head-tools">
-            <button class="btn small muted" data-action="refresh">刷新</button>
-          </div>
-        </div>
+        <h2 class="panel-title">封禁查看</h2>
         <div class="detail-grid">
           <div class="detail-card warn"><small>临时封禁</small><strong id="temporaryBlockedCountView">0</strong></div>
           <div class="detail-card warn"><small>永久封禁</small><strong id="permanentBlockedCountView">0</strong></div>
@@ -194,12 +166,7 @@
       </section>
 
       <section id="analysis" class="panel tab-panel">
-        <div class="panel-head">
-          <div>
-            <h2>日志分析</h2>
-            <p>选择一段时间的日志，分析成功来源和封禁来源，并查询 IP 归属地与网络类型。</p>
-          </div>
-        </div>
+        <h2 class="panel-title">日志分析</h2>
         <div class="analysis-controls">
           <label>开始时间<input id="analysisStart" type="datetime-local"></label>
           <label>结束时间<input id="analysisEnd" type="datetime-local"></label>
@@ -257,11 +224,8 @@
       </section>
 
       <section id="users" class="panel tab-panel">
-        <div class="panel-head">
-          <div>
-            <h2>用户认证</h2>
-            <p>这里只维护账号、密码哈希和禁用状态；端口放通在“转发端口”页按用户分配。</p>
-          </div>
+        <div class="panel-head panel-head-actions">
+          <h2 class="panel-title">用户认证</h2>
           <button id="addUserBtn" class="btn small muted">新增用户</button>
         </div>
         <div class="table-wrap">
@@ -279,17 +243,13 @@
         </div>
         <p class="help">删除或禁用用户前，请先检查“转发端口”页是否仍有端口分配给该用户。</p>
         <div class="panel-actions">
-          <button class="btn muted" data-action="refresh">刷新</button>
           <button class="btn primary" data-action="save">保存配置</button>
         </div>
       </section>
 
       <section id="forwards" class="panel tab-panel">
-        <div class="panel-head">
-          <div>
-            <h2>转发端口</h2>
-            <p>正向分别填写服务端 IP 和端口；反向 IP 固定为本机回环，仅填写服务端被动端口。</p>
-          </div>
+        <div class="panel-head panel-head-actions">
+          <h2 class="panel-title">转发端口</h2>
           <button id="addForwardBtn" class="btn small muted">新增转发</button>
         </div>
         <div class="table-wrap">
@@ -307,18 +267,12 @@
           </table>
         </div>
         <div class="panel-actions">
-          <button class="btn muted" data-action="refresh">刷新</button>
           <button class="btn primary" data-action="save">保存配置</button>
         </div>
       </section>
 
       <section id="user-concurrency" class="panel tab-panel">
-        <div class="panel-head">
-          <div>
-            <h2>用户并发</h2>
-            <p>这里调整数据流层的账号并发和单连接速率限制，并查看各账号当前业务连接数。</p>
-          </div>
-        </div>
+        <h2 class="panel-title">用户并发</h2>
         <div class="user-concurrency-toolbar">
           <div class="detail-grid user-concurrency-summary">
             <div class="detail-card"><small>单账号上限</small><strong id="userStreamLimitView">不限</strong></div>
@@ -353,18 +307,12 @@
           </div>
         </div>
         <div class="panel-actions">
-          <button class="btn muted" data-action="refresh">刷新</button>
           <button class="btn primary" data-action="save">保存配置</button>
         </div>
       </section>
 
       <section id="security" class="panel tab-panel">
-        <div class="panel-head">
-          <div>
-            <h2>服务安全</h2>
-            <p>服务入口、TLS 身份、本地密码密封密钥、入口连接限流和认证失败封禁参数。</p>
-          </div>
-        </div>
+        <h2 class="panel-title">服务安全</h2>
         <div class="form-grid">
           <div class="form-section-title">服务入口</div>
           <label>监听地址<input id="listenAddr" type="text" readonly aria-readonly="true" tabindex="-1"></label>
@@ -397,7 +345,6 @@
           <label>密封过期时间<input id="sealExpires" type="text" readonly aria-readonly="true" tabindex="-1"></label>
         </div>
         <div class="panel-actions">
-          <button class="btn muted" data-action="refresh">刷新</button>
           <button class="btn primary" data-action="save">保存配置</button>
         </div>
       </section>
