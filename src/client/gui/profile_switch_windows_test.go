@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestProfileSwitchFriendlyError(t *testing.T) {
@@ -50,6 +51,30 @@ func TestClientProfileFileSuffix(t *testing.T) {
 		if got := clientProfileFileSuffix(tt.in); got != tt.want {
 			t.Fatalf("clientProfileFileSuffix(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestClientProfilesCacheReturnsCopiesAndCanBeInvalidated(t *testing.T) {
+	app := &App{
+		configPath:        filepath.Join(t.TempDir(), "conf", "client.yaml"),
+		profileCache:      []clientProfile{{ID: "cached", Label: "Cached profile"}},
+		profileCacheUntil: time.Now().Add(time.Minute),
+	}
+
+	first := app.clientProfiles()
+	if len(first) != 1 || first[0].ID != "cached" {
+		t.Fatalf("clientProfiles() = %#v, want cached profile", first)
+	}
+	first[0].Label = "modified"
+	second := app.clientProfiles()
+	if second[0].Label != "Cached profile" {
+		t.Fatalf("cached profile was modified through returned slice: %#v", second)
+	}
+
+	app.invalidateClientProfiles()
+	loaded := app.clientProfiles()
+	if len(loaded) != 1 || loaded[0].ID != currentClientProfileID {
+		t.Fatalf("clientProfiles() after invalidation = %#v, want current profile from disk", loaded)
 	}
 }
 

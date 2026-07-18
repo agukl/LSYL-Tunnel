@@ -61,7 +61,11 @@ func (a *App) saveClientConfig(cfg tunnel.Config) error {
 	if err := os.MkdirAll(filepath.Dir(a.configPath), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(a.configPath, data, 0o644)
+	if err := os.WriteFile(a.configPath, data, 0o644); err != nil {
+		return err
+	}
+	a.invalidateClientProfiles()
+	return nil
 }
 
 func (a *App) clearSavedPasswordState() error {

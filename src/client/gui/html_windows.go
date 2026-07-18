@@ -165,7 +165,7 @@ button, input { font-family:"Microsoft YaHei UI", "Segoe UI", sans-serif; }
 }
 .top-status.on i {
   background:#5df0a0;
-  animation:pulseGreen 1.7s ease-out infinite;
+  box-shadow:0 0 0 5px rgba(93,240,160,.18);
 }
 .top-status.warn i {
   background:#f6c34a;
@@ -286,7 +286,6 @@ button, input { font-family:"Microsoft YaHei UI", "Segoe UI", sans-serif; }
 .status-chip.on:before {
   background:#22c55e;
   box-shadow:0 0 0 5px rgba(34,197,94,.14);
-  animation:pulseGreen 1.7s ease-out infinite;
 }
 .status-chip.warn {
   color:#815800;
@@ -490,11 +489,6 @@ button:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:no
   pointer-events:none;
   text-shadow:0 1px 0 rgba(255,255,255,.75);
 }
-@keyframes pulseGreen {
-  0% { box-shadow:0 0 0 0 rgba(34,197,94,.34); }
-  70% { box-shadow:0 0 0 9px rgba(34,197,94,0); }
-  100% { box-shadow:0 0 0 0 rgba(34,197,94,0); }
-}
 </style>
 </head>
 <body scroll="no" oncontextmenu="return false">
@@ -569,6 +563,9 @@ var lastState = null;
 var forceNextForm = false;
 var savedPasswordMask = '********';
 var lastProfilesSignature = '';
+var lastStateSignature = '';
+var refreshTimer = null;
+var refreshInFlight = false;
 function el(id){ return document.getElementById(id); }
 function now(){ return new Date().getTime(); }
 function stopEvent(evt){
@@ -632,7 +629,7 @@ function closeWindow(evt){
   api('/api/window/close', {}, function(){});
   return false;
 }
-function api(path, body, cb){
+function api(path, body, cb, onError){
   var xhr = new XMLHttpRequest();
   var method = body ? 'POST' : 'GET';
   xhr.open(method, path + (!body ? '?_=' + now() : ''), true);
@@ -640,7 +637,10 @@ function api(path, body, cb){
   xhr.onreadystatechange = function(){
     if(xhr.readyState !== 4) return;
     try { cb(JSON.parse(xhr.responseText)); }
-    catch(e) { showMessage('界面请求失败，请重新打开客户端窗口后再试。', true); }
+    catch(e) {
+      showMessage('界面请求失败，请重新打开客户端窗口后再试。', true);
+      if(onError) onError();
+    }
   };
   xhr.send(body ? JSON.stringify(body) : null);
 }
@@ -850,9 +850,13 @@ function shortTime(value){
   if(isNaN(d.getTime())) return value;
   return d.toLocaleTimeString();
 }
-function renderState(state){
+function renderState(state, force){
   state = state || {};
   lastState = state;
+  var signature = '';
+  try { signature = JSON.stringify(state); } catch(e) {}
+  if(!force && signature && signature === lastStateSignature) return;
+  lastStateSignature = signature;
   var running = !!state.running;
   var changed = lastRunning !== null && lastRunning !== running;
   var reconnecting = running && isReconnecting(state.stats || {});
@@ -970,7 +974,30 @@ function switchProfile(profileID){
   });
   return false;
 }
-function refresh(){ api('/api/state', null, renderState); }
+function refreshDelay(state){
+  if(state && state.window_hidden) return 30000;
+  if(state && state.running && isReconnecting(state.stats || {})) return 2500;
+  if(state && state.running) return 5000;
+  return 15000;
+}
+function scheduleRefresh(delay){
+  if(refreshTimer) window.clearTimeout(refreshTimer);
+  refreshTimer = window.setTimeout(refresh, delay);
+}
+function refresh(){
+  if(refreshInFlight) return;
+  if(refreshTimer) window.clearTimeout(refreshTimer);
+  refreshTimer = null;
+  refreshInFlight = true;
+  api('/api/state', null, function(state){
+    refreshInFlight = false;
+    renderState(state);
+    scheduleRefresh(refreshDelay(state));
+  }, function(){
+    refreshInFlight = false;
+    scheduleRefresh(15000);
+  });
+}
 function refreshHealth(quiet){
   if(!quiet) showMessage('正在刷新状态。', false);
   api('/api/health/check', {}, function(r){
@@ -1029,7 +1056,6 @@ function exportMobileProfile(evt){
 suppressContextMenu();
 installLogoMenuDismiss();
 refresh();
-setInterval(refresh, 2500);
 </script>
 </body>
 </html>`

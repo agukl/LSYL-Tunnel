@@ -72,7 +72,7 @@ func (a *App) disposeTray() {
 	}
 	a.trayToolTip = ""
 	a.currentIconKnown = false
-	a.windowHidden = false
+	a.windowHidden.Store(false)
 }
 
 func (a *App) showWindow() {
@@ -83,13 +83,17 @@ func (a *App) showWindow() {
 		if a.mw == nil {
 			return
 		}
+		wasHidden := a.windowHidden.Load()
 		if a.web != nil && a.mw.Visible() && !win.IsIconic(a.mw.Handle()) {
 			a.requestWebViewLayout(a.web, false, 90*time.Millisecond)
 		} else {
 			win.ShowWindow(a.mw.Handle(), win.SW_RESTORE)
 			a.requestWebViewLayout(a.web, true, 120*time.Millisecond)
 		}
-		a.windowHidden = false
+		a.windowHidden.Store(false)
+		if wasHidden && a.web != nil {
+			_ = a.web.Refresh()
+		}
 	})
 }
 
@@ -101,11 +105,11 @@ func (a *App) hideToTray(message string) {
 		if a.mw == nil {
 			return
 		}
-		if !a.mw.Visible() && a.windowHidden {
+		if !a.mw.Visible() && a.windowHidden.Load() {
 			return
 		}
 		a.mw.Hide()
-		a.windowHidden = true
+		a.windowHidden.Store(true)
 	})
 }
 

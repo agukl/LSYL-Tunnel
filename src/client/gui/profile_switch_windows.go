@@ -16,6 +16,8 @@ import (
 
 const currentClientProfileID = "__current__"
 
+const clientProfileCacheTTL = 30 * time.Second
+
 type clientProfile struct {
 	ID         string `json:"id"`
 	Label      string `json:"label"`
@@ -35,6 +37,19 @@ type profileSwitchPaths struct {
 }
 
 func (a *App) clientProfiles() []clientProfile {
+	a.profileMu.Lock()
+	defer a.profileMu.Unlock()
+
+	if time.Now().Before(a.profileCacheUntil) {
+		return append([]clientProfile(nil), a.profileCache...)
+	}
+	profiles := a.loadClientProfiles()
+	a.profileCache = append(a.profileCache[:0], profiles...)
+	a.profileCacheUntil = time.Now().Add(clientProfileCacheTTL)
+	return append([]clientProfile(nil), profiles...)
+}
+
+func (a *App) loadClientProfiles() []clientProfile {
 	confDir := filepath.Dir(a.configPath)
 	profiles := []clientProfile{a.currentClientProfile()}
 	entries, err := filepath.Glob(filepath.Join(confDir, "client.*.yaml"))
@@ -78,6 +93,13 @@ func (a *App) clientProfiles() []clientProfile {
 		profiles = append(profiles, profile)
 	}
 	return profiles
+}
+
+func (a *App) invalidateClientProfiles() {
+	a.profileMu.Lock()
+	a.profileCache = nil
+	a.profileCacheUntil = time.Time{}
+	a.profileMu.Unlock()
 }
 
 func (a *App) currentClientProfile() clientProfile {
@@ -146,7 +168,11 @@ func (a *App) switchClientProfile(profileID string) error {
 	if err := tunnel.CheckConfigUpgradeCompatibleWithCACert(paths.TargetConfig, paths.TargetCert); err != nil {
 		return fmt.Errorf("目标配置校验失败: %w", err)
 	}
-	return switchClientProfileFiles(paths)
+	if err := switchClientProfileFiles(paths); err != nil {
+		return err
+	}
+	a.invalidateClientProfiles()
+	return nil
 }
 
 func profileSwitchFriendlyError(err error) string {

@@ -35,8 +35,15 @@ func TestClientHTMLTextAndScriptAreIntact(t *testing.T) {
 		"server_version",
 		"var savedPasswordMask = '********';",
 		"var lastProfilesSignature = '';",
+		"var lastStateSignature = '';",
+		"var refreshInFlight = false;",
 		"function profileListSignature",
 		"if(signature !== lastProfilesSignature)",
+		"if(!force && signature && signature === lastStateSignature) return;",
+		"function refreshDelay(state)",
+		"if(state && state.window_hidden) return 30000;",
+		"function scheduleRefresh(delay)",
+		"scheduleRefresh(15000);",
 		"max-height:260px;",
 		"if(profile.current) return '当前使用';",
 		"if(!profile.available) return profile.message || '不可用';",
@@ -72,6 +79,9 @@ func TestClientHTMLTextAndScriptAreIntact(t *testing.T) {
 		"profileHint",
 		"profile-hint",
 		"toggleProfileDropdown",
+		"setInterval(refresh, 2500)",
+		"animation:pulseGreen",
+		"@keyframes pulseGreen",
 	}
 	for _, text := range forbidden {
 		if strings.Contains(clientHTML, text) {

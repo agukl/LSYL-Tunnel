@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"lsyltunnel/src/client/tunnel"
@@ -39,7 +40,7 @@ type App struct {
 	instanceMutex        windows.Handle
 	exiting              bool
 	regionFallback       bool
-	windowHidden         bool
+	windowHidden         atomic.Bool
 	currentIconKnown     bool
 	currentIconConnected bool
 	trayToolTip          string
@@ -50,6 +51,10 @@ type App struct {
 	logs      []string
 	notice    string
 	noticeBad bool
+
+	profileMu         sync.Mutex
+	profileCache      []clientProfile
+	profileCacheUntil time.Time
 
 	webLayoutReq  chan webLayoutRequest
 	lastWebBounds walk.Rectangle

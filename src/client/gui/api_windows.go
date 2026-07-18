@@ -25,6 +25,7 @@ type apiState struct {
 	HasPassword   bool               `json:"has_password"`
 	Notice        string             `json:"notice,omitempty"`
 	NoticeBad     bool               `json:"notice_bad,omitempty"`
+	WindowHidden  bool               `json:"window_hidden,omitempty"`
 }
 
 type apiResult struct {
@@ -73,6 +74,7 @@ func (a *App) currentAPIState() apiState {
 		HasPassword:   a.hasPasswordState(),
 		Notice:        notice,
 		NoticeBad:     noticeBad,
+		WindowHidden:  a.windowHidden.Load(),
 	}
 }
 
