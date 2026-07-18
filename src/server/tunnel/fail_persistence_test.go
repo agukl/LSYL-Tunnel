@@ -1,7 +1,9 @@
 package tunnel
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -115,5 +117,42 @@ func TestFailTrackerPermanentBlockUsesDedicatedFile(t *testing.T) {
 	}
 	if !reloaded.isBlocked("203.0.113.10") {
 		t.Fatal("permanent blocked IP was not restored")
+	}
+}
+
+func TestFailTrackerLoadRemovesLoopbackPermanentBlocks(t *testing.T) {
+	permanentFile := filepath.Join(t.TempDir(), "server-permanent-block.txt")
+	input := "# preserved\n127.0.0.1\n127.23.45.67\n::1\n203.0.113.10\n"
+	if err := os.WriteFile(permanentFile, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tracker := newFailTracker(SecurityConfig{}, "", permanentFile)
+	tracker.permanent.Store("127.0.0.2", struct{}{})
+	if err := tracker.load(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, ip := range []string{"127.0.0.1", "127.23.45.67", "127.0.0.2", "::1"} {
+		if tracker.hasPermanent(ip) {
+			t.Fatalf("loopback IP %q remained permanently blocked", ip)
+		}
+	}
+	if !tracker.hasPermanent("203.0.113.10") {
+		t.Fatal("non-loopback permanent block was not restored")
+	}
+
+	data, err := os.ReadFile(permanentFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, ip := range []string{"127.0.0.1", "127.23.45.67", "::1"} {
+		if strings.Contains(text, ip) {
+			t.Fatalf("loopback IP %q remained in permanent block file: %q", ip, text)
+		}
+	}
+	if !strings.Contains(text, "# preserved") || !strings.Contains(text, "203.0.113.10") {
+		t.Fatalf("unrelated permanent block entries were not preserved: %q", text)
 	}
 }

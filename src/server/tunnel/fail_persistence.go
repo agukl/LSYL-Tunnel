@@ -124,13 +124,30 @@ func (f *failTracker) load() error {
 	if err != nil {
 		return err
 	}
+	var cleanupErr error
+	for ip := range permanent {
+		if !isLoopbackName(ip) {
+			continue
+		}
+		if _, err := RemovePermanentBlockedIP(f.permanentFile, ip); err != nil && cleanupErr == nil {
+			cleanupErr = err
+		}
+		delete(permanent, ip)
+	}
+	f.permanent.Range(func(key, _ any) bool {
+		ip, ok := key.(string)
+		if ok && isLoopbackName(ip) {
+			f.permanent.Delete(key)
+		}
+		return true
+	})
 	f.mu.Lock()
 	for ip := range permanent {
 		f.permanent.Store(ip, struct{}{})
 		delete(f.items, ip)
 	}
 	f.mu.Unlock()
-	return nil
+	return cleanupErr
 }
 
 func (f *failTracker) saveLocked() error {
