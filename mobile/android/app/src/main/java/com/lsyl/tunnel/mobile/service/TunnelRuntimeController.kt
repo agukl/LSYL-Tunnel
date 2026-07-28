@@ -26,6 +26,7 @@ class TunnelRuntimeController(
 ) {
     private var runtime: ManagedTunnel? = null
 
+    @Synchronized
     fun connect(userInitiated: Boolean) {
         if (userInitiated) stateSink.setDesiredRunning(true)
         if (!stateSink.desiredRunning()) return
@@ -50,6 +51,7 @@ class TunnelRuntimeController(
         }
     }
 
+    @Synchronized
     fun refresh() {
         val current = runtime
         if (current == null) {
@@ -60,6 +62,7 @@ class TunnelRuntimeController(
         checkRuntime(current)
     }
 
+    @Synchronized
     fun networkUnavailable() {
         val current = runtime ?: return
         if (!stateSink.desiredRunning()) return
@@ -79,6 +82,7 @@ class TunnelRuntimeController(
         )
     }
 
+    @Synchronized
     fun disconnect() {
         stateSink.setDesiredRunning(false)
         stateSink.publish(RuntimeSnapshot(TunnelPhase.STOPPING, "正在断开"))
@@ -87,6 +91,7 @@ class TunnelRuntimeController(
         stateSink.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "已断开"))
     }
 
+    @Synchronized
     fun releaseForSystem() {
         runtime?.stop()
         runtime = null
