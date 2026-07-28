@@ -31,14 +31,14 @@ class ProtocolException(val response: OpenResponse) : IOException(
 class ProtocolClient(
     private val profile: MobileProfile,
     certBytes: ByteArray
-) {
+) : TunnelProtocol {
     private val connector = PinnedTlsConnector(certBytes)
 
-    fun health(): OpenResponse = requestAndClose("health", null)
+    override fun health(): OpenResponse = requestAndClose("health", null)
 
-    fun forwardCheck(forward: ForwardConfig): OpenResponse = requestAndClose("forward_check", forward)
+    override fun forwardCheck(forward: ForwardConfig): OpenResponse = requestAndClose("forward_check", forward)
 
-    fun open(forward: ForwardConfig): SSLSocket {
+    override fun open(forward: ForwardConfig): SSLSocket {
         val socket = connector.connect(profile)
         try {
             LsylProtocol.writeJson(socket.outputStream, requestJson("open", forward))

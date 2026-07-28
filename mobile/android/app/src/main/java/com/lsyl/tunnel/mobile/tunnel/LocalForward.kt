@@ -1,8 +1,11 @@
 ﻿package com.lsyl.tunnel.mobile.tunnel
 
 import com.lsyl.tunnel.mobile.profile.ForwardConfig
-import com.lsyl.tunnel.mobile.protocol.ProtocolClient
+import com.lsyl.tunnel.mobile.protocol.TunnelProtocol
 import com.lsyl.tunnel.mobile.protocol.ProtocolException
+import com.lsyl.tunnel.mobile.runtime.FailureClassifier
+import com.lsyl.tunnel.mobile.runtime.IssueDisposition
+import com.lsyl.tunnel.mobile.runtime.RuntimeIssue
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -14,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class LocalForward(
     private val forward: ForwardConfig,
-    private val protocol: ProtocolClient,
+    private val protocol: TunnelProtocol,
     private val runtime: ForwardRuntime,
     private val listenerExecutor: Executor,
     private val connectionExecutor: Executor,
@@ -33,6 +36,7 @@ class LocalForward(
             socket.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), endpoint.port))
             serverSocket = socket
             runtime.setState(ForwardState.LISTENING, "本地端口监听中")
+            runtime.clearIssue()
             listenerExecutor.execute { acceptLoop(socket) }
         } catch (err: Exception) {
             running.set(false)
@@ -45,7 +49,11 @@ class LocalForward(
         }
     }
 
-    fun stop(message: String = "已停止", state: ForwardState = ForwardState.STOPPED) {
+    fun stop(
+        message: String = "已停止",
+        state: ForwardState = ForwardState.STOPPED,
+        issue: RuntimeIssue? = null
+    ) {
         running.set(false)
         try {
             serverSocket?.close()
@@ -53,6 +61,7 @@ class LocalForward(
         } finally {
             serverSocket = null
             runtime.setState(state, message)
+            if (issue != null) runtime.reportIssue(issue)
         }
     }
 
@@ -66,13 +75,17 @@ class LocalForward(
                     connectionExecutor.execute { handleLocal(local) }
                 } catch (_: RejectedExecutionException) {
                     closeQuietly(local)
-                    runtime.setState(ForwardState.LISTENING, "本地连接并发已达上限，已拒绝")
+                    runtime.reportIssue(ruleIssue("local_connection_limit", "本地连接并发已达上限，已拒绝"))
                 }
             } catch (_: SocketException) {
-                if (running.get()) runtime.setState(ForwardState.ERROR, "本地监听已中断")
+                if (running.get()) {
+                    runtime.setState(ForwardState.ERROR, "本地监听已中断")
+                    runtime.reportIssue(ruleIssue("local_listener_interrupted", "本地监听已中断"))
+                }
                 return
             } catch (err: Exception) {
                 runtime.setState(ForwardState.ERROR, friendlyMessage(err))
+                runtime.reportIssue(ruleIssue("local_listener_error", friendlyMessage(err)))
             }
         }
     }
@@ -81,18 +94,19 @@ class LocalForward(
         val streamDone = runtime.beginStream()
         try {
             val remote = protocol.open(forward)
+            runtime.clearIssue()
             SocketPipe.copyBidirectional(local, remote, copyExecutor)
         } catch (err: ProtocolException) {
             closeQuietly(local)
-            if (err.response.code == "target_denied") {
-                runtime.setState(ForwardState.REJECTED, "当前账号没有访问该端口的权限")
-                stop("当前账号没有访问该端口的权限", ForwardState.REJECTED)
+            val issue = classify(err)
+            if (issue.disposition == IssueDisposition.RULE_DISABLED) {
+                stop(issue.message, ForwardState.REJECTED, issue)
             } else {
-                runtime.setState(ForwardState.ERROR, err.message ?: "连接异常")
+                runtime.reportIssue(issue)
             }
         } catch (err: Exception) {
             closeQuietly(local)
-            runtime.setState(ForwardState.ERROR, friendlyMessage(err))
+            runtime.reportIssue(classify(err))
         } finally {
             streamDone()
         }
@@ -106,4 +120,14 @@ class LocalForward(
     }
 
     private fun friendlyMessage(err: Exception): String = err.message?.takeIf { it.isNotBlank() } ?: "连接异常"
+
+    private fun classify(err: Throwable): RuntimeIssue {
+        val endpoint = forward.localEndpoint()
+        return FailureClassifier.classify(err, forward.displayName(), endpoint.port)
+    }
+
+    private fun ruleIssue(code: String, message: String): RuntimeIssue {
+        val endpoint = forward.localEndpoint()
+        return RuntimeIssue(code, message, IssueDisposition.CONNECTION_ONLY, forward.displayName(), endpoint.port)
+    }
 }
