@@ -3,7 +3,6 @@
 import android.content.Context
 import android.net.Uri
 import com.lsyl.tunnel.mobile.security.CertificatePins
-import com.lsyl.tunnel.mobile.tunnel.MAX_MOBILE_FORWARDS
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.time.OffsetDateTime
@@ -89,25 +88,7 @@ object ProfileImporter {
         }
         if (profile.tls.insecureSkipVerify) throw ProfileImportException("移动端不允许跳过证书校验")
         if (profile.tls.minVersion != "1.3") throw ProfileImportException("移动端要求 TLS 1.3")
-        if (profile.forwards.isEmpty()) throw ProfileImportException("至少需要一个正向端口")
-        if (profile.forwards.size > MAX_MOBILE_FORWARDS) {
-            throw ProfileImportException("移动端最多支持 $MAX_MOBILE_FORWARDS 个本地端口")
-        }
-        val names = mutableSetOf<String>()
-        val listens = mutableSetOf<String>()
-        profile.forwards.forEach { forward ->
-            if (forward.direction != DIRECTION_CLIENT_TO_SERVER) {
-                throw ProfileImportException("移动端仅支持正向代理")
-            }
-            val local = forward.localEndpoint()
-            if (local.host != "127.0.0.1") throw ProfileImportException("本地监听只能使用 127.0.0.1")
-            if (local.port < 1024) throw ProfileImportException("本地端口必须大于等于 1024")
-            if (forward.serverTarget.isBlank()) throw ProfileImportException("缺少服务端目标端口")
-            HostPort.parse(forward.serverTarget)
-            val name = forward.displayName()
-            if (!names.add(name)) throw ProfileImportException("端口名称重复: $name")
-            if (!listens.add(forward.listenAddr)) throw ProfileImportException("本地监听端口重复: ${forward.listenAddr}")
-        }
+        MobileForwardValidator.validate(profile.forwards)
         CertificatePins.parseCertificate(certBytes)
     }
 }

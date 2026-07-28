@@ -26,6 +26,7 @@ android {
 }
 
 dependencies {
+    implementation("org.snakeyaml:snakeyaml-engine:3.0.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }
