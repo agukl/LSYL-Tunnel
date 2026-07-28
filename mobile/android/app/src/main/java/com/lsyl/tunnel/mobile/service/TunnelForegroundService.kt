@@ -96,7 +96,7 @@ class TunnelForegroundService : Service() {
     }
 
     private fun queueNetworkRecovery() {
-        if (!stateStore.desiredRunning() || !recoveryGate.tryQueue()) return
+        if (!foregroundActive || !stateStore.desiredRunning() || !recoveryGate.tryQueue()) return
         try {
             executor.execute {
                 try {

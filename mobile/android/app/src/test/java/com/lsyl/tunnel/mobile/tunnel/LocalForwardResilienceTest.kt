@@ -5,6 +5,7 @@ import com.lsyl.tunnel.mobile.profile.ForwardConfig
 import com.lsyl.tunnel.mobile.protocol.OpenResponse
 import com.lsyl.tunnel.mobile.protocol.TunnelProtocol
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.InetAddress
@@ -18,6 +19,33 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class LocalForwardResilienceTest {
+    @Test
+    fun occupiedPortProducesPreciseRuleIssue() {
+        val occupied = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val port = occupied.localPort
+        val forward = ForwardConfig("rdp", DIRECTION_CLIENT_TO_SERVER, "127.0.0.1:$port", "192.168.1.7:3389")
+        val runtime = ForwardRuntime(forward)
+        val protocol = TimeoutProtocol(expectedAttempts = 0)
+        val listeners = Executors.newSingleThreadExecutor()
+        val connections = Executors.newSingleThreadExecutor()
+        val copies = Executors.newFixedThreadPool(2)
+        val local = LocalForward(forward, protocol, runtime, listeners, connections, copies)
+
+        try {
+            local.start()
+
+            assertFalse(local.isRunning())
+            assertEquals(ForwardState.LISTEN_FAILED, runtime.snapshot().state)
+            assertEquals("local_port_in_use", runtime.snapshot().issue?.code)
+        } finally {
+            occupied.close()
+            local.stop()
+            listeners.shutdownNow()
+            connections.shutdownNow()
+            copies.shutdownNow()
+        }
+    }
+
     @Test
     fun streamTimeoutKeepsListenerAvailableForNextConnection() {
         val port = freeLoopbackPort()

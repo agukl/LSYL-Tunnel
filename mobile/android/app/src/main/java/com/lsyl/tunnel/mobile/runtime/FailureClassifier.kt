@@ -1,6 +1,7 @@
 package com.lsyl.tunnel.mobile.runtime
 
 import com.lsyl.tunnel.mobile.protocol.ProtocolException
+import java.net.BindException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
@@ -21,6 +22,11 @@ object FailureClassifier {
                 "certificate_mismatch",
                 "服务端证书不匹配，请重新导入管理员下发的配置",
                 IssueDisposition.FATAL
+            )
+            failure.findCause<BindException>() != null -> Classified(
+                "local_port_in_use",
+                localPort?.let { "本地端口 $it 已被占用" } ?: "本地监听端口已被占用",
+                IssueDisposition.RULE_DISABLED
             )
             failure.findCause<UnknownHostException>() != null -> Classified(
                 "network_dns",

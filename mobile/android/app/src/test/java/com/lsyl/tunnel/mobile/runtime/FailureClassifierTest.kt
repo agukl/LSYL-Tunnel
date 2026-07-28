@@ -5,6 +5,7 @@ import com.lsyl.tunnel.mobile.protocol.ProtocolException
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.net.ConnectException
+import java.net.BindException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -12,6 +13,19 @@ import java.security.cert.CertificateException
 import javax.net.ssl.SSLHandshakeException
 
 class FailureClassifierTest {
+    @Test
+    fun occupiedLocalPortDisablesOnlyThatRule() {
+        val issue = FailureClassifier.classify(
+            BindException("Address already in use"),
+            ruleName = "rdp",
+            localPort = 13389
+        )
+
+        assertEquals("local_port_in_use", issue.code)
+        assertEquals("本地端口 13389 已被占用", issue.message)
+        assertEquals(IssueDisposition.RULE_DISABLED, issue.disposition)
+    }
+
     @Test
     fun networkFailuresRemainRecoverable() {
         val cases = listOf(

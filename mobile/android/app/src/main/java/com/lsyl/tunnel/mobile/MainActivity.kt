@@ -14,19 +14,24 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
+import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.lsyl.tunnel.mobile.profile.ForwardTextConfig
 import com.lsyl.tunnel.mobile.profile.ImportedProfile
 import com.lsyl.tunnel.mobile.profile.ProfileImporter
 import com.lsyl.tunnel.mobile.profile.ProfileStore
+import com.lsyl.tunnel.mobile.service.RuntimePresenter
+import com.lsyl.tunnel.mobile.service.RuntimeSnapshot
+import com.lsyl.tunnel.mobile.service.RuntimeStateStore
+import com.lsyl.tunnel.mobile.service.TunnelPhase
 import com.lsyl.tunnel.mobile.service.TunnelForegroundService
 import java.time.format.DateTimeFormatter
 
@@ -34,25 +39,31 @@ class MainActivity : Activity() {
     private lateinit var userText: TextView
     private lateinit var expiryText: TextView
     private lateinit var statusText: TextView
+    private lateinit var detailsText: TextView
     private lateinit var importBtn: Button
     private lateinit var connectBtn: Button
     private lateinit var stopBtn: Button
+    private lateinit var refreshBtn: Button
+    private lateinit var editBtn: Button
     private lateinit var deleteBtn: Button
     private lateinit var store: ProfileStore
-    private val statusHandler = Handler(Looper.getMainLooper())
+    private lateinit var runtimeStore: RuntimeStateStore
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            val text = intent?.getStringExtra(TunnelForegroundService.EXTRA_STATUS) ?: return
-            updateStatus(text)
-            if (text == "已连接" || text == "已断开" || text.startsWith("部分连接") || text.startsWith("连接失败") || text.startsWith("运行异常")) {
-                Toast.makeText(this@MainActivity, text, Toast.LENGTH_SHORT).show()
+            val raw = intent?.getStringExtra(TunnelForegroundService.EXTRA_SNAPSHOT) ?: return
+            val snapshot = try {
+                RuntimeSnapshot.fromJson(raw)
+            } catch (_: Exception) {
+                return
             }
+            updateRuntime(snapshot)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = ProfileStore(this)
+        runtimeStore = RuntimeStateStore(this)
         configureSystemBars()
         buildUi()
         handleViewIntent(intent)
@@ -74,17 +85,11 @@ class MainActivity : Activity() {
             registerReceiver(statusReceiver, filter)
         }
         refreshProfileView()
-        syncRuntimeStatus()
     }
 
     override fun onPause() {
         unregisterReceiver(statusReceiver)
         super.onPause()
-    }
-
-    override fun onDestroy() {
-        statusHandler.removeCallbacksAndMessages(null)
-        super.onDestroy()
     }
 
     @Deprecated("Deprecated in Android API, kept to avoid AndroidX dependency.")
@@ -137,10 +142,17 @@ class MainActivity : Activity() {
             it.setTextColor(Color.rgb(56, 82, 80))
             it.setPadding(0, dp(8), 0, 0)
         }
+        detailsText = TextView(this).apply {
+            textSize = 14f
+            setTextColor(Color.rgb(150, 79, 0))
+            setPadding(0, dp(10), 0, 0)
+            visibility = View.GONE
+        }
         profileCard.addView(profileTitle)
         profileCard.addView(statusText)
         profileCard.addView(userText)
         profileCard.addView(expiryText)
+        profileCard.addView(detailsText)
 
         val actionTitle = TextView(this).apply {
             text = "操作"
@@ -153,6 +165,13 @@ class MainActivity : Activity() {
         }
         stopBtn = actionButton("断开连接", ButtonStyle.WARNING).apply {
             setOnClickListener { stopTunnel() }
+        }
+        refreshBtn = actionButton("重新检查", ButtonStyle.GHOST).apply {
+            setOnClickListener { refreshTunnel() }
+        }
+
+        editBtn = smallActionButton("编辑转发", ButtonStyle.GHOST).apply {
+            setOnClickListener { editForwards() }
         }
 
         val configRow = LinearLayout(this).apply {
@@ -173,8 +192,10 @@ class MainActivity : Activity() {
         addWithTop(root, actionTitle, dp(22))
         addWithTop(root, connectBtn, dp(12))
         addWithTop(root, stopBtn, dp(12))
+        addWithTop(root, refreshBtn, dp(12))
         root.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        addWithTop(root, configRow, dp(24))
+        addWithTop(root, editBtn, dp(24))
+        addWithTop(root, configRow, dp(10))
 
         scroll.addView(root, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(scroll)
@@ -185,19 +206,12 @@ class MainActivity : Activity() {
         if (loaded == null) {
             userText.text = "用户：未导入"
             expiryText.text = "有效期：-"
-            updateStatus("未连接", hasProfile = false)
+            updateRuntime(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "未连接"), hasProfile = false)
             return
         }
         userText.text = "用户：${loaded.profile.username}"
         expiryText.text = "有效期：${formatExpiry(loaded.profile.savedCredential.expiresAt)}"
-        updateStatus(TunnelForegroundService.currentStatus(this) ?: "已导入", hasProfile = true)
-    }
-
-    private fun syncRuntimeStatus() {
-        val status = TunnelForegroundService.currentStatus(this) ?: return
-        if (status == "已连接" || status.startsWith("部分连接") || status.startsWith("正在")) {
-            startService(TunnelForegroundService.refreshIntent(this))
-        }
+        updateRuntime(runtimeStore.loadSnapshot(), hasProfile = true)
     }
 
     private fun openProfilePicker() {
@@ -232,6 +246,8 @@ class MainActivity : Activity() {
             .setNegativeButton("取消", null)
             .setPositiveButton("导入") { _, _ ->
                 store.save(imported)
+                runtimeStore.setDesiredRunning(false)
+                runtimeStore.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "已导入"))
                 refreshProfileView()
                 Toast.makeText(this, "配置已导入", Toast.LENGTH_SHORT).show()
             }
@@ -243,18 +259,34 @@ class MainActivity : Activity() {
             showError("请先导入连接配置")
             return
         }
-        val intent = TunnelForegroundService.startIntent(this)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
-        updateStatus("正在连接")
-        scheduleStatusSync()
-        Toast.makeText(this, "正在连接服务端", Toast.LENGTH_SHORT).show()
+        runtimeStore.setDesiredRunning(true)
+        try {
+            val intent = TunnelForegroundService.startIntent(this)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+            updateRuntime(RuntimeSnapshot(TunnelPhase.STARTING, "读取配置"))
+        } catch (err: Exception) {
+            runtimeStore.setDesiredRunning(false)
+            showError("无法启动隧道服务：${err.message ?: "系统拒绝启动"}")
+            refreshProfileView()
+        }
     }
 
     private fun stopTunnel() {
+        runtimeStore.setDesiredRunning(false)
         startService(TunnelForegroundService.stopIntent(this))
-        updateStatus("正在断开")
-        scheduleStatusSync()
-        Toast.makeText(this, "正在断开连接", Toast.LENGTH_SHORT).show()
+        updateRuntime(RuntimeSnapshot(TunnelPhase.STOPPING, "正在断开"))
+    }
+
+    private fun refreshTunnel() {
+        if (!runtimeStore.desiredRunning()) return
+        startService(TunnelForegroundService.refreshIntent(this))
+        updateRuntime(
+            RuntimeSnapshot(
+                phase = TunnelPhase.STARTING,
+                summary = "重新检查连接",
+                listenerCount = runtimeStore.loadSnapshot().listenerCount
+            )
+        )
     }
 
     private fun deleteProfile() {
@@ -263,36 +295,101 @@ class MainActivity : Activity() {
             .setMessage("删除后需要重新导入管理员下发的配置。")
             .setNegativeButton("取消", null)
             .setPositiveButton("删除") { _, _ ->
+                runtimeStore.setDesiredRunning(false)
                 startService(TunnelForegroundService.stopIntent(this))
                 store.delete()
+                runtimeStore.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "未连接"))
                 refreshProfileView()
                 Toast.makeText(this, "配置已删除", Toast.LENGTH_SHORT).show()
             }
             .show()
     }
 
-    private fun updateStatus(text: String, hasProfile: Boolean = store.load() != null) {
-        statusText.text = "状态：$text"
-        statusText.setTextColor(statusColor(text))
-        if (!::connectBtn.isInitialized) return
-        val working = text.startsWith("正在")
-        val connected = text == "已连接" || text.startsWith("部分连接")
-        connectBtn.isEnabled = hasProfile && !working && !connected
-        stopBtn.isEnabled = hasProfile && (connected || working) && text != "正在断开"
-        importBtn.isEnabled = !working
-        deleteBtn.isEnabled = !working
-        applyButtonStyle(connectBtn, ButtonStyle.PRIMARY)
-        applyButtonStyle(stopBtn, ButtonStyle.WARNING)
-        applyButtonStyle(importBtn, ButtonStyle.GHOST, small = true)
-        applyButtonStyle(deleteBtn, ButtonStyle.GHOST_DANGER, small = true)
+    private fun editForwards() {
+        val loaded = store.load() ?: run {
+            showError("请先导入连接配置")
+            return
+        }
+        val presentation = RuntimePresenter.present(
+            runtimeStore.loadSnapshot(),
+            hasProfile = true,
+            desiredRunning = runtimeStore.desiredRunning()
+        )
+        if (!presentation.canEditConfig) {
+            showError("请先断开连接，再编辑转发配置")
+            return
+        }
+
+        val errorText = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Color.rgb(174, 55, 50))
+            visibility = View.GONE
+            setPadding(0, 0, 0, dp(8))
+        }
+        val editor = EditText(this).apply {
+            setText(ForwardTextConfig.render(loaded.profile.forwards))
+            setSelection(text.length)
+            typeface = Typeface.MONOSPACE
+            textSize = 14f
+            gravity = Gravity.TOP or Gravity.START
+            inputType = InputType.TYPE_CLASS_TEXT or
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            minLines = 10
+            maxLines = 18
+            setHorizontallyScrolling(false)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(Color.rgb(247, 251, 250), 8)
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(errorText, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            addView(editor, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(320)))
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("编辑转发配置")
+            .setView(content)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("保存", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                try {
+                    val forwards = ForwardTextConfig.parse(editor.text.toString())
+                    store.updateForwards(forwards)
+                    errorText.visibility = View.GONE
+                    dialog.dismiss()
+                    refreshProfileView()
+                    Toast.makeText(this, "转发配置已保存", Toast.LENGTH_SHORT).show()
+                } catch (err: Exception) {
+                    errorText.text = err.message ?: "转发配置无效"
+                    errorText.visibility = View.VISIBLE
+                }
+            }
+        }
+        dialog.show()
     }
 
-    private fun scheduleStatusSync() {
-        listOf(700L, 1800L, 3500L).forEach { delay ->
-            statusHandler.postDelayed({
-                TunnelForegroundService.currentStatus(this)?.let { updateStatus(it) }
-            }, delay)
-        }
+    private fun updateRuntime(snapshot: RuntimeSnapshot, hasProfile: Boolean = store.load() != null) {
+        val presentation = RuntimePresenter.present(snapshot, hasProfile, runtimeStore.desiredRunning())
+        statusText.text = "状态：${presentation.status}"
+        statusText.setTextColor(statusColor(snapshot.phase))
+        detailsText.text = presentation.details
+        detailsText.visibility = if (presentation.details.isBlank()) View.GONE else View.VISIBLE
+        if (!::connectBtn.isInitialized) return
+        connectBtn.isEnabled = presentation.canConnect
+        stopBtn.isEnabled = presentation.canDisconnect && snapshot.phase != TunnelPhase.STOPPING
+        refreshBtn.isEnabled = presentation.canRefresh
+        editBtn.isEnabled = presentation.canEditConfig
+        importBtn.isEnabled = presentation.canReplaceProfile
+        deleteBtn.isEnabled = hasProfile && presentation.canReplaceProfile
+        applyButtonStyle(connectBtn, ButtonStyle.PRIMARY)
+        applyButtonStyle(stopBtn, ButtonStyle.WARNING)
+        applyButtonStyle(refreshBtn, ButtonStyle.GHOST)
+        applyButtonStyle(editBtn, ButtonStyle.GHOST, small = true)
+        applyButtonStyle(importBtn, ButtonStyle.GHOST, small = true)
+        applyButtonStyle(deleteBtn, ButtonStyle.GHOST_DANGER, small = true)
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -382,11 +479,14 @@ class MainActivity : Activity() {
             cornerRadius = dp(radiusDp).toFloat()
         }
 
-    private fun statusColor(text: String): Int = when {
-        text == "已连接" -> Color.rgb(0, 115, 96)
-        text.startsWith("连接失败") || text.startsWith("运行异常") || text.startsWith("部分连接") -> Color.rgb(172, 96, 0)
-        text.startsWith("正在") -> Color.rgb(26, 95, 139)
-        else -> Color.rgb(9, 82, 76)
+    private fun statusColor(phase: TunnelPhase): Int = when (phase) {
+        TunnelPhase.CONNECTED -> Color.rgb(0, 115, 96)
+        TunnelPhase.DEGRADED,
+        TunnelPhase.WAITING_NETWORK -> Color.rgb(172, 96, 0)
+        TunnelPhase.FAILED -> Color.rgb(174, 55, 50)
+        TunnelPhase.STARTING,
+        TunnelPhase.STOPPING -> Color.rgb(26, 95, 139)
+        TunnelPhase.DISCONNECTED -> Color.rgb(9, 82, 76)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()

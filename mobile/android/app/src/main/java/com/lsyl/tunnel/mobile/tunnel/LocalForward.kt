@@ -46,6 +46,7 @@ class LocalForward(
             }
             serverSocket = null
             runtime.setState(ForwardState.LISTEN_FAILED, friendlyMessage(err))
+            runtime.reportIssue(classify(err))
         }
     }
 
