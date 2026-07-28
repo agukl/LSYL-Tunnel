@@ -80,6 +80,10 @@ class ForwardTextConfigTest {
             InvalidCase(ruleYaml("rdp", "0.0.0.0:13389", "192.168.1.7:3389"), "规则 rdp 的本地监听只能使用 127.0.0.1"),
             InvalidCase(ruleYaml("rdp", "127.0.0.1:22", "192.168.1.7:3389"), "规则 rdp 的本地端口必须大于等于 1024"),
             InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "missing-port"), "规则 rdp 的 server_target 格式无效"),
+            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "https://host:443"), "规则 rdp 的 server_target 主机无效"),
+            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "bad host:443"), "规则 rdp 的 server_target 主机无效"),
+            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "\"[::1]:443\""), "规则 rdp 的 server_target 主机无效"),
+            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "999.1.1.1:443"), "规则 rdp 的 server_target 主机无效"),
             InvalidCase(
                 """
                 forwards:
@@ -103,6 +107,18 @@ class ForwardTextConfigTest {
                     server_target: 192.168.1.8:3389
                 """.trimIndent(),
                 "本地监听端口重复: 127.0.0.1:13389"
+            ),
+            InvalidCase(
+                """
+                forwards:
+                  - name: rdp-a
+                    listen_addr: 127.0.0.1:13389
+                    server_target: 192.168.1.7:3389
+                  - name: rdp-b
+                    listen_addr: 127.0.0.1:013389
+                    server_target: 192.168.1.8:3389
+                """.trimIndent(),
+                "本地监听端口重复: 127.0.0.1:013389"
             )
         )
 

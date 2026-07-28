@@ -17,8 +17,42 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
+import java.util.concurrent.atomic.AtomicInteger
 
 class TunnelManagerTest {
+    @Test
+    fun stopCancelsPendingProtocolOperations() {
+        val protocol = ControllableProtocol()
+        val manager = TunnelManager(
+            loaded = loadedProfile(listOf(forward("rdp", freeLoopbackPort(), "192.168.1.7:3389"))),
+            protocolOverride = protocol
+        )
+        manager.startListeners()
+
+        manager.stop()
+
+        assertEquals(1, protocol.cancelCalls)
+    }
+
+    @Test
+    fun listenerStateChangesNotifyRuntimeObserver() {
+        val forward = forward("rdp", freeLoopbackPort(), "192.168.1.7:3389")
+        val changes = AtomicInteger(0)
+        val manager = TunnelManager(
+            loaded = loadedProfile(listOf(forward)),
+            protocolOverride = ControllableProtocol(),
+            onStatsChanged = { changes.incrementAndGet() }
+        )
+
+        try {
+            manager.startListeners()
+
+            assertTrue("listener state changes were not published", changes.get() > 0)
+        } finally {
+            manager.stop()
+        }
+    }
+
     @Test
     fun remoteTimeoutDoesNotCloseStartedListeners() {
         val forward = forward("rdp", freeLoopbackPort(), "192.168.1.7:3389")
@@ -93,6 +127,8 @@ class TunnelManagerTest {
         private var healthFailure: Throwable? = null,
         var deniedRule: String? = null
     ) : TunnelProtocol {
+        var cancelCalls = 0
+
         override fun health(): OpenResponse {
             healthFailure?.let { throw it }
             return OpenResponse(true, "", "")
@@ -106,5 +142,9 @@ class TunnelManagerTest {
         }
 
         override fun open(forward: ForwardConfig): Socket = error("not used")
+
+        override fun cancelPending() {
+            cancelCalls++
+        }
     }
 }

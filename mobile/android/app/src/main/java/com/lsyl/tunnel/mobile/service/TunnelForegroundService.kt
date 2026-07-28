@@ -19,11 +19,13 @@ import java.util.concurrent.RejectedExecutionException
 class TunnelForegroundService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     private val recoveryGate = RecoverySignalGate()
+    private val runtimeChangeGate = RecoverySignalGate()
     private lateinit var stateStore: RuntimeStateStore
     private lateinit var controller: TunnelRuntimeController
     private lateinit var networkMonitor: DefaultNetworkMonitor
     @Volatile private var foregroundActive = false
     @Volatile private var finalNotificationVisible = false
+    @Volatile private var destroyed = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -34,7 +36,7 @@ class TunnelForegroundService : Service() {
         controller = TunnelRuntimeController(
             runtimeFactory = {
                 val loaded = ProfileStore(this).load() ?: throw ProfileImportException("未导入连接配置")
-                TunnelManager(loaded)
+                TunnelManager(loaded, onStatsChanged = ::queueRuntimeStateChange)
             },
             stateSink = stateStore
         )
@@ -79,8 +81,14 @@ class TunnelForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        destroyed = true
         networkMonitor.stop()
-        controller.releaseForSystem()
+        val completePendingDisconnect =
+            !stateStore.desiredRunning() && stateStore.loadSnapshot().phase == TunnelPhase.STOPPING
+        recoveryGate.cancel()
+        runtimeChangeGate.cancel()
+        executor.shutdownNow()
+        controller.releaseForSystem(completePendingDisconnect)
         if (foregroundActive) {
             try {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -91,29 +99,44 @@ class TunnelForegroundService : Service() {
             getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
         }
         foregroundActive = false
-        executor.shutdownNow()
         super.onDestroy()
     }
 
     private fun queueNetworkRecovery() {
-        if (!foregroundActive || !stateStore.desiredRunning() || !recoveryGate.tryQueue()) return
+        if (destroyed || !foregroundActive || !stateStore.desiredRunning() || !recoveryGate.tryQueue()) return
         try {
             executor.execute {
-                try {
-                    controller.refresh()
-                    finishIfInactive()
-                } finally {
-                    recoveryGate.complete()
+                recoveryGate.drain {
+                    if (!destroyed && foregroundActive && stateStore.desiredRunning()) {
+                        controller.refresh()
+                        finishIfInactive()
+                    }
                 }
             }
         } catch (_: RejectedExecutionException) {
-            recoveryGate.complete()
+            recoveryGate.cancel()
         }
     }
 
     private fun publishNetworkUnavailable() {
-        if (!stateStore.desiredRunning()) return
+        if (destroyed || !stateStore.desiredRunning()) return
         executeCommand { controller.networkUnavailable() }
+    }
+
+    private fun queueRuntimeStateChange() {
+        if (destroyed || !stateStore.desiredRunning() || !runtimeChangeGate.tryQueue()) return
+        try {
+            executor.execute {
+                runtimeChangeGate.drain {
+                    if (!destroyed && stateStore.desiredRunning()) {
+                        controller.runtimeChanged()
+                        finishIfInactive()
+                    }
+                }
+            }
+        } catch (_: RejectedExecutionException) {
+            runtimeChangeGate.cancel()
+        }
     }
 
     private fun executeCommand(command: () -> Unit) {
@@ -127,6 +150,7 @@ class TunnelForegroundService : Service() {
     }
 
     private fun finishIfInactive() {
+        if (destroyed) return
         if (stateStore.desiredRunning()) return
         val snapshot = stateStore.loadSnapshot()
         removeForegroundNotification()
@@ -135,6 +159,7 @@ class TunnelForegroundService : Service() {
     }
 
     private fun publishSnapshot(snapshot: RuntimeSnapshot) {
+        if (destroyed) return
         if (foregroundActive) {
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(snapshot))
         }
@@ -142,7 +167,8 @@ class TunnelForegroundService : Service() {
             Intent(ACTION_STATUS)
                 .setPackage(packageName)
                 .putExtra(EXTRA_STATUS, snapshot.summary)
-                .putExtra(EXTRA_SNAPSHOT, snapshot.toJson())
+                .putExtra(EXTRA_SNAPSHOT, snapshot.toJson()),
+            INTERNAL_STATUS_PERMISSION
         )
     }
 
@@ -204,6 +230,7 @@ class TunnelForegroundService : Service() {
         const val ACTION_REFRESH = "com.lsyl.tunnel.mobile.REFRESH"
         const val ACTION_STOP = "com.lsyl.tunnel.mobile.STOP"
         const val ACTION_STATUS = "com.lsyl.tunnel.mobile.STATUS"
+        const val INTERNAL_STATUS_PERMISSION = "com.lsyl.tunnel.mobile.permission.INTERNAL_STATUS"
         const val EXTRA_STATUS = "status"
         const val EXTRA_SNAPSHOT = "snapshot"
 

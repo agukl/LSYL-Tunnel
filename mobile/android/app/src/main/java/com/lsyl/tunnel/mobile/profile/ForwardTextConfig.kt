@@ -98,7 +98,7 @@ internal object MobileForwardValidator {
             throw ProfileImportException("移动端最多支持 $MAX_MOBILE_FORWARDS 个本地端口")
         }
         val names = mutableSetOf<String>()
-        val listens = mutableSetOf<String>()
+        val listenPorts = mutableSetOf<Int>()
         forwards.forEachIndexed { index, forward ->
             val label = forward.name.trim().ifBlank { "第 ${index + 1} 条规则" }
             if (forward.name.isBlank()) throw ProfileImportException("规则 ${index + 1} 的 name 不能为空")
@@ -116,15 +116,36 @@ internal object MobileForwardValidator {
             if (local.port < 1024) {
                 throw ProfileImportException("规则 $label 的本地端口必须大于等于 1024")
             }
-            try {
+            val target = try {
                 HostPort.parse(forward.serverTarget)
             } catch (_: IllegalArgumentException) {
                 throw ProfileImportException("规则 $label 的 server_target 格式无效")
             }
+            if (!validTargetHost(target.host)) {
+                throw ProfileImportException("规则 $label 的 server_target 主机无效")
+            }
             if (!names.add(forward.name)) throw ProfileImportException("规则名称重复: ${forward.name}")
-            if (!listens.add(forward.listenAddr)) {
+            if (!listenPorts.add(local.port)) {
                 throw ProfileImportException("本地监听端口重复: ${forward.listenAddr}")
             }
         }
     }
+
+    private fun validTargetHost(host: String): Boolean {
+        val candidate = host.removeSuffix(".")
+        if (candidate.isEmpty() || candidate.length > 253) return false
+        if (candidate.all { it.isDigit() || it == '.' }) return validIpv4(candidate)
+        return candidate.split('.').all { DOMAIN_LABEL.matches(it) }
+    }
+
+    private fun validIpv4(host: String): Boolean {
+        val octets = host.split('.')
+        return octets.size == 4 && octets.all { octet ->
+            octet.isNotEmpty() &&
+                (octet == "0" || !octet.startsWith('0')) &&
+                octet.toIntOrNull()?.let { it in 0..255 } == true
+        }
+    }
+
+    private val DOMAIN_LABEL = Regex("[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
 }

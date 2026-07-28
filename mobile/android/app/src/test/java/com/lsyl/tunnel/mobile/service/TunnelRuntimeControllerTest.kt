@@ -14,6 +14,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.SocketTimeoutException
 import java.time.Instant
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class TunnelRuntimeControllerTest {
     @Test
@@ -152,6 +155,208 @@ class TunnelRuntimeControllerTest {
         assertEquals(TunnelPhase.WAITING_NETWORK, store.latest.phase)
     }
 
+    @Test
+    fun runtimeChangePublishesStreamFailureAndLaterRecovery() {
+        val runtime = FakeRuntime(healthyStats())
+        val store = FakeStateSink()
+        val controller = TunnelRuntimeController({ runtime }, store)
+        controller.connect(userInitiated = true)
+        runtime.currentStats = TunnelStats(
+            running = true,
+            message = "部分连接不可用",
+            forwards = listOf(
+                forwardStatus(
+                    "rdp",
+                    13389,
+                    ForwardState.LISTENING,
+                    RuntimeIssue(
+                        "target_unreachable",
+                        "目标服务暂不可达，请联系管理员检查目标服务",
+                        IssueDisposition.CONNECTION_ONLY,
+                        "rdp",
+                        13389
+                    )
+                )
+            )
+        )
+
+        controller.runtimeChanged()
+
+        assertEquals(TunnelPhase.DEGRADED, store.latest.phase)
+        assertEquals("target_unreachable", store.latest.issues.single().code)
+
+        runtime.currentStats = healthyStats()
+        controller.runtimeChanged()
+
+        assertEquals(TunnelPhase.CONNECTED, store.latest.phase)
+        assertTrue(store.latest.issues.isEmpty())
+    }
+
+    @Test
+    fun fatalStreamFailureStopsRuntimeAndClearsRestoreIntent() {
+        val runtime = FakeRuntime(healthyStats())
+        val store = FakeStateSink()
+        val controller = TunnelRuntimeController({ runtime }, store)
+        controller.connect(userInitiated = true)
+        runtime.currentStats = TunnelStats(
+            running = true,
+            message = "认证失败",
+            forwards = listOf(
+                forwardStatus(
+                    "rdp",
+                    13389,
+                    ForwardState.LISTENING,
+                    RuntimeIssue(
+                        "auth_failed",
+                        "账号认证失败，请重新导入配置或联系管理员",
+                        IssueDisposition.FATAL,
+                        "rdp",
+                        13389
+                    )
+                )
+            )
+        )
+
+        controller.runtimeChanged()
+
+        assertTrue(runtime.stopped)
+        assertFalse(store.desiredRunning())
+        assertEquals(TunnelPhase.FAILED, store.latest.phase)
+        assertEquals("auth_failed", store.latest.issues.single().code)
+    }
+
+    @Test
+    fun systemReleaseStopsRuntimeWithoutWaitingForRemoteCheck() {
+        val checkStarted = CountDownLatch(1)
+        val allowCheckToFinish = CountDownLatch(1)
+        val runtimeStopped = CountDownLatch(1)
+        val runtime = object : ManagedTunnel {
+            override fun startListeners() = Unit
+
+            override fun checkRemote(onStage: (String) -> Unit) {
+                checkStarted.countDown()
+                allowCheckToFinish.await(2, TimeUnit.SECONDS)
+            }
+
+            override fun stats(): TunnelStats = healthyStats()
+
+            override fun stop() {
+                runtimeStopped.countDown()
+            }
+        }
+        val store = FakeStateSink()
+        val controller = TunnelRuntimeController({ runtime }, store)
+        val workers = Executors.newFixedThreadPool(2)
+        val connect = workers.submit { controller.connect(userInitiated = true) }
+        assertTrue(checkStarted.await(1, TimeUnit.SECONDS))
+        val release = workers.submit { controller.releaseForSystem() }
+
+        try {
+            assertTrue("system release waited for remote I/O", runtimeStopped.await(300, TimeUnit.MILLISECONDS))
+        } finally {
+            allowCheckToFinish.countDown()
+            release.get(2, TimeUnit.SECONDS)
+            connect.get(2, TimeUnit.SECONDS)
+            workers.shutdownNow()
+        }
+
+        assertTrue(store.desiredRunning())
+        assertEquals(TunnelPhase.STARTING, store.latest.phase)
+        assertEquals("等待系统恢复连接", store.latest.summary)
+    }
+
+    @Test
+    fun systemReleaseCompletesUserStopWhenDisconnectCommandWasCancelled() {
+        val runtime = FakeRuntime(healthyStats())
+        val store = FakeStateSink()
+        val controller = TunnelRuntimeController({ runtime }, store)
+        controller.connect(userInitiated = true)
+        store.setDesiredRunning(false)
+        store.publish(RuntimeSnapshot(TunnelPhase.STOPPING, "正在断开"))
+
+        controller.releaseForSystem(completePendingDisconnect = true)
+
+        assertEquals(TunnelPhase.DISCONNECTED, store.latest.phase)
+        assertEquals("已断开", store.latest.summary)
+    }
+
+    @Test
+    fun systemReleaseCannotBeOverwrittenByConcurrentStoppingSnapshot() {
+        val runtime = FakeRuntime(healthyStats())
+        val store = BlockingStopStateSink()
+        val controller = TunnelRuntimeController({ runtime }, store)
+        controller.connect(userInitiated = true)
+        val workers = Executors.newFixedThreadPool(2)
+        val disconnect = workers.submit { controller.disconnect() }
+        assertTrue(store.stopTransitionStarted.await(1, TimeUnit.SECONDS))
+        val releaseAttempted = CountDownLatch(1)
+        val release = workers.submit {
+            releaseAttempted.countDown()
+            controller.releaseForSystem(completePendingDisconnect = true)
+        }
+        assertTrue(releaseAttempted.await(1, TimeUnit.SECONDS))
+
+        try {
+            Thread.sleep(100)
+        } finally {
+            store.allowStopTransition.countDown()
+            disconnect.get(2, TimeUnit.SECONDS)
+            release.get(2, TimeUnit.SECONDS)
+            workers.shutdownNow()
+        }
+
+        assertEquals(TunnelPhase.DISCONNECTED, store.latest.phase)
+    }
+
+    @Test
+    fun systemReleaseCannotBeOverwrittenByInFlightRuntimeSnapshot() {
+        val runtime = BlockingStatsRuntime(healthyStats())
+        val store = FakeStateSink()
+        val controller = TunnelRuntimeController({ runtime }, store)
+        controller.connect(userInitiated = true)
+        runtime.blockStats = true
+        val worker = Executors.newSingleThreadExecutor()
+        val networkLoss = worker.submit { controller.networkUnavailable() }
+        assertTrue(runtime.statsStarted.await(1, TimeUnit.SECONDS))
+
+        controller.releaseForSystem()
+        runtime.allowStats.countDown()
+        networkLoss.get(2, TimeUnit.SECONDS)
+        worker.shutdownNow()
+
+        assertEquals(TunnelPhase.STARTING, store.latest.phase)
+        assertEquals("等待系统恢复连接", store.latest.summary)
+    }
+
+    @Test
+    fun systemReleaseSerializesRestoreIntentWithConcurrentConnect() {
+        val runtime = FakeRuntime(healthyStats())
+        val store = BlockingStartStateSink()
+        val controller = TunnelRuntimeController({ runtime }, store)
+        val workers = Executors.newFixedThreadPool(2)
+        val connect = workers.submit { controller.connect(userInitiated = true) }
+        assertTrue(store.startTransitionStarted.await(1, TimeUnit.SECONDS))
+        val releaseAttempted = CountDownLatch(1)
+        val release = workers.submit {
+            releaseAttempted.countDown()
+            controller.releaseForSystem(completePendingDisconnect = true)
+        }
+        assertTrue(releaseAttempted.await(1, TimeUnit.SECONDS))
+
+        try {
+            Thread.sleep(100)
+        } finally {
+            store.allowStartTransition.countDown()
+            connect.get(2, TimeUnit.SECONDS)
+            release.get(2, TimeUnit.SECONDS)
+            workers.shutdownNow()
+        }
+
+        assertTrue(store.desiredRunning())
+        assertEquals(TunnelPhase.STARTING, store.latest.phase)
+        assertEquals("等待系统恢复连接", store.latest.summary)
+    }
+
     private fun healthyStats(): TunnelStats = TunnelStats(
         running = true,
         message = "已连接",
@@ -175,7 +380,7 @@ class TunnelRuntimeControllerTest {
         lastChanged = Instant.EPOCH
     )
 
-    private class FakeRuntime(private var currentStats: TunnelStats) : ManagedTunnel {
+    private class FakeRuntime(var currentStats: TunnelStats) : ManagedTunnel {
         var checkFailure: Throwable? = null
         var startCalls = 0
         var checkCalls = 0
@@ -206,6 +411,68 @@ class TunnelRuntimeControllerTest {
         override fun desiredRunning(): Boolean = desired
 
         override fun setDesiredRunning(value: Boolean) {
+            desired = value
+        }
+
+        override fun publish(snapshot: RuntimeSnapshot) {
+            latest = snapshot
+        }
+    }
+
+    private class BlockingStopStateSink : RuntimeStateSink {
+        @Volatile private var desired = false
+        @Volatile var latest = RuntimeSnapshot(TunnelPhase.DISCONNECTED, "未连接")
+        val stopTransitionStarted = CountDownLatch(1)
+        val allowStopTransition = CountDownLatch(1)
+
+        override fun desiredRunning(): Boolean = desired
+
+        override fun setDesiredRunning(value: Boolean) {
+            desired = value
+            if (!value) {
+                stopTransitionStarted.countDown()
+                allowStopTransition.await(2, TimeUnit.SECONDS)
+            }
+        }
+
+        override fun publish(snapshot: RuntimeSnapshot) {
+            latest = snapshot
+        }
+    }
+
+    private class BlockingStatsRuntime(private val currentStats: TunnelStats) : ManagedTunnel {
+        @Volatile var blockStats = false
+        val statsStarted = CountDownLatch(1)
+        val allowStats = CountDownLatch(1)
+
+        override fun startListeners() = Unit
+
+        override fun checkRemote(onStage: (String) -> Unit) = Unit
+
+        override fun stats(): TunnelStats {
+            if (blockStats) {
+                statsStarted.countDown()
+                allowStats.await(2, TimeUnit.SECONDS)
+            }
+            return currentStats
+        }
+
+        override fun stop() = Unit
+    }
+
+    private class BlockingStartStateSink : RuntimeStateSink {
+        @Volatile private var desired = false
+        @Volatile var latest = RuntimeSnapshot(TunnelPhase.DISCONNECTED, "未连接")
+        val startTransitionStarted = CountDownLatch(1)
+        val allowStartTransition = CountDownLatch(1)
+
+        override fun desiredRunning(): Boolean = desired
+
+        override fun setDesiredRunning(value: Boolean) {
+            if (value) {
+                startTransitionStarted.countDown()
+                allowStartTransition.await(2, TimeUnit.SECONDS)
+            }
             desired = value
         }
 

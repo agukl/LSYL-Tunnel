@@ -57,6 +57,15 @@ class FailureClassifierTest {
     }
 
     @Test
+    fun handshakeTransportFailureKeepsListenersForNetworkRecovery() {
+        val issue = FailureClassifier.classify(SSLHandshakeException("connection closed during handshake"))
+
+        assertEquals("tls_handshake", issue.code)
+        assertEquals("TLS 握手暂时失败，等待网络恢复或手动检查", issue.message)
+        assertEquals(IssueDisposition.TRANSIENT, issue.disposition)
+    }
+
+    @Test
     fun protocolCodesHaveExplicitRecoveryPolicies() {
         val cases = listOf(
             ProtocolCase("credential_expired", "连接凭据已过期，请重新导入配置", IssueDisposition.FATAL),

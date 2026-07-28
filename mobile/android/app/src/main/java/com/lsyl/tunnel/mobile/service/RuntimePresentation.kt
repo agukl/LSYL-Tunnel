@@ -16,11 +16,14 @@ object RuntimePresenter {
         hasProfile: Boolean,
         desiredRunning: Boolean
     ): RuntimePresentation {
-        val active = desiredRunning && snapshot.phase in ACTIVE_PHASES
-        val idle = !desiredRunning && snapshot.phase in IDLE_PHASES
+        val staleActive = !desiredRunning && snapshot.phase in STALE_ACTIVE_PHASES
+        val effectivePhase = if (staleActive) TunnelPhase.DISCONNECTED else snapshot.phase
+        val effectiveIssues = if (staleActive) emptyList() else snapshot.issues
+        val active = desiredRunning && effectivePhase in ACTIVE_PHASES
+        val idle = !desiredRunning && effectivePhase in IDLE_PHASES
         return RuntimePresentation(
-            status = snapshot.summary,
-            details = snapshot.issues.distinctBy { Triple(it.code, it.ruleName, it.localPort) }
+            status = if (staleActive) "未连接" else snapshot.summary,
+            details = effectiveIssues.distinctBy { Triple(it.code, it.ruleName, it.localPort) }
                 .joinToString("\n") { issue ->
                     when {
                         issue.ruleName != null && issue.localPort != null && issue.message.contains(issue.localPort.toString()) ->
@@ -33,9 +36,9 @@ object RuntimePresenter {
                 },
             canConnect = hasProfile && idle,
             canDisconnect = active,
-            canRefresh = desiredRunning && snapshot.phase in REFRESHABLE_PHASES,
+            canRefresh = desiredRunning && effectivePhase in REFRESHABLE_PHASES,
             canEditConfig = hasProfile && idle,
-            canReplaceProfile = !active
+            canReplaceProfile = idle
         )
     }
 
@@ -52,4 +55,10 @@ object RuntimePresenter {
         TunnelPhase.WAITING_NETWORK
     )
     private val IDLE_PHASES = setOf(TunnelPhase.DISCONNECTED, TunnelPhase.FAILED)
+    private val STALE_ACTIVE_PHASES = setOf(
+        TunnelPhase.STARTING,
+        TunnelPhase.CONNECTED,
+        TunnelPhase.DEGRADED,
+        TunnelPhase.WAITING_NETWORK
+    )
 }

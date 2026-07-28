@@ -24,46 +24,63 @@ class TunnelRuntimeController(
     private val runtimeFactory: () -> ManagedTunnel,
     private val stateSink: RuntimeStateSink
 ) {
-    private var runtime: ManagedTunnel? = null
+    private val lifecycleLock = Any()
+    @Volatile private var runtime: ManagedTunnel? = null
+    @Volatile private var released = false
 
-    @Synchronized
     fun connect(userInitiated: Boolean) {
-        if (userInitiated) stateSink.setDesiredRunning(true)
-        if (!stateSink.desiredRunning()) return
+        val shouldConnect = synchronized(lifecycleLock) {
+            if (released) return@synchronized false
+            if (userInitiated) stateSink.setDesiredRunning(true)
+            stateSink.desiredRunning()
+        }
+        if (!shouldConnect) return
         runtime?.let {
-            publishStats(it.stats())
+            publishStats(it.stats(), it)
             return
         }
 
-        stateSink.publish(RuntimeSnapshot(TunnelPhase.STARTING, "读取配置"))
+        if (!publishIfNotReleased(RuntimeSnapshot(TunnelPhase.STARTING, "读取配置"))) return
         try {
             val created = runtimeFactory()
-            runtime = created
-            stateSink.publish(RuntimeSnapshot(TunnelPhase.STARTING, "启动本地监听"))
-            created.startListeners()
+            val installed = synchronized(lifecycleLock) {
+                if (released || runtime != null) {
+                    false
+                } else {
+                    runtime = created
+                    stateSink.publish(RuntimeSnapshot(TunnelPhase.STARTING, "启动本地监听"))
+                    created.startListeners()
+                    true
+                }
+            }
+            if (!installed) {
+                created.stop()
+                return
+            }
+            if (released) return
             if (!hasUsableListener(created.stats())) {
                 failWithoutListener(created.stats())
                 return
             }
             checkRuntime(created)
         } catch (failure: Throwable) {
-            handleFailure(failure)
+            if (!released) handleFailure(failure)
         }
     }
 
-    @Synchronized
     fun refresh() {
+        if (released) return
         val current = runtime
         if (current == null) {
             if (stateSink.desiredRunning()) connect(userInitiated = false)
-            else stateSink.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "未连接"))
+            else publishIfNotReleased(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "未连接"))
             return
         }
         checkRuntime(current)
     }
 
-    @Synchronized
     fun networkUnavailable() {
+        if (released) return
         val current = runtime ?: return
         if (!stateSink.desiredRunning()) return
         val stats = current.stats()
@@ -72,7 +89,8 @@ class TunnelRuntimeController(
             message = "网络暂不可用，等待恢复",
             disposition = IssueDisposition.TRANSIENT
         )
-        stateSink.publish(
+        publishIfActive(
+            current,
             RuntimeSnapshot(
                 phase = TunnelPhase.WAITING_NETWORK,
                 summary = issue.message,
@@ -82,26 +100,53 @@ class TunnelRuntimeController(
         )
     }
 
-    @Synchronized
-    fun disconnect() {
-        stateSink.setDesiredRunning(false)
-        stateSink.publish(RuntimeSnapshot(TunnelPhase.STOPPING, "正在断开"))
-        runtime?.stop()
-        runtime = null
-        stateSink.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "已断开"))
+    fun runtimeChanged() {
+        if (released) return
+        val current = runtime ?: return
+        if (!stateSink.desiredRunning()) return
+        val stats = current.stats()
+        val fatalIssue = safeIssues(stats).firstOrNull { it.disposition == IssueDisposition.FATAL }
+        if (fatalIssue != null) {
+            failRuntime(listOf(fatalIssue))
+            return
+        }
+        publishStats(stats, current)
     }
 
-    @Synchronized
-    fun releaseForSystem() {
-        runtime?.stop()
-        runtime = null
+    fun disconnect() {
+        synchronized(lifecycleLock) {
+            if (released) return
+            stateSink.setDesiredRunning(false)
+            stateSink.publish(RuntimeSnapshot(TunnelPhase.STOPPING, "正在断开"))
+            runtime?.stop()
+            runtime = null
+            stateSink.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "已断开"))
+        }
+    }
+
+    fun releaseForSystem(completePendingDisconnect: Boolean = false) {
+        val current = synchronized(lifecycleLock) {
+            released = true
+            val detached = runtime
+            runtime = null
+            if (stateSink.desiredRunning()) {
+                stateSink.publish(RuntimeSnapshot(TunnelPhase.STARTING, "等待系统恢复连接"))
+            } else if (completePendingDisconnect) {
+                stateSink.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "已断开"))
+            }
+            detached
+        }
+        current?.stop()
     }
 
     private fun checkRuntime(current: ManagedTunnel) {
+        if (released || runtime !== current) return
         try {
             current.checkRemote { stage ->
+                if (released || runtime !== current) return@checkRemote
                 val stats = current.stats()
-                stateSink.publish(
+                publishIfActive(
+                    current,
                     RuntimeSnapshot(
                         phase = TunnelPhase.STARTING,
                         summary = stage,
@@ -110,40 +155,40 @@ class TunnelRuntimeController(
                     )
                 )
             }
-            publishStats(current.stats())
+            if (released || runtime !== current) return
+            publishStats(current.stats(), current)
         } catch (failure: Throwable) {
-            handleFailure(failure)
+            if (!released && runtime === current) handleFailure(failure, current)
         }
     }
 
-    private fun handleFailure(failure: Throwable) {
+    private fun handleFailure(failure: Throwable, expectedRuntime: ManagedTunnel? = runtime) {
+        if (released) return
         val issue = FailureClassifier.classify(failure)
         if (issue.disposition == IssueDisposition.FATAL) {
-            runtime?.stop()
-            runtime = null
-            stateSink.setDesiredRunning(false)
-            stateSink.publish(RuntimeSnapshot(TunnelPhase.FAILED, issue.message, issues = listOf(issue)))
+            failRuntime(listOf(issue))
             return
         }
 
-        val stats = runtime?.stats()
-        stateSink.publish(
+        val stats = expectedRuntime?.stats()
+        val snapshot =
             RuntimeSnapshot(
                 phase = TunnelPhase.WAITING_NETWORK,
                 summary = issue.message,
                 listenerCount = stats?.let(::listenerCount) ?: 0,
                 issues = listOf(issue) + (stats?.let(::safeIssues) ?: emptyList())
             )
-        )
+        if (expectedRuntime == null) publishIfNotReleased(snapshot) else publishIfActive(expectedRuntime, snapshot)
     }
 
-    private fun publishStats(stats: TunnelStats) {
+    private fun publishStats(stats: TunnelStats, current: ManagedTunnel) {
         if (!hasUsableListener(stats)) {
             failWithoutListener(stats)
             return
         }
         val issues = safeIssues(stats)
-        stateSink.publish(
+        publishIfActive(
+            current,
             RuntimeSnapshot(
                 phase = if (issues.isEmpty()) TunnelPhase.CONNECTED else TunnelPhase.DEGRADED,
                 summary = if (issues.isEmpty()) "已连接" else "部分端口不可用",
@@ -163,11 +208,33 @@ class TunnelRuntimeController(
                 )
             )
         }
-        runtime?.stop()
-        runtime = null
-        stateSink.setDesiredRunning(false)
-        stateSink.publish(RuntimeSnapshot(TunnelPhase.FAILED, issues.first().message, issues = issues))
+        failRuntime(issues)
     }
+
+    private fun failRuntime(issues: List<RuntimeIssue>) {
+        val current = synchronized(lifecycleLock) {
+            if (released) return
+            val detached = runtime
+            runtime = null
+            stateSink.setDesiredRunning(false)
+            stateSink.publish(RuntimeSnapshot(TunnelPhase.FAILED, issues.first().message, issues = issues))
+            detached
+        }
+        current?.stop()
+    }
+
+    private fun publishIfNotReleased(snapshot: RuntimeSnapshot): Boolean = synchronized(lifecycleLock) {
+        if (released) return@synchronized false
+        stateSink.publish(snapshot)
+        true
+    }
+
+    private fun publishIfActive(current: ManagedTunnel, snapshot: RuntimeSnapshot): Boolean =
+        synchronized(lifecycleLock) {
+            if (released || runtime !== current) return@synchronized false
+            stateSink.publish(snapshot)
+            true
+        }
 
     private fun hasUsableListener(stats: TunnelStats): Boolean = listenerCount(stats) > 0
 

@@ -28,7 +28,10 @@ data class ForwardStatus(
     val lastChanged: Instant
 )
 
-class ForwardRuntime(forward: ForwardConfig) {
+class ForwardRuntime(
+    forward: ForwardConfig,
+    private val onChanged: () -> Unit = {}
+) {
     private val active = AtomicInteger(0)
     private val total = AtomicLong(0)
     @Volatile private var state: ForwardState = ForwardState.STARTING
@@ -44,12 +47,14 @@ class ForwardRuntime(forward: ForwardConfig) {
         state = next
         message = text
         lastChanged = Instant.now()
+        onChanged()
     }
 
     fun reportIssue(next: RuntimeIssue) {
         issue = next
         message = next.message
         lastChanged = Instant.now()
+        onChanged()
     }
 
     fun clearIssue() {
@@ -57,6 +62,7 @@ class ForwardRuntime(forward: ForwardConfig) {
         issue = null
         if (state == ForwardState.LISTENING) message = "本地端口监听中"
         lastChanged = Instant.now()
+        onChanged()
     }
 
     fun beginStream(): () -> Unit {
@@ -84,11 +90,14 @@ data class TunnelStats(
     val forwards: List<ForwardStatus>
 )
 
-class RuntimeRegistry(forwards: List<ForwardConfig>) {
+class RuntimeRegistry(
+    forwards: List<ForwardConfig>,
+    onChanged: () -> Unit = {}
+) {
     private val items = ConcurrentHashMap<String, ForwardRuntime>()
 
     init {
-        forwards.forEach { items[it.displayName()] = ForwardRuntime(it) }
+        forwards.forEach { items[it.displayName()] = ForwardRuntime(it, onChanged) }
     }
 
     fun runtime(forward: ForwardConfig): ForwardRuntime =

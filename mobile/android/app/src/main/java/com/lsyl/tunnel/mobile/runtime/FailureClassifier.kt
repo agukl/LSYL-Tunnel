@@ -50,8 +50,8 @@ object FailureClassifier {
             )
             failure.findCause<SSLHandshakeException>() != null -> Classified(
                 "tls_handshake",
-                "TLS 连接失败，请联系管理员检查服务端配置",
-                IssueDisposition.FATAL
+                "TLS 握手暂时失败，等待网络恢复或手动检查",
+                IssueDisposition.TRANSIENT
             )
             failure.findCause<IllegalArgumentException>() != null -> Classified(
                 "invalid_profile",

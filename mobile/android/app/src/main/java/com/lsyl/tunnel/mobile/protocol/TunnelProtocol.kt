@@ -7,4 +7,5 @@ interface TunnelProtocol {
     fun health(): OpenResponse
     fun forwardCheck(forward: ForwardConfig): OpenResponse
     fun open(forward: ForwardConfig): Socket
+    fun cancelPending() = Unit
 }

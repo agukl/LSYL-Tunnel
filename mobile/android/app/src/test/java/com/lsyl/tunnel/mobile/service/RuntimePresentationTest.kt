@@ -120,4 +120,31 @@ class RuntimePresentationTest {
         assertFalse(presentation.canEditConfig)
         assertTrue(presentation.canReplaceProfile)
     }
+
+    @Test
+    fun staleConnectedSnapshotCannotBlockReconnectAfterRuntimeIntentWasCleared() {
+        val presentation = RuntimePresenter.present(
+            RuntimeSnapshot(TunnelPhase.CONNECTED, "已连接", listenerCount = 1),
+            hasProfile = true,
+            desiredRunning = false
+        )
+
+        assertEquals("未连接", presentation.status)
+        assertTrue(presentation.canConnect)
+        assertTrue(presentation.canEditConfig)
+        assertFalse(presentation.canDisconnect)
+    }
+
+    @Test
+    fun stoppingStateCannotReplaceProfileUntilServiceHasDisconnected() {
+        val presentation = RuntimePresenter.present(
+            RuntimeSnapshot(TunnelPhase.STOPPING, "正在断开", listenerCount = 1),
+            hasProfile = true,
+            desiredRunning = false
+        )
+
+        assertFalse(presentation.canReplaceProfile)
+        assertFalse(presentation.canEditConfig)
+        assertFalse(presentation.canConnect)
+    }
 }

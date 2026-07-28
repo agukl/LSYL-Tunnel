@@ -45,8 +45,10 @@ class ProtocolClient(
             val response = OpenResponse.fromJson(LsylProtocol.readJson(socket.inputStream))
             if (!response.ok) throw ProtocolException(response)
             socket.soTimeout = 0
+            connector.release(socket)
             return socket
         } catch (err: Exception) {
+            connector.release(socket)
             try {
                 socket.close()
             } catch (_: Exception) {
@@ -55,12 +57,21 @@ class ProtocolClient(
         }
     }
 
+    override fun cancelPending() {
+        connector.cancelPending()
+    }
+
     private fun requestAndClose(type: String, forward: ForwardConfig?): OpenResponse {
-        connector.connect(profile).use { socket ->
-            LsylProtocol.writeJson(socket.outputStream, requestJson(type, forward))
-            val response = OpenResponse.fromJson(LsylProtocol.readJson(socket.inputStream))
-            if (!response.ok) throw ProtocolException(response)
-            return response
+        val socket = connector.connect(profile)
+        try {
+            socket.use {
+                LsylProtocol.writeJson(socket.outputStream, requestJson(type, forward))
+                val response = OpenResponse.fromJson(LsylProtocol.readJson(socket.inputStream))
+                if (!response.ok) throw ProtocolException(response)
+                return response
+            }
+        } finally {
+            connector.release(socket)
         }
     }
 

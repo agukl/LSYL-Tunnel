@@ -80,9 +80,15 @@ class MainActivity : Activity() {
         super.onResume()
         val filter = IntentFilter(TunnelForegroundService.ACTION_STATUS)
         if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            registerReceiver(
+                statusReceiver,
+                filter,
+                TunnelForegroundService.INTERNAL_STATUS_PERMISSION,
+                null,
+                Context.RECEIVER_NOT_EXPORTED
+            )
         } else {
-            registerReceiver(statusReceiver, filter)
+            registerReceiver(statusReceiver, filter, TunnelForegroundService.INTERNAL_STATUS_PERMISSION, null)
         }
         refreshProfileView()
     }
@@ -229,6 +235,10 @@ class MainActivity : Activity() {
     }
 
     private fun importProfile(uri: Uri) {
+        if (!canReplaceProfileNow()) {
+            showError("请先断开连接，再导入配置")
+            return
+        }
         try {
             val imported = ProfileImporter.importFromUri(this, uri)
             showImportConfirm(imported)
@@ -245,6 +255,10 @@ class MainActivity : Activity() {
             .setMessage(message)
             .setNegativeButton("取消", null)
             .setPositiveButton("导入") { _, _ ->
+                if (!canReplaceProfileNow()) {
+                    showError("请先断开连接，再导入配置")
+                    return@setPositiveButton
+                }
                 store.save(imported)
                 runtimeStore.setDesiredRunning(false)
                 runtimeStore.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "已导入"))
@@ -272,9 +286,11 @@ class MainActivity : Activity() {
     }
 
     private fun stopTunnel() {
+        val stopping = RuntimeSnapshot(TunnelPhase.STOPPING, "正在断开")
         runtimeStore.setDesiredRunning(false)
+        runtimeStore.publish(stopping)
         startService(TunnelForegroundService.stopIntent(this))
-        updateRuntime(RuntimeSnapshot(TunnelPhase.STOPPING, "正在断开"))
+        updateRuntime(stopping)
     }
 
     private fun refreshTunnel() {
@@ -391,6 +407,12 @@ class MainActivity : Activity() {
         applyButtonStyle(importBtn, ButtonStyle.GHOST, small = true)
         applyButtonStyle(deleteBtn, ButtonStyle.GHOST_DANGER, small = true)
     }
+
+    private fun canReplaceProfileNow(): Boolean = RuntimePresenter.present(
+        runtimeStore.loadSnapshot(),
+        hasProfile = store.load() != null,
+        desiredRunning = runtimeStore.desiredRunning()
+    ).canReplaceProfile
 
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {

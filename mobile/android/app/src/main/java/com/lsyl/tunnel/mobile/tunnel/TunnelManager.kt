@@ -14,12 +14,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class TunnelManager(
     private val loaded: LoadedProfile,
-    protocolOverride: TunnelProtocol? = null
+    protocolOverride: TunnelProtocol? = null,
+    onStatsChanged: () -> Unit = {}
 ) : ManagedTunnel {
     private val profile: MobileProfile = loaded.profile
     private val protocol: TunnelProtocol = protocolOverride ?: ProtocolClient(profile, loaded.serverCertBytes)
-    private val registry = RuntimeRegistry(profile.forwards)
+    private val registry = RuntimeRegistry(profile.forwards, onStatsChanged)
     private val executors = TunnelExecutors()
+    private val lifecycle = TunnelLifecycleGate()
     private val forwards = ConcurrentHashMap<String, LocalForward>()
     private val running = AtomicBoolean(false)
     @Volatile private var message: String = "未连接"
@@ -42,11 +44,13 @@ class TunnelManager(
         check(running.get()) { "tunnel is not running" }
         onStage("连接服务端并验证账号")
         protocol.health()
+        if (!running.get()) return
         onStage("检查转发规则")
         profile.forwards.forEach { forward ->
             val runtime = registry.runtime(forward)
             try {
                 protocol.forwardCheck(forward)
+                if (!running.get()) return
                 runtime.clearIssue()
                 val existing = forwards[forward.displayName()]
                 if (existing == null || !existing.isRunning()) {
@@ -73,9 +77,12 @@ class TunnelManager(
     fun refresh() = checkRemote {}
 
     override fun stop() {
-        if (!running.compareAndSet(true, false)) return
-        forwards.values.forEach { it.stop() }
-        forwards.clear()
+        val stopped = lifecycle.stopIfRunning(running) {
+            protocol.cancelPending()
+            forwards.values.forEach { it.stop() }
+            forwards.clear()
+        }
+        if (!stopped) return
         executors.shutdown()
         message = "已断开"
     }
@@ -87,10 +94,12 @@ class TunnelManager(
     }
 
     private fun startForward(forward: ForwardConfig) {
-        val runtime = registry.runtime(forward)
-        val local = LocalForward(forward, protocol, runtime, executors.listeners, executors.connections, executors.copies)
-        forwards[forward.displayName()] = local
-        local.start()
-        if (!local.isRunning()) forwards.remove(forward.displayName(), local)
+        lifecycle.runIfRunning(running) {
+            val runtime = registry.runtime(forward)
+            val local = LocalForward(forward, protocol, runtime, executors.listeners, executors.connections, executors.copies)
+            forwards[forward.displayName()] = local
+            local.start()
+            if (!local.isRunning()) forwards.remove(forward.displayName(), local)
+        }
     }
 }
