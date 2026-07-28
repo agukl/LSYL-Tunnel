@@ -8,13 +8,14 @@ import com.lsyl.tunnel.mobile.protocol.ProtocolException
 import com.lsyl.tunnel.mobile.protocol.TunnelProtocol
 import com.lsyl.tunnel.mobile.runtime.FailureClassifier
 import com.lsyl.tunnel.mobile.runtime.IssueDisposition
+import com.lsyl.tunnel.mobile.service.ManagedTunnel
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 class TunnelManager(
     private val loaded: LoadedProfile,
     protocolOverride: TunnelProtocol? = null
-) {
+) : ManagedTunnel {
     private val profile: MobileProfile = loaded.profile
     private val protocol: TunnelProtocol = protocolOverride ?: ProtocolClient(profile, loaded.serverCertBytes)
     private val registry = RuntimeRegistry(profile.forwards)
@@ -28,7 +29,7 @@ class TunnelManager(
         checkRemote()
     }
 
-    fun startListeners() {
+    override fun startListeners() {
         if (!running.compareAndSet(false, true)) return
         message = "正在启动本地监听"
         profile.forwards.forEach { forward ->
@@ -37,7 +38,7 @@ class TunnelManager(
         message = if (hasIssue()) "部分连接不可用，请联系管理员" else "已连接"
     }
 
-    fun checkRemote(onStage: (String) -> Unit = {}) {
+    override fun checkRemote(onStage: (String) -> Unit) {
         check(running.get()) { "tunnel is not running" }
         onStage("连接服务端并验证账号")
         protocol.health()
@@ -69,9 +70,9 @@ class TunnelManager(
         message = if (hasIssue()) "部分连接不可用，请联系管理员" else "已连接"
     }
 
-    fun refresh() = checkRemote()
+    fun refresh() = checkRemote {}
 
-    fun stop() {
+    override fun stop() {
         if (!running.compareAndSet(true, false)) return
         forwards.values.forEach { it.stop() }
         forwards.clear()
@@ -79,7 +80,7 @@ class TunnelManager(
         message = "已断开"
     }
 
-    fun stats(): TunnelStats = TunnelStats(running.get(), message, registry.snapshot())
+    override fun stats(): TunnelStats = TunnelStats(running.get(), message, registry.snapshot())
 
     private fun hasIssue(): Boolean = registry.snapshot().any {
         it.issue != null || it.state == ForwardState.REJECTED || it.state == ForwardState.LISTEN_FAILED || it.state == ForwardState.ERROR

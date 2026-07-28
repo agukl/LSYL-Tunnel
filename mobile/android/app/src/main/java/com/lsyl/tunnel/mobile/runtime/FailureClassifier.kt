@@ -47,6 +47,11 @@ object FailureClassifier {
                 "TLS 连接失败，请联系管理员检查服务端配置",
                 IssueDisposition.FATAL
             )
+            failure.findCause<IllegalArgumentException>() != null -> Classified(
+                "invalid_profile",
+                "连接配置无效，请重新导入配置",
+                IssueDisposition.FATAL
+            )
             else -> Classified(
                 "network_error",
                 "服务端暂不可达，等待网络恢复",
