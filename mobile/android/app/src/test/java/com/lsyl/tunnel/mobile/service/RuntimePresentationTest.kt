@@ -9,7 +9,7 @@ import org.junit.Test
 
 class RuntimePresentationTest {
     @Test
-    fun connectedStateOffersDisconnectAndManualRecheckOnly() {
+    fun connectedStateOffersDisconnectAndRefreshOnly() {
         val presentation = RuntimePresenter.present(
             RuntimeSnapshot(TunnelPhase.CONNECTED, "已连接", listenerCount = 1),
             hasProfile = true,

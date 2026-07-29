@@ -20,6 +20,8 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -31,8 +33,10 @@ import com.lsyl.tunnel.mobile.profile.ProfileStore
 import com.lsyl.tunnel.mobile.service.RuntimePresenter
 import com.lsyl.tunnel.mobile.service.RuntimeSnapshot
 import com.lsyl.tunnel.mobile.service.RuntimeStateStore
+import com.lsyl.tunnel.mobile.service.ServiceRecoveryPolicy
 import com.lsyl.tunnel.mobile.service.TunnelPhase
 import com.lsyl.tunnel.mobile.service.TunnelForegroundService
+import com.lsyl.tunnel.mobile.service.TunnelServiceProcessState
 import java.time.format.DateTimeFormatter
 
 class MainActivity : Activity() {
@@ -43,7 +47,7 @@ class MainActivity : Activity() {
     private lateinit var importBtn: Button
     private lateinit var connectBtn: Button
     private lateinit var stopBtn: Button
-    private lateinit var refreshBtn: Button
+    private lateinit var refreshBtn: ImageButton
     private lateinit var editBtn: Button
     private lateinit var deleteBtn: Button
     private lateinit var store: ProfileStore
@@ -91,6 +95,7 @@ class MainActivity : Activity() {
             registerReceiver(statusReceiver, filter, TunnelForegroundService.INTERNAL_STATUS_PERMISSION, null)
         }
         refreshProfileView()
+        recoverTunnelServiceIfNeeded()
     }
 
     override fun onPause() {
@@ -118,12 +123,30 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(36), dp(24), dp(22))
         }
+        val titleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48)
+        }
         val title = TextView(this).apply {
             text = "LSYL Tunnel"
             textSize = 30f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.rgb(7, 62, 59))
         }
+        refreshBtn = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_refresh)
+            contentDescription = "刷新连接状态"
+            tooltipText = "刷新连接状态"
+            scaleType = ImageView.ScaleType.CENTER
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setOnClickListener { refreshTunnel() }
+        }
+        titleRow.addView(
+            title,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        titleRow.addView(refreshBtn, LinearLayout.LayoutParams(dp(48), dp(48)))
 
         val profileCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -172,10 +195,6 @@ class MainActivity : Activity() {
         stopBtn = actionButton("断开连接", ButtonStyle.WARNING).apply {
             setOnClickListener { stopTunnel() }
         }
-        refreshBtn = actionButton("重新检查", ButtonStyle.GHOST).apply {
-            setOnClickListener { refreshTunnel() }
-        }
-
         editBtn = smallActionButton("编辑转发", ButtonStyle.GHOST).apply {
             setOnClickListener { editForwards() }
         }
@@ -190,18 +209,17 @@ class MainActivity : Activity() {
         deleteBtn = smallActionButton("删除配置", ButtonStyle.GHOST_DANGER).apply {
             setOnClickListener { deleteProfile() }
         }
-        configRow.addView(importBtn, smallButtonParams(endMargin = dp(10)))
-        configRow.addView(deleteBtn, smallButtonParams(startMargin = dp(10)))
+        configRow.addView(importBtn, weightedButtonParams(weight = 2f, endMargin = dp(4)))
+        configRow.addView(editBtn, weightedButtonParams(weight = 1f, startMargin = dp(4), endMargin = dp(4)))
+        configRow.addView(deleteBtn, weightedButtonParams(weight = 1f, startMargin = dp(4)))
 
-        root.addView(title)
+        root.addView(titleRow)
         addWithTop(root, profileCard, dp(24))
         addWithTop(root, actionTitle, dp(22))
         addWithTop(root, connectBtn, dp(12))
         addWithTop(root, stopBtn, dp(12))
-        addWithTop(root, refreshBtn, dp(12))
         root.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        addWithTop(root, editBtn, dp(24))
-        addWithTop(root, configRow, dp(10))
+        addWithTop(root, configRow, dp(24))
 
         scroll.addView(root, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(scroll)
@@ -262,6 +280,7 @@ class MainActivity : Activity() {
                 store.save(imported)
                 runtimeStore.setDesiredRunning(false)
                 runtimeStore.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "已导入"))
+                TunnelForegroundService.clearStatusNotification(this)
                 refreshProfileView()
                 Toast.makeText(this, "配置已导入", Toast.LENGTH_SHORT).show()
             }
@@ -275,8 +294,7 @@ class MainActivity : Activity() {
         }
         runtimeStore.setDesiredRunning(true)
         try {
-            val intent = TunnelForegroundService.startIntent(this)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+            startTunnelService(TunnelForegroundService.startIntent(this))
             updateRuntime(RuntimeSnapshot(TunnelPhase.STARTING, "读取配置"))
         } catch (err: Exception) {
             runtimeStore.setDesiredRunning(false)
@@ -295,26 +313,58 @@ class MainActivity : Activity() {
 
     private fun refreshTunnel() {
         if (!runtimeStore.desiredRunning()) return
-        startService(TunnelForegroundService.refreshIntent(this))
-        updateRuntime(
-            RuntimeSnapshot(
-                phase = TunnelPhase.STARTING,
-                summary = "重新检查连接",
-                listenerCount = runtimeStore.loadSnapshot().listenerCount
-            )
+        requestTunnelRefresh("正在刷新连接", "无法刷新连接")
+    }
+
+    private fun recoverTunnelServiceIfNeeded() {
+        if (!ServiceRecoveryPolicy.shouldRecover(runtimeStore.desiredRunning(), TunnelServiceProcessState.isActive())) return
+        requestTunnelRefresh("正在恢复连接", "无法恢复隧道服务")
+    }
+
+    private fun requestTunnelRefresh(summary: String, failurePrefix: String) {
+        val previous = runtimeStore.loadSnapshot()
+        val pending = RuntimeSnapshot(
+            phase = TunnelPhase.STARTING,
+            summary = summary,
+            listenerCount = previous.listenerCount
         )
+        runtimeStore.publish(pending)
+        updateRuntime(pending)
+        try {
+            startTunnelService(TunnelForegroundService.refreshIntent(this))
+        } catch (err: Exception) {
+            runtimeStore.setDesiredRunning(false)
+            val message = "$failurePrefix：${err.message ?: "系统拒绝启动"}"
+            runtimeStore.publish(RuntimeSnapshot(TunnelPhase.FAILED, message))
+            showError(message)
+            refreshProfileView()
+        }
+    }
+
+    private fun startTunnelService(intent: Intent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
     }
 
     private fun deleteProfile() {
         AlertDialog.Builder(this)
             .setTitle("删除配置")
-            .setMessage("删除后需要重新导入管理员下发的配置。")
+            .setMessage("确定删除当前配置吗？")
             .setNegativeButton("取消", null)
-            .setPositiveButton("删除") { _, _ ->
+            .setPositiveButton("继续") { _, _ -> confirmDeleteProfile() }
+            .show()
+    }
+
+    private fun confirmDeleteProfile() {
+        AlertDialog.Builder(this)
+            .setTitle("再次确认删除")
+            .setMessage("删除后无法恢复，需要重新导入管理员下发的配置。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("确认删除") { _, _ ->
                 runtimeStore.setDesiredRunning(false)
                 startService(TunnelForegroundService.stopIntent(this))
                 store.delete()
                 runtimeStore.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "未连接"))
+                TunnelForegroundService.clearStatusNotification(this)
                 refreshProfileView()
                 Toast.makeText(this, "配置已删除", Toast.LENGTH_SHORT).show()
             }
@@ -402,7 +452,7 @@ class MainActivity : Activity() {
         deleteBtn.isEnabled = hasProfile && presentation.canReplaceProfile
         applyButtonStyle(connectBtn, ButtonStyle.PRIMARY)
         applyButtonStyle(stopBtn, ButtonStyle.WARNING)
-        applyButtonStyle(refreshBtn, ButtonStyle.GHOST)
+        applyRefreshButtonStyle()
         applyButtonStyle(editBtn, ButtonStyle.GHOST, small = true)
         applyButtonStyle(importBtn, ButtonStyle.GHOST, small = true)
         applyButtonStyle(deleteBtn, ButtonStyle.GHOST_DANGER, small = true)
@@ -458,8 +508,8 @@ class MainActivity : Activity() {
         typeface = Typeface.DEFAULT_BOLD
         isAllCaps = false
         minHeight = dp(38)
-        minWidth = dp(112)
-        setPadding(dp(14), 0, dp(14), 0)
+        minWidth = 0
+        setPadding(dp(4), 0, dp(4), 0)
         applyButtonStyle(this, style, small = true)
     }
 
@@ -483,14 +533,29 @@ class MainActivity : Activity() {
         button.background = rounded(bg, if (small) 14 else 20)
     }
 
+    private fun applyRefreshButtonStyle() {
+        val enabled = refreshBtn.isEnabled
+        refreshBtn.setColorFilter(
+            if (enabled) Color.rgb(13, 104, 97) else Color.rgb(130, 153, 150)
+        )
+        refreshBtn.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (enabled) Color.rgb(235, 247, 245) else Color.rgb(222, 234, 232))
+        }
+    }
+
     private fun addWithTop(parent: LinearLayout, view: View, top: Int) {
         parent.addView(view, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             topMargin = top
         })
     }
 
-    private fun smallButtonParams(startMargin: Int = 0, endMargin: Int = 0): LinearLayout.LayoutParams =
-        LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(40)).apply {
+    private fun weightedButtonParams(
+        weight: Float,
+        startMargin: Int = 0,
+        endMargin: Int = 0
+    ): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(0, dp(40), weight).apply {
             leftMargin = startMargin
             rightMargin = endMargin
         }

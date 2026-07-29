@@ -31,6 +31,7 @@ class TunnelForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        TunnelServiceProcessState.markActive()
         ensureChannel()
         stateStore = RuntimeStateStore(this, ::publishSnapshot)
         controller = TunnelRuntimeController(
@@ -67,12 +68,15 @@ class TunnelForegroundService : Service() {
             }
             ACTION_REFRESH -> {
                 if (stateStore.desiredRunning()) {
-                    ensureForeground(stateStore.loadSnapshot())
+                    ensureForeground(NotificationStatusPolicy.refreshEntry(stateStore.loadSnapshot()))
                 }
                 executeCommand { controller.refresh() }
                 if (stateStore.desiredRunning()) START_STICKY else START_NOT_STICKY
             }
             ACTION_STOP -> {
+                if (foregroundActive) {
+                    ensureForeground(RuntimeSnapshot(TunnelPhase.STOPPING, "正在断开"))
+                }
                 executeCommand { controller.disconnect() }
                 START_NOT_STICKY
             }
@@ -82,6 +86,7 @@ class TunnelForegroundService : Service() {
 
     override fun onDestroy() {
         destroyed = true
+        TunnelServiceProcessState.markInactive()
         networkMonitor.stop()
         val completePendingDisconnect =
             !stateStore.desiredRunning() && stateStore.loadSnapshot().phase == TunnelPhase.STOPPING
@@ -154,7 +159,9 @@ class TunnelForegroundService : Service() {
         if (stateStore.desiredRunning()) return
         val snapshot = stateStore.loadSnapshot()
         removeForegroundNotification()
-        if (snapshot.phase == TunnelPhase.FAILED) showFinalNotification(snapshot)
+        if (NotificationStatusPolicy.inactiveDisposition(snapshot) == InactiveNotificationDisposition.SHOW_FAILURE) {
+            showFinalNotification(snapshot)
+        }
         stopSelf()
     }
 
@@ -246,5 +253,9 @@ class TunnelForegroundService : Service() {
         fun currentSnapshot(context: Context): RuntimeSnapshot = RuntimeStateStore(context).loadSnapshot()
 
         fun currentStatus(context: Context): String = currentSnapshot(context).summary
+
+        fun clearStatusNotification(context: Context) {
+            context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+        }
     }
 }
