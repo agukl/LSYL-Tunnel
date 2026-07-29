@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -105,8 +106,22 @@ func newJSONLLog(basePath string) *jsonlLog {
 }
 
 func (l *jsonlLog) Write(entry any) error {
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	return l.WriteJSON(data)
+}
+
+func (l *jsonlLog) WriteJSON(data []byte) error {
 	if l == nil {
 		return nil
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("JSONL entry is empty")
+	}
+	if bytes.ContainsAny(data, "\r\n") {
+		return fmt.Errorf("JSONL entry contains a line break")
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -116,10 +131,6 @@ func (l *jsonlLog) Write(entry any) error {
 		if err := l.rotateLocked(date); err != nil {
 			return err
 		}
-	}
-	data, err := json.Marshal(entry)
-	if err != nil {
-		return err
 	}
 	if _, err := l.file.Write(append(data, '\n')); err != nil {
 		return err
@@ -178,13 +189,15 @@ func (s *Server) recordRequestLog(entry RequestLogEntry) {
 		entry.Time = time.Now().Format(time.RFC3339)
 	}
 	data, err := json.Marshal(entry)
-	if err == nil {
-		s.log("request_log %s", string(data))
+	if err != nil {
+		s.log("write request log failed: %v", err)
+		return
 	}
+	s.log("request_log %s", string(data))
 	if s.requestLog == nil {
 		return
 	}
-	if err := s.requestLog.Write(entry); err != nil {
+	if err := s.requestLog.WriteJSON(data); err != nil {
 		s.log("write request log failed: %v", err)
 	}
 }
@@ -194,13 +207,15 @@ func (s *Server) recordBusinessLog(entry BusinessLogEntry) {
 		entry.Time = time.Now().Format(time.RFC3339)
 	}
 	data, err := json.Marshal(entry)
-	if err == nil {
-		s.log("business_log %s", string(data))
+	if err != nil {
+		s.log("write business log failed: %v", err)
+		return
 	}
+	s.log("business_log %s", string(data))
 	if s.businessLog == nil {
 		return
 	}
-	if err := s.businessLog.Write(entry); err != nil {
+	if err := s.businessLog.WriteJSON(data); err != nil {
 		s.log("write business log failed: %v", err)
 	}
 }
@@ -218,13 +233,15 @@ func (s *Server) recordEntryTrafficLog(entry EntryTrafficLogEntry) {
 
 func (s *Server) writeEntryTrafficLog(entry EntryTrafficLogEntry) {
 	data, err := json.Marshal(entry)
-	if err == nil {
-		s.log("entry_traffic_log %s", string(data))
+	if err != nil {
+		s.log("write entry traffic log failed: %v", err)
+		return
 	}
+	s.log("entry_traffic_log %s", string(data))
 	if s.entryTrafficLog == nil {
 		return
 	}
-	if err := s.entryTrafficLog.Write(entry); err != nil {
+	if err := s.entryTrafficLog.WriteJSON(data); err != nil {
 		s.log("write entry traffic log failed: %v", err)
 	}
 }
@@ -246,13 +263,15 @@ func (s *Server) recordFlowTrafficLog(entry FlowTrafficLogEntry) {
 		entry.MaxConcurrentStreamsUser = s.cfg.Security.MaxConcurrentStreamsPerUser
 	}
 	data, err := json.Marshal(entry)
-	if err == nil {
-		s.log("flow_traffic_log %s", string(data))
+	if err != nil {
+		s.log("write flow traffic log failed: %v", err)
+		return
 	}
+	s.log("flow_traffic_log %s", string(data))
 	if s.flowTrafficLog == nil {
 		return
 	}
-	if err := s.flowTrafficLog.Write(entry); err != nil {
+	if err := s.flowTrafficLog.WriteJSON(data); err != nil {
 		s.log("write flow traffic log failed: %v", err)
 	}
 }

@@ -34,16 +34,7 @@ func (s *Server) recordEvent(event RuntimeEvent) {
 	if event.Time == "" {
 		event.Time = time.Now().Format(time.RFC3339)
 	}
-	maxEvents := s.maxRecentEvents
-	if maxEvents <= 0 {
-		maxEvents = defaultRecentEvents
-	}
-	s.eventMu.Lock()
-	s.recentEvents = append(s.recentEvents, event)
-	if len(s.recentEvents) > maxEvents {
-		s.recentEvents = append([]RuntimeEvent{}, s.recentEvents[len(s.recentEvents)-maxEvents:]...)
-	}
-	s.eventMu.Unlock()
+	s.eventRing().Append(event)
 	s.recordBusinessLogFromEvent(event)
 	s.log("event kind=%s result=%s remote_ip=%s user=%s client=%s forward=%s direction=%s target=%s listen=%s code=%s duration_ms=%d message=%s",
 		logValue(event.Kind),
@@ -65,11 +56,16 @@ func (s *Server) recentEventSnapshot() []RuntimeEvent {
 	if s == nil {
 		return nil
 	}
-	s.eventMu.Lock()
-	defer s.eventMu.Unlock()
-	out := make([]RuntimeEvent, len(s.recentEvents))
-	copy(out, s.recentEvents)
-	return out
+	return s.eventRing().Snapshot()
+}
+
+func (s *Server) eventRing() *runtimeEventRing {
+	s.eventsOnce.Do(func() {
+		if s.events == nil {
+			s.events = newRuntimeEventRing(defaultRecentEvents)
+		}
+	})
+	return s.events
 }
 
 func logValue(value string) string {

@@ -36,9 +36,8 @@ type Server struct {
 	configuredReverse   map[string]bool
 	started             time.Time
 	logf                transport.LogFunc
-	eventMu             sync.Mutex
-	recentEvents        []RuntimeEvent
-	maxRecentEvents     int
+	eventsOnce          sync.Once
+	events              *runtimeEventRing
 	requestLog          *jsonlLog
 	businessLog         *jsonlLog
 	entryTrafficLog     *jsonlLog
@@ -122,7 +121,7 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 		configuredReverse:  map[string]bool{},
 		started:            time.Now(),
 		logf:               logf,
-		maxRecentEvents:    cfg.Runtime.RecentEvents,
+		events:             newRuntimeEventRing(cfg.Runtime.RecentEvents),
 		requestLog:         newJSONLLog(cfg.Runtime.RequestLogFile),
 		businessLog:        newJSONLLog(cfg.Runtime.BusinessLogFile),
 		entryTrafficLog:    newJSONLLog(cfg.Runtime.EntryTrafficLogFile),

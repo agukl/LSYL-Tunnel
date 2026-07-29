@@ -188,9 +188,7 @@ func TestAccountTunnelReverseForwarding(t *testing.T) {
 	if len(stats.Items) != 1 || stats.Items[0].ListenAddr != reverseAddr {
 		t.Fatalf("client reverse status did not retain configured listener: %+v", stats.Items)
 	}
-	server.eventMu.Lock()
-	events := append([]RuntimeEvent(nil), server.recentEvents...)
-	server.eventMu.Unlock()
+	events := server.recentEventSnapshot()
 	foundActivation := false
 	for _, event := range events {
 		if event.Kind != "reverse_listen" || event.Result != "activated" {

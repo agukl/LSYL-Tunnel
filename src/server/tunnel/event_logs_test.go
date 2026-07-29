@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,76 @@ import (
 
 	clienttunnel "lsyltunnel/src/client/tunnel"
 )
+
+func TestJSONLLogWriteJSONPreservesEncodedBytes(t *testing.T) {
+	basePath := filepath.Join(t.TempDir(), "events.jsonl")
+	logFile := newJSONLLog(basePath)
+	defer logFile.Close()
+
+	raw := []byte(`{"z":1, "a":2}`)
+	if err := logFile.WriteJSON(raw); err != nil {
+		t.Fatal(err)
+	}
+	path := datedJSONLPath(basePath, time.Now().Format("2006-01-02"))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), string(raw)+"\n"; got != want {
+		t.Fatalf("JSONL bytes = %q, want %q", got, want)
+	}
+}
+
+func TestStructuredLogBytesMatchJSONL(t *testing.T) {
+	dir := t.TempDir()
+	requestPath := filepath.Join(dir, "request.jsonl")
+	businessPath := filepath.Join(dir, "business.jsonl")
+	entryPath := filepath.Join(dir, "entry.jsonl")
+	flowPath := filepath.Join(dir, "flow.jsonl")
+	var serviceLogs []string
+	server := &Server{
+		logf: func(format string, args ...any) {
+			serviceLogs = append(serviceLogs, fmt.Sprintf(format, args...))
+		},
+		requestLog:      newJSONLLog(requestPath),
+		businessLog:     newJSONLLog(businessPath),
+		entryTrafficLog: newJSONLLog(entryPath),
+		flowTrafficLog:  newJSONLLog(flowPath),
+	}
+	defer server.Close()
+
+	server.recordRequestLog(RequestLogEntry{RequestID: "request-1", Result: "ok"})
+	server.recordBusinessLog(BusinessLogEntry{RequestID: "business-1", Kind: "open", Result: "connected"})
+	server.recordEntryTrafficLog(EntryTrafficLogEntry{RequestID: "entry-1", Event: "connection_rejected", Result: "rejected"})
+	server.recordFlowTrafficLog(FlowTrafficLogEntry{RequestID: "flow-1", Event: "stream_closed", Kind: "open", Result: "closed"})
+
+	date := time.Now().Format("2006-01-02")
+	assertStructuredLogMatchesFile(t, serviceLogs, "request_log", datedJSONLPath(requestPath, date))
+	assertStructuredLogMatchesFile(t, serviceLogs, "business_log", datedJSONLPath(businessPath, date))
+	assertStructuredLogMatchesFile(t, serviceLogs, "entry_traffic_log", datedJSONLPath(entryPath, date))
+	assertStructuredLogMatchesFile(t, serviceLogs, "flow_traffic_log", datedJSONLPath(flowPath, date))
+}
+
+func assertStructuredLogMatchesFile(t *testing.T, serviceLogs []string, prefix, path string) {
+	t.Helper()
+	want := ""
+	for _, line := range serviceLogs {
+		if strings.HasPrefix(line, prefix+" ") {
+			want = strings.TrimPrefix(line, prefix+" ")
+			break
+		}
+	}
+	if want == "" {
+		t.Fatalf("service log prefix %q not found in %#v", prefix, serviceLogs)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSuffix(string(data), "\n"); got != want {
+		t.Fatalf("%s JSONL = %q, service log JSON = %q", prefix, got, want)
+	}
+}
 
 func TestRequestAndBusinessLogsWritten(t *testing.T) {
 	certFile, keyFile := writeTestCertificate(t)
@@ -121,7 +192,7 @@ func TestPermanentBlockedHitsAreAggregatedWithoutRequestLogSpam(t *testing.T) {
 		requestLog:         newJSONLLog(requestLog),
 		businessLog:        newJSONLLog(businessLog),
 		entryTrafficLog:    newJSONLLog(entryTrafficLog),
-		maxRecentEvents:    500,
+		events:             newRuntimeEventRing(500),
 		permanentBlockHits: newPermanentBlockHitAggregator(time.Second),
 	}
 	server.entryTrafficWriter = newAsyncEntryTrafficLog(8, server.writeEntryTrafficLog)
