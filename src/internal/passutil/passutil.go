@@ -1,12 +1,11 @@
 package passutil
 
 import (
-	"crypto/hmac"
+	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"strconv"
@@ -23,7 +22,10 @@ func HashPassword(password string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	key := pbkdf2SHA256([]byte(password), salt, DefaultIterations, DefaultKeyBytes)
+	key, err := pbkdf2SHA256([]byte(password), salt, DefaultIterations, DefaultKeyBytes)
+	if err != nil {
+		return "", err
+	}
 	return fmt.Sprintf("pbkdf2-sha256:%d:%s:%s", DefaultIterations, base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key)), nil
 }
 
@@ -58,34 +60,16 @@ func VerifyPassword(password, encoded string) bool {
 	if err != nil || len(want) == 0 || len(want) > 128 {
 		return false
 	}
-	got := pbkdf2SHA256([]byte(password), salt, iterations, len(want))
+	got, err := pbkdf2SHA256([]byte(password), salt, iterations, len(want))
+	if err != nil {
+		return false
+	}
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
 
-func pbkdf2SHA256(password, salt []byte, iterations, keyLen int) []byte {
+func pbkdf2SHA256(password, salt []byte, iterations, keyLen int) ([]byte, error) {
 	if iterations <= 0 || keyLen <= 0 {
-		return nil
+		return nil, fmt.Errorf("PBKDF2 iterations and key length must be positive")
 	}
-	hLen := sha256.Size
-	nBlocks := (keyLen + hLen - 1) / hLen
-	out := make([]byte, 0, nBlocks*hLen)
-	var counter [4]byte
-	for block := 1; block <= nBlocks; block++ {
-		binary.BigEndian.PutUint32(counter[:], uint32(block))
-		mac := hmac.New(sha256.New, password)
-		mac.Write(salt)
-		mac.Write(counter[:])
-		u := mac.Sum(nil)
-		t := append([]byte(nil), u...)
-		for i := 1; i < iterations; i++ {
-			mac = hmac.New(sha256.New, password)
-			mac.Write(u)
-			u = mac.Sum(nil)
-			for j := range t {
-				t[j] ^= u[j]
-			}
-		}
-		out = append(out, t...)
-	}
-	return out[:keyLen]
+	return pbkdf2.Key(sha256.New, string(password), salt, iterations, keyLen)
 }
