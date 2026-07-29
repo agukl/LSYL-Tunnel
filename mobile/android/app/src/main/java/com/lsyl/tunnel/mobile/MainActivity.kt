@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -112,6 +113,15 @@ class MainActivity : Activity() {
     }
 
     private fun buildUi() {
+        val pageHorizontalPadding = dp(24)
+        val pageTopPadding = dp(36)
+        val floatingFooterSpacing = dp(12)
+        val navigationBarResource = resources.getIdentifier(
+            "navigation_bar_height",
+            "dimen",
+            "android"
+        ).takeIf { it != 0 }?.let(resources::getDimensionPixelSize) ?: 0
+        val navigationBarFallback = maxOf(dp(36), navigationBarResource)
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             background = GradientDrawable(
@@ -121,7 +131,28 @@ class MainActivity : Activity() {
         }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(36), dp(24), dp(22))
+            setPadding(
+                pageHorizontalPadding,
+                pageTopPadding,
+                pageHorizontalPadding,
+                navigationBarFallback + floatingFooterSpacing
+            )
+        }
+        scroll.setOnApplyWindowInsetsListener { _, insets ->
+            val reportedNavigationInset = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                insets.getInsetsIgnoringVisibility(WindowInsets.Type.navigationBars()).bottom
+            } else {
+                @Suppress("DEPRECATION")
+                insets.stableInsetBottom
+            }
+            val navigationInset = maxOf(reportedNavigationInset, navigationBarFallback)
+            root.setPadding(
+                pageHorizontalPadding,
+                pageTopPadding,
+                pageHorizontalPadding,
+                navigationInset + floatingFooterSpacing
+            )
+            insets
         }
         val titleRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -223,6 +254,7 @@ class MainActivity : Activity() {
 
         scroll.addView(root, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(scroll)
+        scroll.post { scroll.requestApplyInsets() }
     }
 
     private fun refreshProfileView() {
@@ -482,9 +514,15 @@ class MainActivity : Activity() {
 
     private fun configureSystemBars() {
         window.statusBarColor = PAGE_TOP
-        window.navigationBarColor = PAGE_BOTTOM
+        window.navigationBarColor = Color.TRANSPARENT
+        window.navigationBarDividerColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            var flags = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            var flags = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 flags = flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
             }
@@ -507,6 +545,8 @@ class MainActivity : Activity() {
         textSize = 13f
         typeface = Typeface.DEFAULT_BOLD
         isAllCaps = false
+        stateListAnimator = null
+        elevation = 0f
         minHeight = dp(38)
         minWidth = 0
         setPadding(dp(4), 0, dp(4), 0)
