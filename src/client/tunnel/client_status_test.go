@@ -284,18 +284,17 @@ func TestVirtualForwardUsesRandomLocalRedirectListener(t *testing.T) {
 	}
 }
 
-func TestStartVirtualForwardsUseIndependentRedirectSessions(t *testing.T) {
+func TestStartVirtualForwardsUseSharedRedirectSession(t *testing.T) {
 	originalStart := startVirtualRedirectSessionFn
 	t.Cleanup(func() { startVirtualRedirectSessionFn = originalStart })
 
-	var sessions []*testVirtualRedirectSession
-	var capturedRules [][]virtualRedirectRule
+	var session *testVirtualRedirectSession
+	var capturedRules []virtualRedirectRule
 	startCalls := 0
 	startVirtualRedirectSessionFn = func(_ context.Context, rules []virtualRedirectRule) (virtualRedirectSession, error) {
 		startCalls++
-		capturedRules = append(capturedRules, append([]virtualRedirectRule(nil), rules...))
-		session := &testVirtualRedirectSession{done: make(chan struct{})}
-		sessions = append(sessions, session)
+		capturedRules = append([]virtualRedirectRule(nil), rules...)
+		session = &testVirtualRedirectSession{done: make(chan struct{})}
 		return session, nil
 	}
 
@@ -317,23 +316,20 @@ func TestStartVirtualForwardsUseIndependentRedirectSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if startCalls != 2 {
-		t.Fatalf("redirect session start calls = %d, want 2", startCalls)
+	if startCalls != 1 {
+		t.Fatalf("redirect session start calls = %d, want 1", startCalls)
 	}
 	if len(capturedRules) != 2 {
-		t.Fatalf("redirect session rules = %+v, want 2 sessions", capturedRules)
+		t.Fatalf("redirect session rules = %+v, want 2 rules", capturedRules)
 	}
-	if len(capturedRules[0]) != 1 || len(capturedRules[1]) != 1 {
-		t.Fatalf("redirect session rules = %+v, want one rule per session", capturedRules)
-	}
-	if capturedRules[0][0].VirtualIP != "192.0.2.22" || capturedRules[0][0].VirtualPort != 22 || capturedRules[0][0].LocalPort == 0 {
+	if capturedRules[0].VirtualIP != "192.0.2.22" || capturedRules[0].VirtualPort != 22 || capturedRules[0].LocalPort == 0 {
 		t.Fatalf("first redirect rule = %+v", capturedRules[0])
 	}
-	if capturedRules[1][0].VirtualIP != "192.0.2.22" || capturedRules[1][0].VirtualPort != 443 || capturedRules[1][0].LocalPort == 0 {
+	if capturedRules[1].VirtualIP != "192.0.2.22" || capturedRules[1].VirtualPort != 443 || capturedRules[1].LocalPort == 0 {
 		t.Fatalf("second redirect rule = %+v", capturedRules[1])
 	}
-	if capturedRules[0][0].LocalPort == capturedRules[1][0].LocalPort {
-		t.Fatalf("virtual forwards share local redirect port %d", capturedRules[0][0].LocalPort)
+	if capturedRules[0].LocalPort == capturedRules[1].LocalPort {
+		t.Fatalf("virtual forwards share local redirect port %d", capturedRules[0].LocalPort)
 	}
 	if got := client.ForwardAddr("virtual-ssh"); got != "192.0.2.22:22" {
 		t.Fatalf("virtual ssh address = %q", got)
@@ -345,23 +341,20 @@ func TestStartVirtualForwardsUseIndependentRedirectSessions(t *testing.T) {
 	if err := client.Close(); err != nil {
 		t.Fatal(err)
 	}
-	for index, session := range sessions {
-		select {
-		case <-session.done:
-		default:
-			t.Fatalf("redirect session %d was not closed with the client", index)
-		}
+	select {
+	case <-session.done:
+	default:
+		t.Fatal("shared redirect session was not closed with the client")
 	}
 }
 
-func TestVirtualRedirectSessionFailureOnlyStopsItsRule(t *testing.T) {
+func TestSharedVirtualRedirectSessionFailureStopsAllVirtualRules(t *testing.T) {
 	originalStart := startVirtualRedirectSessionFn
 	t.Cleanup(func() { startVirtualRedirectSessionFn = originalStart })
 
-	var sessions []*testVirtualRedirectSession
+	var session *testVirtualRedirectSession
 	startVirtualRedirectSessionFn = func(context.Context, []virtualRedirectRule) (virtualRedirectSession, error) {
-		session := &testVirtualRedirectSession{done: make(chan struct{})}
-		sessions = append(sessions, session)
+		session = &testVirtualRedirectSession{done: make(chan struct{})}
 		return session, nil
 	}
 
@@ -376,6 +369,7 @@ func TestVirtualRedirectSessionFailureOnlyStopsItsRule(t *testing.T) {
 			InsecureSkipVerify: true,
 		},
 		Forwards: []ForwardConfig{
+			{Name: "local-web", ListenAddr: "127.0.0.1:0", ServerTarget: "10.20.30.40:80"},
 			{Name: "virtual-ssh", Direction: DirectionVirtual, ListenAddr: ":22", ServerTarget: "10.20.30.40:22"},
 			{Name: "virtual-web", Direction: DirectionVirtual, ListenAddr: ":443", ServerTarget: "10.20.30.41:8443"},
 		},
@@ -384,31 +378,28 @@ func TestVirtualRedirectSessionFailureOnlyStopsItsRule(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	if len(sessions) != 2 {
-		t.Fatalf("redirect session count = %d, want 2", len(sessions))
+	if session == nil {
+		t.Fatal("shared redirect session was not started")
 	}
 
-	sessions[0].fail(errors.New("WinDivert receive failed"))
+	session.fail(errors.New("WinDivert receive failed"))
 	deadline := time.Now().Add(2 * time.Second)
-	for forwardStateForTest(client.Stats(), "virtual-ssh") != ForwardListenFailed && time.Now().Before(deadline) {
+	for (forwardStateForTest(client.Stats(), "virtual-ssh") != ForwardListenFailed || forwardStateForTest(client.Stats(), "virtual-web") != ForwardListenFailed) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if got := forwardStateForTest(client.Stats(), "virtual-ssh"); got != ForwardListenFailed {
-		t.Fatalf("failed virtual rule state = %q, want %q", got, ForwardListenFailed)
+	for _, name := range []string{"virtual-ssh", "virtual-web"} {
+		if got := forwardStateForTest(client.Stats(), name); got != ForwardListenFailed {
+			t.Fatalf("failed virtual rule %s state = %q, want %q", name, got, ForwardListenFailed)
+		}
+		if got := client.ForwardAddr(name); got != "" {
+			t.Fatalf("failed virtual rule %s address = %q, want empty", name, got)
+		}
 	}
-	if got := forwardStateForTest(client.Stats(), "virtual-web"); got != ForwardListening {
-		t.Fatalf("unrelated virtual rule state = %q, want %q", got, ForwardListening)
+	if got := forwardStateForTest(client.Stats(), "local-web"); got != ForwardListening {
+		t.Fatalf("ordinary forward state = %q, want %q", got, ForwardListening)
 	}
-	if got := client.ForwardAddr("virtual-ssh"); got != "" {
-		t.Fatalf("failed virtual rule address = %q, want empty", got)
-	}
-	if got := client.ForwardAddr("virtual-web"); got != "192.0.2.22:443" {
-		t.Fatalf("unrelated virtual rule address = %q", got)
-	}
-	select {
-	case <-sessions[1].done:
-		t.Fatal("unrelated virtual redirect session was closed")
-	default:
+	if got := client.ForwardAddr("local-web"); got == "" {
+		t.Fatal("ordinary forward listener was removed")
 	}
 	select {
 	case <-client.Done():
@@ -417,19 +408,14 @@ func TestVirtualRedirectSessionFailureOnlyStopsItsRule(t *testing.T) {
 	}
 }
 
-func TestVirtualAuthorizationCancellationOnlyDisablesCancelledRule(t *testing.T) {
+func TestVirtualAuthorizationCancellationDisablesAllVirtualRules(t *testing.T) {
 	originalStart := startVirtualRedirectSessionFn
 	t.Cleanup(func() { startVirtualRedirectSessionFn = originalStart })
 
 	startCalls := 0
-	var activeSession *testVirtualRedirectSession
 	startVirtualRedirectSessionFn = func(context.Context, []virtualRedirectRule) (virtualRedirectSession, error) {
 		startCalls++
-		if startCalls == 1 {
-			return nil, errors.New("administrator authorization for virtual forwarding was cancelled")
-		}
-		activeSession = &testVirtualRedirectSession{done: make(chan struct{})}
-		return activeSession, nil
+		return nil, errors.New("administrator authorization for virtual forwarding was cancelled")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -451,27 +437,26 @@ func TestVirtualAuthorizationCancellationOnlyDisablesCancelledRule(t *testing.T)
 		t.Fatal(err)
 	}
 	defer client.Close()
-	if startCalls != 2 || activeSession == nil {
-		t.Fatalf("redirect starts = %d, active session = %v", startCalls, activeSession != nil)
+	if startCalls != 1 {
+		t.Fatalf("redirect starts = %d, want 1", startCalls)
 	}
-	if got := forwardStateForTest(client.Stats(), "virtual-ssh"); got != ForwardListenFailed {
-		t.Fatalf("cancelled virtual rule state = %q, want %q", got, ForwardListenFailed)
-	}
-	if got := forwardStateForTest(client.Stats(), "virtual-web"); got != ForwardListening {
-		t.Fatalf("authorized virtual rule state = %q, want %q", got, ForwardListening)
-	}
-	if got := client.ForwardAddr("virtual-web"); got != "192.0.2.22:443" {
-		t.Fatalf("authorized virtual rule address = %q", got)
+	for _, name := range []string{"virtual-ssh", "virtual-web"} {
+		if got := forwardStateForTest(client.Stats(), name); got != ForwardListenFailed {
+			t.Fatalf("cancelled virtual rule %s state = %q, want %q", name, got, ForwardListenFailed)
+		}
+		if got := client.ForwardAddr(name); got != "" {
+			t.Fatalf("cancelled virtual rule %s address = %q, want empty", name, got)
+		}
 	}
 }
 
 func TestRestoreCheckedVirtualForwardDoesNotCreateOrdinaryListener(t *testing.T) {
 	client := &Client{
-		listeners:               map[string]net.Listener{},
-		virtualAddrs:            map[string]string{},
-		virtualRedirectSessions: map[string]virtualRedirectSession{},
-		forwards:                map[string]*forwardRuntime{},
-		closed:                  make(chan struct{}),
+		listeners:              map[string]net.Listener{},
+		virtualAddrs:           map[string]string{},
+		virtualRedirectMembers: map[string]struct{}{},
+		forwards:               map[string]*forwardRuntime{},
+		closed:                 make(chan struct{}),
 	}
 	fwd := ForwardConfig{
 		Name:         "virtual-ssh",
@@ -490,27 +475,53 @@ func TestRestoreCheckedVirtualForwardDoesNotCreateOrdinaryListener(t *testing.T)
 	}
 }
 
-func TestStopVirtualForwardClosesRedirectSession(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+func TestStopVirtualForwardClosesRedirectSessionAfterLastRule(t *testing.T) {
+	sshListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
+		t.Fatal(err)
+	}
+	webListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		_ = sshListener.Close()
 		t.Fatal(err)
 	}
 	session := &testVirtualRedirectSession{done: make(chan struct{})}
 	client := &Client{
-		listeners:               map[string]net.Listener{"virtual-ssh": listener},
-		virtualAddrs:            map[string]string{"virtual-ssh": "192.0.2.22:22"},
-		virtualRedirectSessions: map[string]virtualRedirectSession{"virtual-ssh": session},
+		listeners: map[string]net.Listener{
+			"virtual-ssh": sshListener,
+			"virtual-web": webListener,
+		},
+		virtualAddrs: map[string]string{
+			"virtual-ssh": "192.0.2.22:22",
+			"virtual-web": "192.0.2.22:443",
+		},
+		virtualRedirectSession: session,
+		virtualRedirectMembers: map[string]struct{}{
+			"virtual-ssh": {},
+			"virtual-web": {},
+		},
 	}
 
 	client.stopForwardListener("virtual-ssh")
 
 	select {
 	case <-session.done:
+		t.Fatal("shared redirect session stopped while another virtual rule remained")
 	default:
-		t.Fatal("redirect session remained active after the virtual rule stopped")
 	}
 	if got := client.ForwardAddr("virtual-ssh"); got != "" {
 		t.Fatalf("stopped virtual rule address = %q, want empty", got)
+	}
+	if got := client.ForwardAddr("virtual-web"); got != "192.0.2.22:443" {
+		t.Fatalf("remaining virtual rule address = %q", got)
+	}
+
+	client.stopForwardListener("virtual-web")
+
+	select {
+	case <-session.done:
+	default:
+		t.Fatal("shared redirect session remained active after the last virtual rule stopped")
 	}
 }
 

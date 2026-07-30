@@ -18,23 +18,24 @@ import (
 )
 
 type Client struct {
-	cfg                     Config
-	tlsConfig               *tls.Config
-	ctx                     context.Context
-	listeners               map[string]net.Listener
-	virtualAddrs            map[string]string
-	virtualResolver         *virtualAddressResolver
-	virtualRedirectSessions map[string]virtualRedirectSession
-	forwards                map[string]*forwardRuntime
-	forwardsMu              sync.Mutex
-	healthMu                sync.Mutex
-	health                  HealthStatus
-	serverVersion           string
-	logf                    transport.LogFunc
-	closed                  chan struct{}
-	closeOnce               sync.Once
-	active                  atomic.Int64
-	total                   atomic.Int64
+	cfg                    Config
+	tlsConfig              *tls.Config
+	ctx                    context.Context
+	listeners              map[string]net.Listener
+	virtualAddrs           map[string]string
+	virtualResolver        *virtualAddressResolver
+	virtualRedirectSession virtualRedirectSession
+	virtualRedirectMembers map[string]struct{}
+	forwards               map[string]*forwardRuntime
+	forwardsMu             sync.Mutex
+	healthMu               sync.Mutex
+	health                 HealthStatus
+	serverVersion          string
+	logf                   transport.LogFunc
+	closed                 chan struct{}
+	closeOnce              sync.Once
+	active                 atomic.Int64
+	total                  atomic.Int64
 }
 
 type preparedVirtualForward struct {
@@ -153,15 +154,15 @@ func start(ctx context.Context, cfg Config, serverVersion string, verified bool,
 		return nil, err
 	}
 	client := &Client{
-		cfg:                     cfg,
-		tlsConfig:               tlsCfg,
-		ctx:                     ctx,
-		listeners:               map[string]net.Listener{},
-		virtualAddrs:            map[string]string{},
-		virtualRedirectSessions: map[string]virtualRedirectSession{},
-		forwards:                map[string]*forwardRuntime{},
-		logf:                    logf,
-		closed:                  make(chan struct{}),
+		cfg:                    cfg,
+		tlsConfig:              tlsCfg,
+		ctx:                    ctx,
+		listeners:              map[string]net.Listener{},
+		virtualAddrs:           map[string]string{},
+		virtualRedirectMembers: map[string]struct{}{},
+		forwards:               map[string]*forwardRuntime{},
+		logf:                   logf,
+		closed:                 make(chan struct{}),
 	}
 	if verified {
 		client.setHealth(HealthOK, "服务端连接正常", "", false)
@@ -202,36 +203,41 @@ func start(ctx context.Context, cfg Config, serverVersion string, verified bool,
 		usableForwards++
 	}
 	if len(virtualForwards) > 0 {
+		rules := make([]virtualRedirectRule, 0, len(virtualForwards))
 		for _, prepared := range virtualForwards {
-			session, redirectErr := startVirtualRedirectSessionFn(ctx, []virtualRedirectRule{prepared.rule})
-			if redirectErr == nil && session == nil {
-				redirectErr = fmt.Errorf("virtual redirect helper did not start")
+			rules = append(rules, prepared.rule)
+		}
+		session, redirectErr := startVirtualRedirectSessionFn(ctx, rules)
+		if redirectErr == nil && session == nil {
+			redirectErr = fmt.Errorf("virtual redirect helper did not start")
+		}
+		if redirectErr != nil {
+			if isVirtualAuthorizationCancelled(redirectErr) {
+				virtualAuthorizationCancelled = true
+			} else {
+				blockingStartupFailures++
 			}
-			if redirectErr != nil {
-				if isVirtualAuthorizationCancelled(redirectErr) {
-					virtualAuthorizationCancelled = true
-				} else {
-					blockingStartupFailures++
-				}
-				unusableErr = errors.Join(unusableErr, redirectErr)
+			unusableErr = errors.Join(unusableErr, redirectErr)
+			for _, prepared := range virtualForwards {
 				client.stopForwardListener(prepared.name)
 				client.setForwardState(prepared.name, ForwardListenFailed, ForwardErrorMessage(redirectErr))
 				client.log("forward %s virtual endpoint setup failed: %v", prepared.name, redirectErr)
-				continue
 			}
-			if !client.attachVirtualRedirectSession(prepared.name, session) {
-				_ = session.Close()
-				redirectErr = fmt.Errorf("virtual forward %s listener is no longer active", prepared.name)
-				blockingStartupFailures++
-				unusableErr = errors.Join(unusableErr, redirectErr)
+		} else if !client.attachVirtualRedirectSession(virtualForwards, session) {
+			_ = session.Close()
+			redirectErr = fmt.Errorf("virtual forward listeners are no longer active")
+			blockingStartupFailures++
+			unusableErr = errors.Join(unusableErr, redirectErr)
+			for _, prepared := range virtualForwards {
 				client.stopForwardListener(prepared.name)
 				client.setForwardState(prepared.name, ForwardListenFailed, ForwardErrorMessage(redirectErr))
-				continue
-			} else {
+			}
+		} else {
+			for _, prepared := range virtualForwards {
 				client.activateVirtualForward(prepared)
 				usableForwards++
-				go client.watchVirtualRedirectSession(prepared.name, session)
 			}
+			go client.watchVirtualRedirectSession(session)
 		}
 	}
 	allowConnectedWithoutForward := virtualAuthorizationCancelled && blockingStartupFailures == 0
@@ -268,8 +274,8 @@ func (c *Client) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
 		close(c.closed)
-		for _, session := range c.closeAllVirtualRedirectSessions() {
-			if e := session.Close(); e != nil && err == nil {
+		if session := c.closeVirtualRedirectSession(); session != nil {
+			if e := session.Close(); e != nil {
 				err = e
 			}
 		}
@@ -391,7 +397,7 @@ func (c *Client) activateVirtualForward(prepared preparedVirtualForward) {
 	go c.acceptLoop(c.ctx, prepared.listener, prepared.name, prepared.fwd)
 }
 
-func (c *Client) watchVirtualRedirectSession(name string, session virtualRedirectSession) {
+func (c *Client) watchVirtualRedirectSession(session virtualRedirectSession) {
 	if session == nil || session.Done() == nil {
 		return
 	}
@@ -401,55 +407,74 @@ func (c *Client) watchVirtualRedirectSession(name string, session virtualRedirec
 		return
 	default:
 	}
-	if !c.virtualRedirectSessionActive(name, session) {
+	names := c.detachVirtualRedirectSession(session)
+	if len(names) == 0 {
 		return
 	}
 	err := session.Err()
 	if err == nil {
 		err = fmt.Errorf("virtual redirect helper stopped unexpectedly")
 	}
-	c.stopForwardListener(name)
-	c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
-	c.log("forward %s virtual redirect session stopped: %v", name, err)
+	for _, name := range names {
+		c.stopForwardListener(name)
+		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
+		c.log("forward %s virtual redirect session stopped: %v", name, err)
+	}
 }
 
-func (c *Client) attachVirtualRedirectSession(name string, session virtualRedirectSession) bool {
+func (c *Client) attachVirtualRedirectSession(prepared []preparedVirtualForward, session virtualRedirectSession) bool {
 	if session == nil {
 		return false
 	}
 	c.forwardsMu.Lock()
 	defer c.forwardsMu.Unlock()
-	if c.listeners[name] == nil || c.virtualRedirectSessions[name] != nil {
+	if c.virtualRedirectSession != nil {
 		return false
 	}
-	if c.virtualRedirectSessions == nil {
-		c.virtualRedirectSessions = map[string]virtualRedirectSession{}
+	for _, forward := range prepared {
+		if c.listeners[forward.name] != forward.listener {
+			return false
+		}
 	}
-	c.virtualRedirectSessions[name] = session
+	c.virtualRedirectSession = session
+	if c.virtualRedirectMembers == nil {
+		c.virtualRedirectMembers = map[string]struct{}{}
+	}
+	for _, forward := range prepared {
+		c.virtualRedirectMembers[forward.name] = struct{}{}
+	}
 	return true
 }
 
-func (c *Client) virtualRedirectSessionActive(name string, session virtualRedirectSession) bool {
+func (c *Client) detachVirtualRedirectSession(session virtualRedirectSession) []string {
 	c.forwardsMu.Lock()
 	defer c.forwardsMu.Unlock()
-	return c.virtualRedirectSessions[name] == session && c.listeners[name] != nil
+	if c.virtualRedirectSession != session {
+		return nil
+	}
+	names := make([]string, 0, len(c.virtualRedirectMembers))
+	for name := range c.virtualRedirectMembers {
+		names = append(names, name)
+	}
+	c.virtualRedirectSession = nil
+	c.virtualRedirectMembers = map[string]struct{}{}
+	return names
 }
 
 func (c *Client) virtualForwardActive(name string) bool {
 	c.forwardsMu.Lock()
 	defer c.forwardsMu.Unlock()
-	return c.virtualRedirectSessions[name] != nil && c.listeners[name] != nil && c.virtualAddrs[name] != ""
+	_, member := c.virtualRedirectMembers[name]
+	return member && c.virtualRedirectSession != nil && c.listeners[name] != nil && c.virtualAddrs[name] != ""
 }
 
-func (c *Client) closeAllVirtualRedirectSessions() []virtualRedirectSession {
+func (c *Client) closeVirtualRedirectSession() virtualRedirectSession {
 	c.forwardsMu.Lock()
 	defer c.forwardsMu.Unlock()
-	sessions := make([]virtualRedirectSession, 0, len(c.virtualRedirectSessions))
-	for _, session := range c.virtualRedirectSessions {
-		sessions = append(sessions, session)
-	}
-	c.virtualRedirectSessions = map[string]virtualRedirectSession{}
-	return sessions
+	session := c.virtualRedirectSession
+	c.virtualRedirectSession = nil
+	c.virtualRedirectMembers = map[string]struct{}{}
+	return session
 }
 
 func (c *Client) closeAllListeners() []net.Listener {
@@ -466,8 +491,14 @@ func (c *Client) closeAllListeners() []net.Listener {
 
 func (c *Client) stopForwardListener(name string) {
 	c.forwardsMu.Lock()
-	session := c.virtualRedirectSessions[name]
-	delete(c.virtualRedirectSessions, name)
+	var session virtualRedirectSession
+	if _, member := c.virtualRedirectMembers[name]; member {
+		delete(c.virtualRedirectMembers, name)
+		if len(c.virtualRedirectMembers) == 0 {
+			session = c.virtualRedirectSession
+			c.virtualRedirectSession = nil
+		}
+	}
 	ln := c.listeners[name]
 	if ln != nil {
 		delete(c.listeners, name)
