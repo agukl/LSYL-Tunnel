@@ -28,7 +28,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	logf := func(format string, args ...any) { log.Printf(format, args...) }
-	if err := tunnel.CheckLogin(ctx, cfg); err != nil {
+	resp, err := tunnel.CheckLoginResponse(ctx, cfg)
+	if err != nil {
 		if ctx.Err() != nil {
 			return
 		}
@@ -37,7 +38,13 @@ func main() {
 	if ctx.Err() != nil {
 		return
 	}
-	if err := tunnel.Run(ctx, cfg, logf); err != nil && ctx.Err() == nil {
+	client, err := tunnel.StartVerified(ctx, cfg, resp.ServerVersion, logf)
+	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
 		log.Fatal(err)
 	}
+	defer client.Close()
+	<-ctx.Done()
 }

@@ -240,13 +240,16 @@ func (a *App) connect() {
 
 func (a *App) connectAsync() {
 	cfg, err := tunnel.LoadConfig(a.store.ConfigPath)
+	serverVersion := ""
 	if err == nil {
 		timeout := time.Duration(cfg.Connection.DialTimeoutSec+3) * time.Second
 		if timeout < 5*time.Second {
 			timeout = 5 * time.Second
 		}
 		checkCtx, cancel := context.WithTimeout(a.rootCtx, timeout)
-		err = tunnel.CheckLogin(checkCtx, cfg)
+		resp, checkErr := tunnel.CheckLoginResponse(checkCtx, cfg)
+		err = checkErr
+		serverVersion = resp.ServerVersion
 		cancel()
 	}
 
@@ -254,7 +257,7 @@ func (a *App) connectAsync() {
 	var stop context.CancelFunc
 	if err == nil {
 		runCtx, cancel := context.WithCancel(a.rootCtx)
-		client, err = tunnel.Start(runCtx, cfg, func(format string, args ...any) {
+		client, err = tunnel.StartVerified(runCtx, cfg, serverVersion, func(format string, args ...any) {
 			a.appendLog("%s", fmt.Sprintf(format, args...))
 		})
 		if err != nil {

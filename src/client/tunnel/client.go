@@ -19,6 +19,7 @@ import (
 
 type Client struct {
 	cfg                     Config
+	tlsConfig               *tls.Config
 	ctx                     context.Context
 	listeners               map[string]net.Listener
 	virtualAddrs            map[string]string
@@ -87,12 +88,16 @@ func newOpenRequest(cfg Config, reqType string) protocol.OpenRequest {
 }
 
 func checkServerResponse(ctx context.Context, cfg Config, reqType string) (protocol.OpenResponse, error) {
-	var resp protocol.OpenResponse
 	ApplyDefaults(&cfg)
 	tlsCfg, err := clientTLSConfig(cfg)
 	if err != nil {
-		return resp, err
+		return protocol.OpenResponse{}, err
 	}
+	return checkServerResponseWithTLS(ctx, cfg, reqType, tlsCfg)
+}
+
+func checkServerResponseWithTLS(ctx context.Context, cfg Config, reqType string, tlsCfg *tls.Config) (protocol.OpenResponse, error) {
+	var resp protocol.OpenResponse
 	timeout := time.Duration(cfg.Connection.DialTimeoutSec) * time.Second
 	if timeout <= 0 {
 		timeout = 5 * time.Second
@@ -134,9 +139,22 @@ func tlsDialer(timeout time.Duration, tlsCfg *tls.Config) tls.Dialer {
 }
 
 func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Client, error) {
+	return start(ctx, cfg, "", false, logf)
+}
+
+func StartVerified(ctx context.Context, cfg Config, serverVersion string, logf transport.LogFunc) (*Client, error) {
+	return start(ctx, cfg, serverVersion, true, logf)
+}
+
+func start(ctx context.Context, cfg Config, serverVersion string, verified bool, logf transport.LogFunc) (*Client, error) {
 	ApplyDefaults(&cfg)
+	tlsCfg, err := clientTLSConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	client := &Client{
 		cfg:                     cfg,
+		tlsConfig:               tlsCfg,
 		ctx:                     ctx,
 		listeners:               map[string]net.Listener{},
 		virtualAddrs:            map[string]string{},
@@ -145,7 +163,12 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Client, er
 		logf:                    logf,
 		closed:                  make(chan struct{}),
 	}
-	client.setHealth(HealthChecking, "等待服务端健康检查", "", false)
+	if verified {
+		client.setHealth(HealthOK, "服务端连接正常", "", false)
+		client.SetServerVersion(serverVersion)
+	} else {
+		client.setHealth(HealthChecking, "等待服务端健康检查", "", false)
+	}
 	usableForwards := 0
 	blockingStartupFailures := 0
 	virtualAuthorizationCancelled := false
@@ -223,7 +246,7 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Client, er
 		<-ctx.Done()
 		_ = client.Close()
 	}()
-	go client.healthLoop(ctx)
+	go client.healthLoop(ctx, verified)
 	return client, nil
 }
 
@@ -718,6 +741,9 @@ func (c *Client) openReverseStream(ctx context.Context, name string, fwd Forward
 }
 
 func (c *Client) clientTLSConfig() (*tls.Config, error) {
+	if c != nil && c.tlsConfig != nil {
+		return c.tlsConfig, nil
+	}
 	return clientTLSConfig(c.cfg)
 }
 

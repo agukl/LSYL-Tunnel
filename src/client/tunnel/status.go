@@ -310,7 +310,12 @@ func (c *Client) CheckHealthNow(ctx context.Context) HealthStatus {
 	}
 	checkCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	resp, err := CheckHealthResponse(checkCtx, c.cfg)
+	tlsCfg, err := c.clientTLSConfig()
+	if err != nil {
+		state, message := classifyHealthError(err)
+		return c.finalizeHealthStatus(c.setHealth(state, message, err.Error(), state == HealthAuthError))
+	}
+	resp, err := checkServerResponseWithTLS(checkCtx, c.cfg, "health", tlsCfg)
 	if err != nil {
 		state, message := classifyHealthError(err)
 		return c.finalizeHealthStatus(c.setHealth(state, message, err.Error(), state == HealthAuthError))
@@ -478,7 +483,19 @@ func ForwardCheckMessage(summary ForwardCheckSummary) string {
 	return fmt.Sprintf("服务端连接正常，已检查 %d 个端口", summary.Checked)
 }
 
-func (c *Client) healthLoop(ctx context.Context) {
+func (c *Client) healthLoop(ctx context.Context, delayInitialCheck bool) {
+	if delayInitialCheck {
+		timer := time.NewTimer(healthOKInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-c.closed:
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
 	for {
 		status := c.CheckHealthNow(ctx)
 		if c.shouldStopAfterHealth(status) {

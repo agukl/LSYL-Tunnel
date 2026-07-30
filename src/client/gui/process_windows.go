@@ -24,15 +24,13 @@ func (a *App) startClientEmbedded(cfg tunnel.Config, serverVersion string) error
 	a.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	client, err := tunnel.Start(ctx, cfg, func(format string, args ...any) {
+	client, err := tunnel.StartVerified(ctx, cfg, serverVersion, func(format string, args ...any) {
 		a.appendLog(fmt.Sprintf(format, args...))
 	})
 	if err != nil {
 		cancel()
 		return err
 	}
-	client.SetServerVersion(serverVersion)
-
 	a.mu.Lock()
 	if a.tun != nil {
 		a.mu.Unlock()
