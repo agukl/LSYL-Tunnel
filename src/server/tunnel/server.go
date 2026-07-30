@@ -1074,7 +1074,9 @@ func (f *failTracker) trackStateLocked(key string, now time.Time) (*failState, b
 		state.lastSeen = now
 		return state, true
 	}
-	_ = f.cleanupLocked(now)
+	if len(f.items) >= f.maxItems {
+		_ = f.cleanupLocked(now)
+	}
 	if len(f.items) >= f.maxItems {
 		oldestKey := ""
 		var oldest time.Time
@@ -1156,18 +1158,14 @@ func (f *failTracker) stats() failTrackerStats {
 	if f == nil {
 		return failTrackerStats{}
 	}
-	f.mu.Lock()
-	changed := f.cleanupLocked(f.now())
+	f.mu.RLock()
 	stats := failTrackerStats{
 		TrackedIPs:    len(f.items),
 		MaxTrackedIPs: f.maxItems,
 		EvictedIPs:    f.evicted.Load(),
 		CapacityDrops: f.capacityDrop.Load(),
 	}
-	if changed {
-		_ = f.saveLocked()
-	}
-	f.mu.Unlock()
+	f.mu.RUnlock()
 	return stats
 }
 

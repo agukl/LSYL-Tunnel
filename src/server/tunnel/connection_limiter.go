@@ -138,7 +138,6 @@ func (l *connectionLimiter) snapshot() map[string]int {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.cleanupAllLocked(l.now())
 	return map[string]int{
 		"active":            l.activeTotal,
 		"tracked_ips":       len(l.items),

@@ -180,17 +180,14 @@ func (f *failTracker) snapshotBlocked() []BlockedIPState {
 		return nil
 	}
 	now := f.now()
-	changed := false
 	out := []BlockedIPState{}
-	f.mu.Lock()
-	defer f.mu.Unlock()
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	for ip, item := range f.items {
 		if item == nil || item.blockedUntil.IsZero() {
 			continue
 		}
 		if !item.blockedUntil.After(now) {
-			delete(f.items, ip)
-			changed = true
 			continue
 		}
 		out = append(out, BlockedIPState{
@@ -198,9 +195,6 @@ func (f *failTracker) snapshotBlocked() []BlockedIPState {
 			BlockedUntil: item.blockedUntil.Format(time.RFC3339),
 			RemainingSec: int64(item.blockedUntil.Sub(now).Seconds()),
 		})
-	}
-	if changed {
-		_ = f.saveLocked()
 	}
 	return out
 }

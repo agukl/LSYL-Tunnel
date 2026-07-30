@@ -90,6 +90,31 @@ func TestConnectionLimiterCleanupExpiresTrackedIPs(t *testing.T) {
 	}
 }
 
+func TestConnectionLimiterSnapshotDoesNotCleanupExpiredIPs(t *testing.T) {
+	now := time.Unix(1000, 0)
+	limiter := newConnectionLimiter(SecurityConfig{
+		MaxConcurrentConnections:     10,
+		ConnectionRateWindowSec:      1,
+		MaxNewConnectionsPerIPWindow: 2,
+		MaxTrackedConnectionIPs:      2,
+	})
+	limiter.now = func() time.Time { return now }
+	release, ok, reason := limiter.acquire("203.0.113.10")
+	if !ok {
+		t.Fatalf("acquire rejected: %s", reason)
+	}
+	release()
+	now = now.Add(2 * time.Second)
+
+	if got := limiter.snapshot()["tracked_ips"]; got != 1 {
+		t.Fatalf("snapshot cleaned tracked IPs: got %d, want 1", got)
+	}
+	limiter.cleanup()
+	if got := limiter.snapshot()["tracked_ips"]; got != 0 {
+		t.Fatalf("scheduled cleanup retained %d tracked IPs, want 0", got)
+	}
+}
+
 func TestConnectionLimiterEvictsOldestInactiveIPAtCapacity(t *testing.T) {
 	now := time.Unix(1000, 0)
 	limiter := newConnectionLimiter(SecurityConfig{

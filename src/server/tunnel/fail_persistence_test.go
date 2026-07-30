@@ -5,7 +5,86 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestFailTrackerStatsDoesNotCleanupExpiredIPs(t *testing.T) {
+	now := time.Unix(1000, 0)
+	tracker := newFailTracker(SecurityConfig{
+		AuthFailWindowSec:        1,
+		AuthFailThreshold:        8,
+		AuthFailBlockSec:         60,
+		MaxTrackedFailureIPs:     2,
+		FailureTrackerCleanupSec: 60,
+	}, "", "")
+	tracker.now = func() time.Time { return now }
+	tracker.addFailure("203.0.113.10")
+	now = now.Add(2 * time.Second)
+
+	if got := tracker.stats().TrackedIPs; got != 1 {
+		t.Fatalf("stats cleaned tracked IPs: got %d, want 1", got)
+	}
+	if err := tracker.cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	if got := tracker.stats().TrackedIPs; got != 0 {
+		t.Fatalf("scheduled cleanup retained %d tracked IPs, want 0", got)
+	}
+}
+
+func TestFailTrackerBlockedSnapshotDoesNotCleanupExpiredIPs(t *testing.T) {
+	now := time.Unix(1000, 0)
+	tracker := newFailTracker(SecurityConfig{
+		AuthFailWindowSec: 1,
+		AuthFailThreshold: 1,
+		AuthFailBlockSec:  1,
+	}, "", "")
+	tracker.now = func() time.Time { return now }
+	tracker.addFailure("203.0.113.10")
+	now = now.Add(2 * time.Second)
+
+	if blocked := tracker.snapshotBlocked(); len(blocked) != 0 {
+		t.Fatalf("expired block remained visible: %#v", blocked)
+	}
+	tracker.mu.RLock()
+	_, retained := tracker.items["203.0.113.10"]
+	tracker.mu.RUnlock()
+	if !retained {
+		t.Fatal("blocked snapshot cleaned expired IP state")
+	}
+}
+
+func TestFailTrackerNewIPOnlyCleansAtCapacity(t *testing.T) {
+	now := time.Unix(1000, 0)
+	tracker := newFailTracker(SecurityConfig{
+		AuthFailWindowSec:    1,
+		AuthFailThreshold:    8,
+		AuthFailBlockSec:     60,
+		MaxTrackedFailureIPs: 2,
+	}, "", "")
+	tracker.now = func() time.Time { return now }
+	tracker.addFailure("203.0.113.10")
+	now = now.Add(2 * time.Second)
+	tracker.addFailure("203.0.113.11")
+
+	tracker.mu.RLock()
+	_, hasExpiredBeforeCapacity := tracker.items["203.0.113.10"]
+	_, hasSecond := tracker.items["203.0.113.11"]
+	tracker.mu.RUnlock()
+	if !hasExpiredBeforeCapacity || !hasSecond {
+		t.Fatalf("ordinary insert cleaned another IP: expired=%t second=%t", hasExpiredBeforeCapacity, hasSecond)
+	}
+
+	tracker.addFailure("203.0.113.12")
+	tracker.mu.RLock()
+	_, hasExpiredAfterCapacity := tracker.items["203.0.113.10"]
+	_, hasSecond = tracker.items["203.0.113.11"]
+	_, hasThird := tracker.items["203.0.113.12"]
+	tracker.mu.RUnlock()
+	if hasExpiredAfterCapacity || !hasSecond || !hasThird {
+		t.Fatalf("capacity cleanup state: expired=%t second=%t third=%t", hasExpiredAfterCapacity, hasSecond, hasThird)
+	}
+}
 
 func TestFailTrackerPersistsBlockedIP(t *testing.T) {
 	stateFile := filepath.Join(t.TempDir(), "server-state.json")
