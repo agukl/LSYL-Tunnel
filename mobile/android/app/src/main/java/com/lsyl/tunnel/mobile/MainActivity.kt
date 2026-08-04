@@ -14,6 +14,8 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -25,12 +27,15 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.lsyl.tunnel.mobile.profile.ForwardTextConfig
 import com.lsyl.tunnel.mobile.profile.ImportedProfile
 import com.lsyl.tunnel.mobile.profile.ProfileImporter
 import com.lsyl.tunnel.mobile.profile.ProfileStore
+import com.lsyl.tunnel.mobile.service.EnhancedBackgroundPresenter
+import com.lsyl.tunnel.mobile.service.EnhancedBackgroundSettings
 import com.lsyl.tunnel.mobile.service.RuntimePresenter
 import com.lsyl.tunnel.mobile.service.RuntimeSnapshot
 import com.lsyl.tunnel.mobile.service.RuntimeStateStore
@@ -51,8 +56,12 @@ class MainActivity : Activity() {
     private lateinit var refreshBtn: ImageButton
     private lateinit var editBtn: Button
     private lateinit var deleteBtn: Button
+    private lateinit var enhancedBackgroundSwitch: Switch
+    private lateinit var enhancedBackgroundDetail: TextView
     private lateinit var store: ProfileStore
     private lateinit var runtimeStore: RuntimeStateStore
+    private lateinit var enhancedBackgroundSettings: EnhancedBackgroundSettings
+    private var updatingEnhancedBackgroundSwitch = false
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val raw = intent?.getStringExtra(TunnelForegroundService.EXTRA_SNAPSHOT) ?: return
@@ -62,6 +71,7 @@ class MainActivity : Activity() {
                 return
             }
             updateRuntime(snapshot)
+            refreshEnhancedBackgroundView()
         }
     }
 
@@ -69,6 +79,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         store = ProfileStore(this)
         runtimeStore = RuntimeStateStore(this)
+        enhancedBackgroundSettings = EnhancedBackgroundSettings(this)
         configureSystemBars()
         buildUi()
         handleViewIntent(intent)
@@ -96,6 +107,7 @@ class MainActivity : Activity() {
             registerReceiver(statusReceiver, filter, TunnelForegroundService.INTERNAL_STATUS_PERMISSION, null)
         }
         refreshProfileView()
+        refreshEnhancedBackgroundView()
         recoverTunnelServiceIfNeeded()
     }
 
@@ -214,6 +226,36 @@ class MainActivity : Activity() {
         profileCard.addView(expiryText)
         profileCard.addView(detailsText)
 
+        val enhancedBackgroundBlock = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        enhancedBackgroundSwitch = Switch(this).apply {
+            text = "增强后台"
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(20, 68, 64))
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48)
+            showText = false
+            setOnCheckedChangeListener { _, enabled ->
+                if (!updatingEnhancedBackgroundSwitch) setEnhancedBackgroundEnabled(enabled)
+            }
+        }
+        enhancedBackgroundDetail = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Color.rgb(150, 79, 0))
+            setPadding(0, 0, 0, dp(4))
+            visibility = View.GONE
+        }
+        enhancedBackgroundBlock.addView(
+            enhancedBackgroundSwitch,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        enhancedBackgroundBlock.addView(enhancedBackgroundDetail)
+
         val actionTitle = TextView(this).apply {
             text = "操作"
             textSize = 17f
@@ -246,7 +288,8 @@ class MainActivity : Activity() {
 
         root.addView(titleRow)
         addWithTop(root, profileCard, dp(24))
-        addWithTop(root, actionTitle, dp(22))
+        addWithTop(root, enhancedBackgroundBlock, dp(14))
+        addWithTop(root, actionTitle, dp(18))
         addWithTop(root, connectBtn, dp(12))
         addWithTop(root, stopBtn, dp(12))
         root.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -255,6 +298,58 @@ class MainActivity : Activity() {
         scroll.addView(root, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(scroll)
         scroll.post { scroll.requestApplyInsets() }
+    }
+
+    private fun setEnhancedBackgroundEnabled(enabled: Boolean) {
+        enhancedBackgroundSettings.setEnabled(enabled)
+        refreshEnhancedBackgroundView()
+        if (runtimeStore.desiredRunning()) {
+            val intent = if (TunnelServiceProcessState.isActive()) {
+                TunnelForegroundService.updateBackgroundModeIntent(this)
+            } else {
+                TunnelForegroundService.refreshIntent(this)
+            }
+            try {
+                startTunnelService(intent)
+            } catch (err: Exception) {
+                showError("增强后台设置已保存，但当前连接无法应用：${err.message ?: "系统拒绝启动"}")
+            }
+        }
+        if (enabled && !isIgnoringBatteryOptimizations()) {
+            requestBatteryOptimizationExemption()
+        }
+    }
+
+    private fun refreshEnhancedBackgroundView() {
+        if (!::enhancedBackgroundSwitch.isInitialized) return
+        val presentation = EnhancedBackgroundPresenter.present(
+            enabled = enhancedBackgroundSettings.enabled(),
+            batteryExempt = isIgnoringBatteryOptimizations(),
+            desiredRunning = runtimeStore.desiredRunning(),
+            resourceStatus = enhancedBackgroundSettings.resourceStatus()
+        )
+        updatingEnhancedBackgroundSwitch = true
+        enhancedBackgroundSwitch.isChecked = presentation.checked
+        updatingEnhancedBackgroundSwitch = false
+        enhancedBackgroundDetail.text = presentation.detail
+        enhancedBackgroundDetail.visibility =
+            if (presentation.detail.isBlank()) View.GONE else View.VISIBLE
+    }
+
+    private fun isIgnoringBatteryOptimizations(): Boolean =
+        getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+
+    private fun requestBatteryOptimizationExemption() {
+        val packageUri = Uri.parse("package:$packageName")
+        try {
+            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, packageUri))
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            } catch (err: Exception) {
+                showError("无法打开系统电池优化设置：${err.message ?: "系统不支持此设置"}")
+            }
+        }
     }
 
     private fun refreshProfileView() {
