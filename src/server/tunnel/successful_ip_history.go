@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const successfulIPHistoryMaxLineBytes = 1024 * 1024
+const (
+	successfulIPHistoryDays         = 7
+	successfulIPHistoryMaxLineBytes = 1024 * 1024
+)
 
 func isSuccessfulRequestForBlockProtection(entry RequestLogEntry) bool {
 	if entry.Result != "ok" || entry.AuthResult != "ok" || !entry.Response.OK {
@@ -146,4 +149,36 @@ func (f *failTracker) rotateSuccessfulIPsLocked(now time.Time) {
 	}
 	f.successfulDate = date
 	f.successfulIPs = map[string]struct{}{}
+}
+
+func reconcileSuccessfulIPHistory(fails *failTracker, requestLogPath string, now time.Time) error {
+	if fails == nil {
+		return nil
+	}
+	today := localMidnight(now)
+	recentPermanent := map[string]struct{}{}
+	scanErr := scanRecentSuccessfulRequestIPs(requestLogPath, now, successfulIPHistoryDays, func(ip string, occurredAt time.Time) {
+		if !occurredAt.Before(today) {
+			fails.markSuccessful(ip)
+		}
+		if fails.hasPermanent(ip) {
+			recentPermanent[ip] = struct{}{}
+		}
+	})
+	_, removeErr := fails.removePermanentSuccessful(recentPermanent)
+	return errors.Join(scanErr, removeErr)
+}
+
+func (f *failTracker) removePermanentSuccessful(ips map[string]struct{}) (int, error) {
+	if f == nil || len(ips) == 0 {
+		return 0, nil
+	}
+	removed, err := removePermanentBlockedIPs(f.permanentFile, ips)
+	if err != nil {
+		return 0, err
+	}
+	for ip := range removed {
+		f.permanent.Delete(ip)
+	}
+	return len(removed), nil
 }

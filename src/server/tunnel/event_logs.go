@@ -188,6 +188,9 @@ func (s *Server) recordRequestLog(entry RequestLogEntry) {
 	if entry.Time == "" {
 		entry.Time = time.Now().Format(time.RFC3339)
 	}
+	if s.fails != nil && isSuccessfulRequestForBlockProtection(entry) {
+		s.fails.markSuccessful(entry.RemoteIP)
+	}
 	data, err := json.Marshal(entry)
 	if err != nil {
 		s.log("write request log failed: %v", err)

@@ -111,6 +111,9 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 	if err := fails.load(); err != nil && logf != nil {
 		logf("load runtime state failed: %v", err)
 	}
+	if err := reconcileSuccessfulIPHistory(fails, cfg.Runtime.RequestLogFile, time.Now()); err != nil && logf != nil {
+		logf("reconcile successful IP history failed: %v", err)
+	}
 	srv := &Server{
 		cfg:                cfg,
 		listener:           ln,

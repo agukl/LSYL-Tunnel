@@ -109,3 +109,29 @@ func TestFailTrackerUnblockPermanentRemovesMemoryAndFile(t *testing.T) {
 		t.Fatalf("unexpected permanent block file content: %q", text)
 	}
 }
+
+func TestFailTrackerUnblockPermanentNormalizesIPv6MemoryKey(t *testing.T) {
+	permanentFile := filepath.Join(t.TempDir(), "server-permanent-block.txt")
+	expanded := "2001:0db8:0:0:0:0:0:1"
+	if err := os.WriteFile(permanentFile, []byte(expanded+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tracker := newFailTracker(SecurityConfig{}, "", permanentFile)
+	if err := tracker.load(); err != nil {
+		t.Fatal(err)
+	}
+	if !tracker.hasPermanent("2001:db8::1") {
+		t.Fatal("canonical IPv6 permanent block was not loaded")
+	}
+
+	removed, err := tracker.unblockPermanent(expanded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !removed {
+		t.Fatal("expanded IPv6 permanent block was not removed")
+	}
+	if tracker.hasPermanent("2001:db8::1") {
+		t.Fatal("canonical IPv6 key remained blocked in memory")
+	}
+}

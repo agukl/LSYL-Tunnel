@@ -124,15 +124,18 @@ func (f *failTracker) load() error {
 	if err != nil {
 		return err
 	}
+	normalizedPermanent := make(map[string]struct{}, len(permanent))
 	var cleanupErr error
 	for ip := range permanent {
 		if !isLoopbackName(ip) {
+			if key := permanentBlockIPKey(ip); key != "" {
+				normalizedPermanent[key] = struct{}{}
+			}
 			continue
 		}
 		if _, err := RemovePermanentBlockedIP(f.permanentFile, ip); err != nil && cleanupErr == nil {
 			cleanupErr = err
 		}
-		delete(permanent, ip)
 	}
 	f.permanent.Range(func(key, _ any) bool {
 		ip, ok := key.(string)
@@ -142,7 +145,7 @@ func (f *failTracker) load() error {
 		return true
 	})
 	f.mu.Lock()
-	for ip := range permanent {
+	for ip := range normalizedPermanent {
 		f.permanent.Store(ip, struct{}{})
 		delete(f.items, ip)
 	}
@@ -225,13 +228,14 @@ func (f *failTracker) unblockPermanent(key string) (bool, error) {
 	if key == "" {
 		return false, nil
 	}
-	_, inMemory := f.permanent.Load(key)
+	memoryKey := permanentBlockIPKey(key)
+	_, inMemory := f.permanent.Load(memoryKey)
 	removed, err := RemovePermanentBlockedIP(f.permanentFile, key)
 	if err != nil {
 		return false, err
 	}
 	if removed || inMemory {
-		f.permanent.Delete(key)
+		f.permanent.Delete(memoryKey)
 		return true, nil
 	}
 	return false, nil

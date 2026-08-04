@@ -160,6 +160,99 @@ func TestSuccessfulIPSetIsBounded(t *testing.T) {
 	}
 }
 
+func TestReconcileSuccessfulIPHistoryRemovesRecentPermanentBlocks(t *testing.T) {
+	now := time.Date(2026, time.August, 4, 12, 0, 0, 0, time.Local)
+	dir := t.TempDir()
+	permanentFile := filepath.Join(dir, "server-permanent-block.txt")
+	requestLog := filepath.Join(dir, "request", "request.jsonl")
+	input := "# keep comment\n203.0.113.10\n203.0.113.20\n203.0.113.30\n\n"
+	if err := os.WriteFile(permanentFile, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(requestLog), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSuccessfulIPHistoryLog(t, datedJSONLPath(requestLog, "2026-08-04"), []RequestLogEntry{
+		successfulRequestEntry(time.Date(2026, time.August, 4, 8, 0, 0, 0, time.Local), "203.0.113.10", "login"),
+		successfulRequestEntry(time.Date(2026, time.August, 4, 9, 0, 0, 0, time.Local), "203.0.113.40", "health"),
+	}, "")
+	writeSuccessfulIPHistoryLog(t, datedJSONLPath(requestLog, "2026-07-29"), []RequestLogEntry{
+		successfulRequestEntry(time.Date(2026, time.July, 29, 8, 0, 0, 0, time.Local), "203.0.113.20", "open"),
+	}, "")
+	writeSuccessfulIPHistoryLog(t, datedJSONLPath(requestLog, "2026-07-28"), []RequestLogEntry{
+		successfulRequestEntry(time.Date(2026, time.July, 28, 8, 0, 0, 0, time.Local), "203.0.113.30", "open"),
+	}, "")
+
+	tracker := newFailTracker(SecurityConfig{MaxTrackedFailureIPs: 8}, "", permanentFile)
+	tracker.now = func() time.Time { return now }
+	if err := tracker.load(); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconcileSuccessfulIPHistory(tracker, requestLog, now); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, ip := range []string{"203.0.113.10", "203.0.113.20"} {
+		if tracker.hasPermanent(ip) {
+			t.Fatalf("recent successful IP %s remained permanently blocked", ip)
+		}
+	}
+	if !tracker.hasPermanent("203.0.113.30") {
+		t.Fatal("seven-day-old success removed a permanent block")
+	}
+
+	tracker.mu.Lock()
+	todayProtected := tracker.successfulTodayLocked("203.0.113.10", now) && tracker.successfulTodayLocked("203.0.113.40", now)
+	oldProtected := tracker.successfulTodayLocked("203.0.113.20", now)
+	tracker.mu.Unlock()
+	if !todayProtected {
+		t.Fatal("today's successful IPs were not seeded")
+	}
+	if oldProtected {
+		t.Fatal("an older successful IP was seeded into today's set")
+	}
+
+	data, err := os.ReadFile(permanentFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, "203.0.113.10") || strings.Contains(text, "203.0.113.20") {
+		t.Fatalf("recent successful IP remained in file: %q", text)
+	}
+	if !strings.Contains(text, "# keep comment") || !strings.Contains(text, "203.0.113.30") || !strings.HasSuffix(text, "\n\n") {
+		t.Fatalf("unrelated permanent block content changed: %q", text)
+	}
+}
+
+func TestRecordRequestLogMarksSuccessfulIP(t *testing.T) {
+	now := time.Date(2026, time.August, 4, 12, 0, 0, 0, time.Local)
+	tracker := newFailTracker(SecurityConfig{AuthFailWindowSec: 60, AuthFailThreshold: 2, AuthFailBlockSec: 60, MaxTrackedFailureIPs: 8}, "", filepath.Join(t.TempDir(), "permanent.txt"))
+	tracker.now = func() time.Time { return now }
+	server := &Server{fails: tracker}
+
+	server.recordRequestLog(successfulRequestEntry(now, "203.0.113.50", "login"))
+	tracker.addProtocolFailure("203.0.113.50")
+	tracker.addProtocolFailure("203.0.113.50")
+	if tracker.hasPermanent("203.0.113.50") {
+		t.Fatal("recorded successful request did not protect its IP")
+	}
+
+	server.recordRequestLog(RequestLogEntry{
+		Time:       now.Format(time.RFC3339),
+		RemoteIP:   "203.0.113.60",
+		Request:    protocol.OpenRequest{Type: "forward_check"},
+		AuthResult: "ok",
+		Response:   protocol.OpenResponse{OK: false, Code: "target_denied"},
+		Result:     "denied",
+	})
+	tracker.addProtocolFailure("203.0.113.60")
+	tracker.addProtocolFailure("203.0.113.60")
+	if !tracker.hasPermanent("203.0.113.60") {
+		t.Fatal("denied request unexpectedly protected its IP")
+	}
+}
+
 func successfulRequestEntry(at time.Time, ip, requestType string) RequestLogEntry {
 	return RequestLogEntry{
 		Time:       at.Format(time.RFC3339),
