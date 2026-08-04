@@ -34,6 +34,53 @@ func TestRemovePermanentBlockedIPRemovesAllMatchingLines(t *testing.T) {
 	}
 }
 
+func TestRemovePermanentBlockedIPsPreservesUnrelatedLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server-permanent-block.txt")
+	input := "# keep comment\r\n203.0.113.10\r\n\r\n2001:0db8:0:0:0:0:0:1\r\ninvalid\r\n203.0.113.20\r\n203.0.113.10\r\n"
+	if err := os.WriteFile(path, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := removePermanentBlockedIPs(path, map[string]struct{}{
+		"203.0.113.10": {},
+		"2001:db8::1":  {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 2 {
+		t.Fatalf("removed IPs = %#v, want two canonical addresses", removed)
+	}
+	for _, ip := range []string{"203.0.113.10", "2001:db8::1"} {
+		if _, ok := removed[ip]; !ok {
+			t.Fatalf("removed IPs = %#v, missing %s", removed, ip)
+		}
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# keep comment\n\ninvalid\n203.0.113.20\n"
+	if got := string(data); got != want {
+		t.Fatalf("permanent block file = %q, want %q", got, want)
+	}
+}
+
+func TestRemovePermanentBlockedIPsMissingFileIsNoOp(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing", "server-permanent-block.txt")
+	removed, err := removePermanentBlockedIPs(path, map[string]struct{}{"203.0.113.10": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 0 {
+		t.Fatalf("removed IPs = %#v, want empty", removed)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("missing permanent block file was created: %v", err)
+	}
+}
+
 func TestFailTrackerUnblockPermanentRemovesMemoryAndFile(t *testing.T) {
 	stateFile := filepath.Join(t.TempDir(), "server-state.json")
 	permanentFile := filepath.Join(t.TempDir(), "server-permanent-block.txt")

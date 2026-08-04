@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"bufio"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,18 +57,39 @@ func appendPermanentBlockedIP(path, ip string) error {
 }
 
 func RemovePermanentBlockedIP(path, ip string) (bool, error) {
-	path = strings.TrimSpace(path)
-	ip = strings.TrimSpace(ip)
-	if path == "" || ip == "" {
+	key := permanentBlockIPKey(ip)
+	if key == "" {
 		return false, nil
 	}
+	removed, err := removePermanentBlockedIPs(path, map[string]struct{}{key: {}})
+	if err != nil {
+		return false, err
+	}
+	_, ok := removed[key]
+	return ok, nil
+}
+
+func removePermanentBlockedIPs(path string, ips map[string]struct{}) (map[string]struct{}, error) {
+	path = strings.TrimSpace(path)
+	if path == "" || len(ips) == 0 {
+		return map[string]struct{}{}, nil
+	}
 	path = filepath.Clean(path)
+	targets := make(map[string]struct{}, len(ips))
+	for ip := range ips {
+		if key := permanentBlockIPKey(ip); key != "" {
+			targets[key] = struct{}{}
+		}
+	}
+	if len(targets) == 0 {
+		return map[string]struct{}{}, nil
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return false, nil
+			return map[string]struct{}{}, nil
 		}
-		return false, err
+		return nil, err
 	}
 
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
@@ -78,22 +100,37 @@ func RemovePermanentBlockedIP(path, ip string) (bool, error) {
 		lines = lines[:len(lines)-1]
 	}
 
-	removed := false
+	removed := map[string]struct{}{}
 	kept := make([]string, 0, len(lines))
 	for _, line := range lines {
-		if strings.TrimSpace(line) == ip {
-			removed = true
+		key := permanentBlockIPKey(line)
+		if _, ok := targets[key]; ok {
+			removed[key] = struct{}{}
 			continue
 		}
 		kept = append(kept, line)
 	}
-	if !removed {
-		return false, nil
+	if len(removed) == 0 {
+		return removed, nil
 	}
 
 	out := strings.Join(kept, "\n")
 	if hasTrailingNewline && len(kept) > 0 {
 		out += "\n"
 	}
-	return true, os.WriteFile(path, []byte(out), 0o600)
+	if err := os.WriteFile(path, []byte(out), 0o600); err != nil {
+		return nil, err
+	}
+	return removed, nil
+}
+
+func permanentBlockIPKey(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if ip := net.ParseIP(value); ip != nil {
+		return ip.String()
+	}
+	return value
 }
