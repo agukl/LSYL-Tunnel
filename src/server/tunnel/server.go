@@ -297,6 +297,10 @@ func (s *Server) handleConn(conn net.Conn) {
 		s.recordPermanentBlockedHit(remoteIP)
 		return
 	case blockedTemporary:
+		_ = conn.SetDeadline(time.Now().Add(time.Duration(s.cfg.Security.HandshakeTimeoutSec) * time.Second))
+		var ignored protocol.OpenRequest
+		_ = protocol.ReadJSON(conn, &ignored, s.cfg.Security.MaxHandshakeBytes)
+		_ = conn.SetWriteDeadline(time.Now().Add(time.Duration(s.cfg.Security.HandshakeTimeoutSec) * time.Second))
 		resp := protocol.OpenResponse{OK: false, Code: "auth_blocked", Message: "too many login failures, temporarily blocked; try later"}
 		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "auth", Result: "blocked", RemoteIP: remoteIP, Code: "auth_blocked", Message: "too many login failures"})
 		recordRequest(protocol.OpenRequest{}, "blocked", "blocked", resp, nil)
