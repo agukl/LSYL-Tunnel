@@ -68,7 +68,7 @@ class EnhancedBackgroundPresentationTest {
 
 - [ ] **Step 2: Run tests and verify the red state**
 
-Run: `mobile\android\gradlew.bat -p mobile\android testDebugUnitTest --tests "com.lsyl.tunnel.mobile.service.EnhancedBackgroundPresentationTest"`
+Run: `tool\gradle-8.9\bin\gradle.bat --no-daemon -p mobile\android testDebugUnitTest --tests "com.lsyl.tunnel.mobile.service.EnhancedBackgroundPresentationTest"`
 
 Expected: compilation fails because the presentation and settings types do not exist.
 
@@ -106,7 +106,7 @@ object EnhancedBackgroundPresenter {
 
 - [ ] **Step 4: Run the focused and full Android unit tests**
 
-Run: `mobile\android\gradlew.bat -p mobile\android testDebugUnitTest`
+Run: `tool\gradle-8.9\bin\gradle.bat --no-daemon -p mobile\android testDebugUnitTest`
 
 Expected: all tests pass.
 
@@ -211,7 +211,7 @@ private class FakeLock(private val failAcquire: Boolean = false) : BackgroundRes
 
 - [ ] **Step 2: Run the focused test and verify failure**
 
-Run: `mobile\android\gradlew.bat -p mobile\android testDebugUnitTest --tests "com.lsyl.tunnel.mobile.service.EnhancedBackgroundResourcesTest"`
+Run: `tool\gradle-8.9\bin\gradle.bat --no-daemon -p mobile\android testDebugUnitTest --tests "com.lsyl.tunnel.mobile.service.EnhancedBackgroundResourcesTest"`
 
 Expected: compilation fails because resource-controller interfaces do not exist.
 
@@ -262,7 +262,7 @@ The Android factory creates a non-reference-counted `PARTIAL_WAKE_LOCK`. It crea
 
 - [ ] **Step 5: Run focused and full tests**
 
-Run: `mobile\android\gradlew.bat -p mobile\android testDebugUnitTest`
+Run: `tool\gradle-8.9\bin\gradle.bat --no-daemon -p mobile\android testDebugUnitTest`
 
 Expected: all tests pass, including lock failure and idempotency cases.
 
@@ -303,7 +303,7 @@ Extend pure tracker coverage so repeated capabilities do not queue duplicate Wi-
 
 - [ ] **Step 2: Run focused tests and verify failure**
 
-Run: `mobile\android\gradlew.bat -p mobile\android testDebugUnitTest --tests "com.lsyl.tunnel.mobile.service.RecoverySignalGateTest"`
+Run: `tool\gradle-8.9\bin\gradle.bat --no-daemon -p mobile\android testDebugUnitTest --tests "com.lsyl.tunnel.mobile.service.RecoverySignalGateTest"`
 
 Expected: compilation fails because `publishIfChanged()` does not exist.
 
@@ -325,11 +325,11 @@ private fun syncEnhancedResources() {
 }
 ```
 
-Call it after `ensureForeground()` for start and sticky recovery, on `ACTION_UPDATE_BACKGROUND_MODE`, and on Wi-Fi transitions. Release after disconnect, in `finishIfInactive()`, and before executor/controller shutdown in `onDestroy()`. A fatal controller failure clears desired-running; `finishIfInactive()` must therefore release resources before removing the notification.
+Call it after the controller records desired-running for start and sticky recovery, on `ACTION_UPDATE_BACKGROUND_MODE`, and on Wi-Fi transitions. Resource acquisition remains gated by an active foreground service. Release after disconnect, in `finishIfInactive()`, and before executor/controller shutdown in `onDestroy()`. A fatal controller failure clears desired-running; `finishIfInactive()` must therefore release resources before removing the notification.
 
 - [ ] **Step 5: Run all Android unit tests**
 
-Run: `mobile\android\gradlew.bat -p mobile\android testDebugUnitTest`
+Run: `tool\gradle-8.9\bin\gradle.bat --no-daemon -p mobile\android testDebugUnitTest`
 
 Expected: all existing lifecycle, recovery, tunnel, profile, and new enhancement tests pass.
 
@@ -378,7 +378,7 @@ Check `PowerManager.isIgnoringBatteryOptimizations(packageName)`. Open `Settings
 
 - [ ] **Step 5: Run tests and build the debug APK**
 
-Run: `mobile\android\gradlew.bat -p mobile\android testDebugUnitTest assembleDebug`
+Run: `tool\gradle-8.9\bin\gradle.bat --no-daemon -p mobile\android testDebugUnitTest assembleDebug`
 
 Expected: all tests pass and `mobile/android/app/build/outputs/apk/debug/app-debug.apk` is generated.
 
@@ -399,7 +399,7 @@ git commit -m "feat(android): expose enhanced background mode"
 
 - [ ] **Step 1: Run repository Android verification**
 
-Run: `mobile\android\gradlew.bat -p mobile\android clean testDebugUnitTest assembleDebug`
+Run: `tool\gradle-8.9\bin\gradle.bat --no-daemon -p mobile\android clean testDebugUnitTest assembleDebug`
 
 Expected: Gradle reports `BUILD SUCCESSFUL`.
 
