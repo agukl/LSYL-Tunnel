@@ -31,4 +31,17 @@ class RecoverySignalGateTest {
         assertTrue(tracker.update(null))
         assertFalse(tracker.update(null))
     }
+
+    @Test
+    fun wifiTrackerPublishesOnlyTransitions() {
+        val published = mutableListOf<Boolean?>()
+        val tracker = NetworkChangeTracker<Boolean>()
+
+        tracker.publishIfChanged(false, published::add)
+        tracker.publishIfChanged(true, published::add)
+        tracker.publishIfChanged(true, published::add)
+        tracker.publishIfChanged(false, published::add)
+
+        assertEquals(listOf(false, true, false), published)
+    }
 }

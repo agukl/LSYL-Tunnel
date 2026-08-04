@@ -23,8 +23,11 @@ class TunnelForegroundService : Service() {
     private lateinit var stateStore: RuntimeStateStore
     private lateinit var controller: TunnelRuntimeController
     private lateinit var networkMonitor: DefaultNetworkMonitor
+    private lateinit var enhancedSettings: EnhancedBackgroundSettings
+    private lateinit var enhancedResources: EnhancedBackgroundResourceController
     @Volatile private var foregroundActive = false
     @Volatile private var finalNotificationVisible = false
+    @Volatile private var wifiAvailable = false
     @Volatile private var destroyed = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -34,6 +37,9 @@ class TunnelForegroundService : Service() {
         TunnelServiceProcessState.markActive()
         ensureChannel()
         stateStore = RuntimeStateStore(this, ::publishSnapshot)
+        enhancedSettings = EnhancedBackgroundSettings(this)
+        enhancedSettings.publishResourceStatus(EnhancedResourceStatus())
+        enhancedResources = EnhancedBackgroundResourceController.create(this, ::publishEnhancedResourceStatus)
         controller = TunnelRuntimeController(
             runtimeFactory = {
                 val loaded = ProfileStore(this).load() ?: throw ProfileImportException("未导入连接配置")
@@ -44,7 +50,8 @@ class TunnelForegroundService : Service() {
         networkMonitor = DefaultNetworkMonitor(
             context = this,
             onAvailable = ::queueNetworkRecovery,
-            onUnavailable = ::publishNetworkUnavailable
+            onUnavailable = ::publishNetworkUnavailable,
+            onWifiChanged = ::queueWifiStateChange
         )
         networkMonitor.start()
     }
@@ -56,29 +63,53 @@ class TunnelForegroundService : Service() {
                 return START_NOT_STICKY
             }
             ensureForeground(RuntimeSnapshot(TunnelPhase.STARTING, "正在恢复连接"))
-            executeCommand { controller.connect(userInitiated = false) }
+            executeCommand {
+                controller.connect(userInitiated = false)
+                syncEnhancedResources()
+            }
             return START_STICKY
         }
 
         return when (intent.action) {
             ACTION_START -> {
                 ensureForeground(RuntimeSnapshot(TunnelPhase.STARTING, "正在连接"))
-                executeCommand { controller.connect(userInitiated = true) }
+                executeCommand {
+                    controller.connect(userInitiated = true)
+                    syncEnhancedResources()
+                }
                 START_STICKY
             }
             ACTION_REFRESH -> {
                 if (stateStore.desiredRunning()) {
                     ensureForeground(NotificationStatusPolicy.refreshEntry(stateStore.loadSnapshot()))
                 }
-                executeCommand { controller.refresh() }
+                executeCommand {
+                    controller.refresh()
+                    syncEnhancedResources()
+                }
                 if (stateStore.desiredRunning()) START_STICKY else START_NOT_STICKY
             }
             ACTION_STOP -> {
                 if (foregroundActive) {
                     ensureForeground(RuntimeSnapshot(TunnelPhase.STOPPING, "正在断开"))
                 }
-                executeCommand { controller.disconnect() }
+                executeCommand {
+                    controller.disconnect()
+                    enhancedResources.release()
+                }
                 START_NOT_STICKY
+            }
+            ACTION_UPDATE_BACKGROUND_MODE -> {
+                if (stateStore.desiredRunning()) {
+                    ensureForeground(NotificationStatusPolicy.refreshEntry(stateStore.loadSnapshot()))
+                }
+                syncEnhancedResources()
+                if (stateStore.desiredRunning()) {
+                    START_STICKY
+                } else {
+                    stopSelf(startId)
+                    START_NOT_STICKY
+                }
             }
             else -> START_NOT_STICKY
         }
@@ -88,6 +119,7 @@ class TunnelForegroundService : Service() {
         destroyed = true
         TunnelServiceProcessState.markInactive()
         networkMonitor.stop()
+        enhancedResources.release()
         val completePendingDisconnect =
             !stateStore.desiredRunning() && stateStore.loadSnapshot().phase == TunnelPhase.STOPPING
         recoveryGate.cancel()
@@ -123,6 +155,17 @@ class TunnelForegroundService : Service() {
         }
     }
 
+    private fun queueWifiStateChange(available: Boolean) {
+        wifiAvailable = available
+        if (destroyed) return
+        try {
+            executor.execute {
+                if (!destroyed) syncEnhancedResources()
+            }
+        } catch (_: RejectedExecutionException) {
+        }
+    }
+
     private fun publishNetworkUnavailable() {
         if (destroyed || !stateStore.desiredRunning()) return
         executeCommand { controller.networkUnavailable() }
@@ -154,15 +197,34 @@ class TunnelForegroundService : Service() {
         }
     }
 
+    private fun syncEnhancedResources() {
+        val shouldHold = EnhancedBackgroundServicePolicy.shouldHoldResources(
+            enabled = enhancedSettings.enabled(),
+            desiredRunning = stateStore.desiredRunning(),
+            foregroundActive = foregroundActive
+        )
+        enhancedResources.update(
+            enabled = shouldHold,
+            desiredRunning = shouldHold,
+            wifiAvailable = wifiAvailable
+        )
+    }
+
     private fun finishIfInactive() {
         if (destroyed) return
         if (stateStore.desiredRunning()) return
+        enhancedResources.release()
         val snapshot = stateStore.loadSnapshot()
         removeForegroundNotification()
         if (NotificationStatusPolicy.inactiveDisposition(snapshot) == InactiveNotificationDisposition.SHOW_FAILURE) {
             showFinalNotification(snapshot)
         }
         stopSelf()
+    }
+
+    private fun publishEnhancedResourceStatus(status: EnhancedResourceStatus) {
+        enhancedSettings.publishResourceStatus(status)
+        if (!destroyed) publishSnapshot(stateStore.loadSnapshot())
     }
 
     private fun publishSnapshot(snapshot: RuntimeSnapshot) {
@@ -236,6 +298,7 @@ class TunnelForegroundService : Service() {
         const val ACTION_START = "com.lsyl.tunnel.mobile.START"
         const val ACTION_REFRESH = "com.lsyl.tunnel.mobile.REFRESH"
         const val ACTION_STOP = "com.lsyl.tunnel.mobile.STOP"
+        const val ACTION_UPDATE_BACKGROUND_MODE = "com.lsyl.tunnel.mobile.UPDATE_BACKGROUND_MODE"
         const val ACTION_STATUS = "com.lsyl.tunnel.mobile.STATUS"
         const val INTERNAL_STATUS_PERMISSION = "com.lsyl.tunnel.mobile.permission.INTERNAL_STATUS"
         const val EXTRA_STATUS = "status"
@@ -249,6 +312,9 @@ class TunnelForegroundService : Service() {
 
         fun stopIntent(context: Context): Intent =
             Intent(context, TunnelForegroundService::class.java).setAction(ACTION_STOP)
+
+        fun updateBackgroundModeIntent(context: Context): Intent =
+            Intent(context, TunnelForegroundService::class.java).setAction(ACTION_UPDATE_BACKGROUND_MODE)
 
         fun currentSnapshot(context: Context): RuntimeSnapshot = RuntimeStateStore(context).loadSnapshot()
 

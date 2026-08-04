@@ -33,6 +33,14 @@ class EnhancedBackgroundResourcesTest {
     }
 
     @Test
+    fun resourcesRequireEnabledDesiredAndForegroundService() {
+        assertTrue(EnhancedBackgroundServicePolicy.shouldHoldResources(true, true, true))
+        assertFalse(EnhancedBackgroundServicePolicy.shouldHoldResources(false, true, true))
+        assertFalse(EnhancedBackgroundServicePolicy.shouldHoldResources(true, false, true))
+        assertFalse(EnhancedBackgroundServicePolicy.shouldHoldResources(true, true, false))
+    }
+
+    @Test
     fun enabledRunningAcquiresCpuAndSupportedWifi() {
         val cpu = FakeLock()
         val wifi = FakeLock()

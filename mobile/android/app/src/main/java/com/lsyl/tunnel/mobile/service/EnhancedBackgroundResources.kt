@@ -1,9 +1,14 @@
-﻿package com.lsyl.tunnel.mobile.service
+package com.lsyl.tunnel.mobile.service
 
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.PowerManager
+
+internal object EnhancedBackgroundServicePolicy {
+    fun shouldHoldResources(enabled: Boolean, desiredRunning: Boolean, foregroundActive: Boolean): Boolean =
+        enabled && desiredRunning && foregroundActive
+}
 
 internal interface BackgroundResourceLock {
     val isHeld: Boolean
