@@ -890,19 +890,21 @@ func (s *Server) log(format string, args ...any) {
 }
 
 type failTracker struct {
-	mu            sync.RWMutex
-	window        time.Duration
-	limit         int
-	blockFor      time.Duration
-	maxItems      int
-	cleanupEvery  time.Duration
-	now           func() time.Time
-	items         map[string]*failState
-	permanent     sync.Map
-	stateFile     string
-	permanentFile string
-	evicted       atomic.Uint64
-	capacityDrop  atomic.Uint64
+	mu             sync.RWMutex
+	window         time.Duration
+	limit          int
+	blockFor       time.Duration
+	maxItems       int
+	cleanupEvery   time.Duration
+	now            func() time.Time
+	successfulDate string
+	successfulIPs  map[string]struct{}
+	items          map[string]*failState
+	permanent      sync.Map
+	stateFile      string
+	permanentFile  string
+	evicted        atomic.Uint64
+	capacityDrop   atomic.Uint64
 }
 
 type blockKind int
@@ -936,6 +938,7 @@ func newFailTracker(cfg SecurityConfig, stateFile, permanentFile string) *failTr
 		maxItems:      maxItems,
 		cleanupEvery:  cleanupEvery,
 		now:           time.Now,
+		successfulIPs: map[string]struct{}{},
 		items:         map[string]*failState{},
 		stateFile:     strings.TrimSpace(stateFile),
 		permanentFile: strings.TrimSpace(permanentFile),
@@ -1011,9 +1014,15 @@ func (f *failTracker) addFailure(key string) {
 }
 
 func (f *failTracker) addProtocolFailure(key string) bool {
+	if canonical, ok := canonicalSuccessfulIP(key); ok {
+		key = canonical
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	now := f.now()
+	if f.successfulTodayLocked(key, now) {
+		return false
+	}
 	state, ok := f.trackStateLocked(key, now)
 	if !ok {
 		return false
