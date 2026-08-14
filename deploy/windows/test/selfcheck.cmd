@@ -23,6 +23,7 @@ if not exist %SELF_TMP%\selfcheck-certs\server.key (echo [ERROR] Missing: %SELF_
 rmdir /s /q %SELF_TMP%\selfcheck-certs
 
 echo [4/6] verify script and source layout
+if not exist LICENSE (echo [ERROR] Missing: project LICENSE & exit /b 1)
 if not exist src\client\conf\client.yaml (echo [ERROR] Missing: src\client\conf\client.yaml & exit /b 1)
 if not exist src\client\cert\server.crt (echo [ERROR] Missing: src\client\cert\server.crt & exit /b 1)
 if not exist src\client\assets\client.ico (echo [ERROR] Missing: src\client\assets\client.ico & exit /b 1)
@@ -111,6 +112,8 @@ if not exist deploy\windows\inno\clear-client-id.ps1 (echo [ERROR] Missing: depl
 if not exist deploy\windows\test\test-clear-client-id.ps1 (echo [ERROR] Missing: deploy\windows\test\test-clear-client-id.ps1 & exit /b 1)
 if not exist deploy\windows\inno\package-client.iss (echo [ERROR] Missing: deploy\windows\inno\package-client.iss & exit /b 1)
 if not exist deploy\windows\inno\package-server.iss (echo [ERROR] Missing: deploy\windows\inno\package-server.iss & exit /b 1)
+findstr /c:"{#SourceRoot}\LICENSE" deploy\windows\inno\package-client.iss >nul || (echo [ERROR] Client installer is missing project LICENSE & exit /b 1)
+findstr /c:"{#SourceRoot}\LICENSE" deploy\windows\inno\package-server.iss >nul || (echo [ERROR] Server installer is missing project LICENSE & exit /b 1)
 findstr /c:"verify-installer-version.ps1" deploy\windows\inno\make-client-installer.cmd >nul || (echo [ERROR] Client installer builder must verify installer version & exit /b 1)
 findstr /c:"verify-installer-version.ps1" deploy\windows\inno\make-server-installer.cmd >nul || (echo [ERROR] Server installer builder must verify installer version & exit /b 1)
 findstr /c:"/O%%OUT_DIR%%" deploy\windows\inno\make-client-installer.cmd >nul || (echo [ERROR] Client installer builder must force output directory & exit /b 1)
@@ -180,6 +183,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$m=Get-Content -Raw -Enc
 rmdir /s /q %SELF_TMP%\selfcheck-release-manifest
 if exist %SELF_TMP%\selfcheck-client-package rmdir /s /q %SELF_TMP%\selfcheck-client-package
 call deploy\windows\app\package-client.cmd %SELF_TMP%\selfcheck-client-package >nul || exit /b 1
+if not exist "%SELF_TMP%\selfcheck-client-package\LICENSE" (echo [ERROR] Missing: client package project LICENSE & exit /b 1)
+fc /b "LICENSE" "%SELF_TMP%\selfcheck-client-package\LICENSE" >nul || (echo [ERROR] Client package project LICENSE differs from source & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\cert\server.crt (echo [ERROR] Missing: client package cert & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\bin\lsyl-tunnel-client-lite.exe (echo [ERROR] Missing: client package Lite exe & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\bin\WinDivert.dll (echo [ERROR] Missing: client package WinDivert.dll & exit /b 1)
@@ -230,6 +235,8 @@ if errorlevel 1 (
 )
 if exist %SELF_TMP%\selfcheck-server-package rmdir /s /q %SELF_TMP%\selfcheck-server-package
 call deploy\windows\app\package-server.cmd %SELF_TMP%\selfcheck-server-package >nul || exit /b 1
+if not exist "%SELF_TMP%\selfcheck-server-package\LICENSE" (echo [ERROR] Missing: server package project LICENSE & exit /b 1)
+fc /b "LICENSE" "%SELF_TMP%\selfcheck-server-package\LICENSE" >nul || (echo [ERROR] Server package project LICENSE differs from source & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\bin\lsyl-tunnel-server.exe (echo [ERROR] Missing: server package cli & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\bin\lsyl-tunnel-server-svc.exe (echo [ERROR] Missing: server package service & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\bin\lsyl-tunnel-server-gui.exe (echo [ERROR] Missing: server package gui & exit /b 1)
