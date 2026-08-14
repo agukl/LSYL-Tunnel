@@ -119,6 +119,7 @@ call :remove_dir "%WORK_DIR%" "old release work directory" || exit /b 1
 call :remove_dir "%STAGE_DIR%" "old staged dist directory" || exit /b 1
 mkdir "%WORK_DIR%" || exit /b 1
 mkdir "%INSTALLERS_DIR%" || exit /b 1
+copy /y "%WORKSPACE%\LICENSE" "%STAGE_DIR%\LICENSE" >nul || goto fail
 
 echo [5/8] Build temporary packages from source
 call deploy\windows\app\package-client.cmd "%CLIENT_PACKAGE_DIR%" || goto fail
@@ -174,6 +175,15 @@ exit /b 0
 
 :verify_dist
 set "VERIFY_DIR=%~1"
+if not exist "%VERIFY_DIR%\LICENSE" (
+  echo [ERROR] Missing project license: %VERIFY_DIR%\LICENSE
+  exit /b 1
+)
+fc /b "%WORKSPACE%\LICENSE" "%VERIFY_DIR%\LICENSE" >nul
+if errorlevel 1 (
+  echo [ERROR] Distribution project license differs from source: %VERIFY_DIR%\LICENSE
+  exit /b 1
+)
 if not exist "%VERIFY_DIR%\installers\LSYL-Tunnel-Client-Setup.exe" (
   echo [ERROR] Missing client installer: %VERIFY_DIR%\installers\LSYL-Tunnel-Client-Setup.exe
   exit /b 1
