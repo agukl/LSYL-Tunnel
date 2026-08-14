@@ -41,6 +41,7 @@ if not exist "%PACKAGE_DIR%\secrets" mkdir "%PACKAGE_DIR%\secrets" || exit /b 1
 if not exist "%PACKAGE_DIR%\tmp\gui" mkdir "%PACKAGE_DIR%\tmp\gui" || exit /b 1
 if not exist "%PACKAGE_DIR%\installer\Languages" mkdir "%PACKAGE_DIR%\installer\Languages" || exit /b 1
 if not exist "%PACKAGE_DIR%\licenses\WinDivert\source" mkdir "%PACKAGE_DIR%\licenses\WinDivert\source" || exit /b 1
+copy /y ".\LICENSE" "%PACKAGE_DIR%\LICENSE" >nul || exit /b 1
 copy /y ".\build\bin\client\lsyl-tunnel-client-gui.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\build\bin\client\lsyl-tunnel-client-lite.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\third_party\windivert\2.2.2\x64\WinDivert.dll" "%PACKAGE_DIR%\bin\WinDivert.dll" >nul || exit /b 1

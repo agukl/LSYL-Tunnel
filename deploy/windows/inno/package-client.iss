@@ -44,6 +44,7 @@ Name: "{app}\tmp\gui"; Permissions: users-modify
 Name: "{app}\licenses\WinDivert\source"
 
 [Files]
+Source: "{#SourceRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-lite.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\WinDivert.dll"; DestDir: "{app}\bin"; Flags: ignoreversion restartreplace; Check: ShouldInstallPinnedRuntime('{app}\bin\WinDivert.dll', '{#WinDivertDLLSHA256}')

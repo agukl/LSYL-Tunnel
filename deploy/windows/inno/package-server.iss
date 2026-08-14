@@ -44,6 +44,7 @@ Name: "{app}\logs\flow-traffic"; Flags: uninsneveruninstall
 Name: "{app}\logs\service"; Flags: uninsneveruninstall
 
 [Files]
+Source: "{#SourceRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-server.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-server-svc.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-server-gui.exe"; DestDir: "{app}\bin"; Flags: ignoreversion

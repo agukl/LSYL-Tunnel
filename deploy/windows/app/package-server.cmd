@@ -27,6 +27,7 @@ if not exist "%PACKAGE_DIR%\logs\flow-traffic" mkdir "%PACKAGE_DIR%\logs\flow-tr
 if not exist "%PACKAGE_DIR%\logs\service" mkdir "%PACKAGE_DIR%\logs\service" || exit /b 1
 if not exist "%PACKAGE_DIR%\assets" mkdir "%PACKAGE_DIR%\assets" || exit /b 1
 if not exist "%PACKAGE_DIR%\installer\Languages" mkdir "%PACKAGE_DIR%\installer\Languages" || exit /b 1
+copy /y ".\LICENSE" "%PACKAGE_DIR%\LICENSE" >nul || exit /b 1
 copy /y ".\build\bin\server\lsyl-tunnel-server.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\build\bin\server\lsyl-tunnel-server-svc.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\build\bin\server\lsyl-tunnel-server-gui.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
