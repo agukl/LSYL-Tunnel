@@ -40,12 +40,18 @@ if not exist "%PACKAGE_DIR%conf\client.yaml" (
   echo   %PACKAGE_DIR%conf\client.yaml
   exit /b 1
 )
+if not exist "%PACKAGE_DIR%clear-client-id.ps1" (
+  echo [ERROR] Missing client identity sanitizer:
+  echo   %PACKAGE_DIR%clear-client-id.ps1
+  exit /b 1
+)
 if not exist "%PACKAGE_DIR%cert\server.crt" (
   echo [ERROR] Missing client trust certificate:
   echo   %PACKAGE_DIR%cert\server.crt
   exit /b 1
 )
 
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PACKAGE_DIR%clear-client-id.ps1" -ConfigFile "%PACKAGE_DIR%conf\client.yaml" || exit /b 1
 call :resolve_iscc || exit /b 1
 goto found_iscc
 

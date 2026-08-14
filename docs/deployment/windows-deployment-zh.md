@@ -88,11 +88,11 @@ dist/LSYL Tunnel Client
 
 `package-client.cmd` 会删除并重建这个客户端分发目录，所以后续完整构建会覆盖你手工改过的 `dist/LSYL Tunnel Client`。
 
-打包时会清理客户端运行态字段：
+默认打包和现场重新生成客户端安装器时都会清理客户端运行态字段：
 
 - `password` 会写成空值。
 - `saved_credential` 会写成空对象，不会把本机登录密文带进安装包。
-- `client_id` 会写成空值，客户端首次登录保存配置时会自动使用本机名。
+- `client_id` 会写成空值；现场重打包会直接保存清空后的 kit 原始配置，客户端首次登录保存配置时会自动使用目标机器的本机名。
 
 客户端安装包会安装普通 GUI、Win7 轻量客户端、配置、图标和 `cert/server.crt`。默认运行方式是 GUI 进程模式 + 托盘值守；轻量客户端需要导入 `.lsylprofile` 后手动连接/断开。两者都不注册客户端 Windows 服务。
 
@@ -190,8 +190,8 @@ deploy/windows/README.md
 | `release.cmd /no-client-kit` | 精简完整发布 | 最终 `dist` 不保留 `dist\LSYL Tunnel Client` 和 `dist\make-installers.cmd` |
 | `release.cmd /bundle-inno` | 正常完整发布，并内置 Inno 编译器 | 在默认客户端 kit 旁额外生成 `dist\tools\inno` |
 | `release.cmd /keep-work` | 调试发布临时包 | 成功后保留 `build\tmp\dist-work` 供检查，不作为交付目录 |
-| `dist\make-installers.cmd` | 实施侧按现场配置重新出客户端安装器 | 默认 `dist` 中存在，只重新生成客户端安装器 |
-| `dist\LSYL Tunnel Client\make-installer.cmd` | 只用当前客户端分发目录生成客户端安装器 | 不重新打包源码，不覆盖 `dist\LSYL Tunnel Client` |
+| `dist\make-installers.cmd` | 实施侧按现场配置重新出客户端安装器 | 默认 `dist` 中存在，只重新生成客户端安装器，并清空 kit 配置中的 `client_id` |
+| `dist\LSYL Tunnel Client\make-installer.cmd` | 只用当前客户端分发目录生成客户端安装器 | 不重新打包源码；保留现场配置，但会清空并保存 `client_id` |
 
 完整发布的核心链路是：
 
@@ -255,6 +255,8 @@ dist\LSYL Tunnel Client\make-installer.cmd
 dist/LSYL Tunnel Client/conf/client.yaml
 dist/LSYL Tunnel Client/cert/server.crt
 ```
+
+执行任一现场重打包命令时，脚本会先原地清空 `dist/LSYL Tunnel Client/conf/client.yaml` 的顶层 `client_id`，再调用 Inno Setup。服务器地址、账号、证书引用和转发规则不会因此改动；即使后续安装器编译失败，`client_id` 仍保持为空。
 
 然后再生成安装器。生成结果写入：
 

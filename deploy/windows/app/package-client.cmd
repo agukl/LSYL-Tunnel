@@ -51,6 +51,7 @@ copy /y ".\third_party\windivert\2.2.2\source\WinDivert-2.2.2-source.zip" "%PACK
 copy /y ".\src\client\conf\client.yaml" "%PACKAGE_DIR%\conf\client.yaml" >nul || exit /b 1
 copy /y ".\src\client\assets\client.ico" "%PACKAGE_DIR%\assets\client.ico" >nul || exit /b 1
 copy /y ".\src\client\assets\client-connected.ico" "%PACKAGE_DIR%\assets\client-connected.ico" >nul || exit /b 1
+copy /y "%SCRIPT_DIR%..\inno\clear-client-id.ps1" "%PACKAGE_DIR%\clear-client-id.ps1" >nul || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$src=Join-Path '%WORKSPACE%' 'src\client\cert';" ^
   "$dst='%PACKAGE_DIR%\cert';" ^
@@ -66,8 +67,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$t=[regex]::Replace($t,'(?m)^password:\s*.*$','password: \"\"');" ^
   "$t=[regex]::Replace($t,'(?m)^saved_credential:\s*\r?\n(?:[ \t]+[^\r\n]*(?:\r?\n|$))*','saved_credential: {}'+[Environment]::NewLine);" ^
   "$t=[regex]::Replace($t,'(?m)^saved_credential:\s*.*$','saved_credential: {}');" ^
-  "$t=[regex]::Replace($t,'(?m)^client_id:\s*.*$','client_id: \"\"');" ^
   "[IO.File]::WriteAllText($p,$t,[Text.UTF8Encoding]::new($false))" || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PACKAGE_DIR%\clear-client-id.ps1" -ConfigFile "%PACKAGE_DIR%\conf\client.yaml" || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\make-client-installer.cmd" "%PACKAGE_DIR%\make-installer.cmd" >nul || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\verify-installer-version.ps1" "%PACKAGE_DIR%\verify-installer-version.ps1" >nul || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\package-client.iss" "%PACKAGE_DIR%\installer\client.iss" >nul || exit /b 1

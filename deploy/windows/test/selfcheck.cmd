@@ -107,6 +107,8 @@ if not exist deploy\windows\inno\bundle-inno.cmd (echo [ERROR] Missing: deploy\w
 if not exist deploy\windows\inno\make-client-installer.cmd (echo [ERROR] Missing: deploy\windows\inno\make-client-installer.cmd & exit /b 1)
 if not exist deploy\windows\inno\make-server-installer.cmd (echo [ERROR] Missing: deploy\windows\inno\make-server-installer.cmd & exit /b 1)
 if not exist deploy\windows\inno\verify-installer-version.ps1 (echo [ERROR] Missing: deploy\windows\inno\verify-installer-version.ps1 & exit /b 1)
+if not exist deploy\windows\inno\clear-client-id.ps1 (echo [ERROR] Missing: deploy\windows\inno\clear-client-id.ps1 & exit /b 1)
+if not exist deploy\windows\test\test-clear-client-id.ps1 (echo [ERROR] Missing: deploy\windows\test\test-clear-client-id.ps1 & exit /b 1)
 if not exist deploy\windows\inno\package-client.iss (echo [ERROR] Missing: deploy\windows\inno\package-client.iss & exit /b 1)
 if not exist deploy\windows\inno\package-server.iss (echo [ERROR] Missing: deploy\windows\inno\package-server.iss & exit /b 1)
 findstr /c:"verify-installer-version.ps1" deploy\windows\inno\make-client-installer.cmd >nul || (echo [ERROR] Client installer builder must verify installer version & exit /b 1)
@@ -154,6 +156,7 @@ findstr /c:"RollbackClientRuntimeFiles" deploy\windows\inno\package-client.iss >
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path 'release.cmd','deploy\windows\sign\sign-release.ps1','deploy\windows\sign\write-release-manifest.ps1','deploy\windows\app\write-dist-tools.cmd' -Pattern 'LSYL Tunnel Profile Tool','package-profile','profile-package' -List; if($hit){ $hit | ForEach-Object { Write-Host ('[ERROR] Profile tool must not be part of release packaging: ' + $_.Path + ':' + $_.LineNumber) }; exit 1 }" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$roots=@('src','deploy','docs'); $files=foreach($r in $roots){ if(Test-Path $r){ Get-ChildItem $r -Recurse -File } }; $files=$files | Where-Object { $_.FullName -notlike '*\deploy\windows\test\selfcheck.cmd' }; $hit=$files | Select-String -SimpleMatch 'LSYLTunnelClient','lsyl-tunnel-client-svc' -List; if($hit){ $hit | ForEach-Object { Write-Host ('[ERROR] Forbidden client service reference: ' + $_.Path + ':' + $_.LineNumber) }; exit 1 }" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\test\check-text.ps1 || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\test\test-clear-client-id.ps1 || exit /b 1
 
 echo [5/6] verify build outputs and package layouts
 if not exist build\bin\client\lsyl-tunnel-client.exe (echo [ERROR] Missing: build\bin\client\lsyl-tunnel-client.exe & exit /b 1)
@@ -194,6 +197,7 @@ rmdir /s /q "%SELF_TMP%\selfcheck-default-dist"
 if exist %SELF_TMP%\selfcheck-client-package\bin\lsyl-tunnel-profile.exe (echo [ERROR] Client package must not include independent profile tool & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\make-installer.cmd (echo [ERROR] Missing: client package installer builder & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\verify-installer-version.ps1 (echo [ERROR] Missing: client package installer version verifier & exit /b 1)
+if not exist %SELF_TMP%\selfcheck-client-package\clear-client-id.ps1 (echo [ERROR] Missing: client package identity sanitizer & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\installer\client.iss (echo [ERROR] Missing: client package Inno script & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-client-package\installer\Languages\ChineseSimplified.isl (echo [ERROR] Missing: client package installer language & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path '%SELF_TMP%\selfcheck-client-package\installer\client.iss' -SimpleMatch 'taskkill' -List; if($hit){ Write-Host ('[ERROR] Client package installer must not force-kill processes: ' + $hit.Path + ':' + $hit.LineNumber); exit 1 }" || exit /b 1
@@ -210,6 +214,13 @@ findstr /c:"../cert/server.crt" %SELF_TMP%\selfcheck-client-package\conf\client.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "if(-not (Select-String -Path '%SELF_TMP%\selfcheck-client-package\conf\client.yaml' -SimpleMatch 'config_version:' -Quiet)){ Write-Host '[ERROR] Client package config is missing config_version'; exit 1 }" || exit /b 1
 findstr /c:"min_client_version" %SELF_TMP%\selfcheck-client-package\conf\client.yaml >nul || (echo [ERROR] Client package config is missing requires.min_client_version & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%SELF_TMP%\selfcheck-client-package\conf\client.yaml'; $t=Get-Content -Raw -Encoding UTF8 $p; if($t -match 'ciphertext:|key_id:|client_id:\s*demo-client'){ Write-Host '[ERROR] Client package config contains runtime-only credential data or demo client id.'; exit 1 }; if($t -notmatch '(?m)^saved_credential:\s*\{\}' -or $t -notmatch '(?m)^forwards:'){ Write-Host '[ERROR] Client package config was not sanitized correctly or lost forwards.'; exit 1 }" || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%SELF_TMP%\selfcheck-client-package\conf\client.yaml'; $e='%SELF_TMP%\selfcheck-client-repackage-expected.yaml'; $t=[IO.File]::ReadAllText($p); $pattern=[regex]::new('(?m)^(client_id[ \t]*:[ \t]*)[^\r\n]*(\r?)$'); if($pattern.Matches($t).Count -ne 1){ Write-Host '[ERROR] Client package config must contain exactly one top-level client_id.'; exit 1 }; $seed=$pattern.Replace($t,'${1}site-machine${2}',1); $empty='${1}'+[char]34+[char]34+'${2}'; $expected=$pattern.Replace($seed,$empty,1); [IO.File]::WriteAllText($p,$seed,[Text.UTF8Encoding]::new($false)); [IO.File]::WriteAllText($e,$expected,[Text.UTF8Encoding]::new($false))" || exit /b 1
+if exist "%SELF_TMP%\selfcheck-client-installer" rmdir /s /q "%SELF_TMP%\selfcheck-client-installer"
+call "%SELF_TMP%\selfcheck-client-package\make-installer.cmd" "%SELF_TMP%\selfcheck-client-installer" >nul || exit /b 1
+if not exist "%SELF_TMP%\selfcheck-client-installer\LSYL-Tunnel-Client-Setup.exe" (echo [ERROR] On-site client installer was not created & exit /b 1)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$a=[Convert]::ToBase64String([IO.File]::ReadAllBytes('%SELF_TMP%\selfcheck-client-package\conf\client.yaml')); $e=[Convert]::ToBase64String([IO.File]::ReadAllBytes('%SELF_TMP%\selfcheck-client-repackage-expected.yaml')); if($a -cne $e){ Write-Host '[ERROR] On-site client repackaging did not clear client_id in the original config.'; exit 1 }" || exit /b 1
+del /f /q "%SELF_TMP%\selfcheck-client-repackage-expected.yaml" >nul 2>nul
+rmdir /s /q "%SELF_TMP%\selfcheck-client-installer"
 if exist %SELF_TMP%\selfcheck-client-config-result.txt del /f /q %SELF_TMP%\selfcheck-client-config-result.txt
 start "" /wait ".\build\bin\client\lsyl-tunnel-client-gui.exe" -config-compat-check -config "%SELF_TMP%\selfcheck-client-package\conf\client.yaml" -result-file "%SELF_TMP%\selfcheck-client-config-result.txt"
 if errorlevel 1 (
