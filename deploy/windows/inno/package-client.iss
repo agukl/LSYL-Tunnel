@@ -1,5 +1,5 @@
 #define AppName "LSYL Tunnel Client"
-#define AppVersion "2.1.0"
+#define AppVersion "2.2.0"
 #define WinDivertDLLSHA256 "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
 #define WinDivertDriverSHA256 "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
 ; This script is copied into the client distributable package:

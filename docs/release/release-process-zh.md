@@ -5,8 +5,8 @@
 当前版本：
 
 ```text
-APP_VERSION=2.1.0
-WINDOWS_FILE_VERSION=2.1.0.0
+APP_VERSION=2.2.0
+WINDOWS_FILE_VERSION=2.2.0.0
 PROTOCOL_VERSION=2
 ```
 
@@ -20,7 +20,7 @@ PROTOCOL_VERSION=2
 | 第二位 | 客户端或服务端配置结构、字段含义、默认行为发生需要关注的变化。 |
 | 第三位 | UI、安装器、文档、辅助工具等兼容改动。 |
 
-Windows `FileVersion` 使用四段号，由产品版本派生，例如 `2.1.0 -> 2.1.0.0`。
+Windows `FileVersion` 使用四段号，由产品版本派生，例如 `2.2.0 -> 2.2.0.0`。
 
 每次升版至少检查这些位置：
 
