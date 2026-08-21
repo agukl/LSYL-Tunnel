@@ -44,8 +44,7 @@ type App struct {
 }
 
 func Run() error {
-	app := NewApp()
-	return app.Run()
+	return runSingleServerGUI()
 }
 
 func RunFromArgs(args []string) error {
