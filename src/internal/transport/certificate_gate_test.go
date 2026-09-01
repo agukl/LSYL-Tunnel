@@ -1,10 +1,12 @@
 package transport
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hmac"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
@@ -168,7 +170,75 @@ func TestCertificateGateProofMatchesAndroidWireVector(t *testing.T) {
 	}
 }
 
+func TestDialTLSWithCertificateGateInfersServerName(t *testing.T) {
+	certPEM, keyPEM, certDER := certificateGateTestIdentity(t)
+	identity, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateKey, err := CertificateGateKeyFromDER(certDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	serverResult := make(chan error, 1)
+	go func() {
+		raw, err := listener.Accept()
+		if err != nil {
+			serverResult <- err
+			return
+		}
+		defer raw.Close()
+		_ = raw.SetDeadline(time.Now().Add(2 * time.Second))
+		if err := ServerCertificateGate(raw, gateKey); err != nil {
+			serverResult <- err
+			return
+		}
+		server := tls.Server(raw, &tls.Config{
+			Certificates: []tls.Certificate{identity},
+			MinVersion:   tls.VersionTLS12,
+		})
+		serverResult <- server.Handshake()
+	}()
+
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(certPEM) {
+		t.Fatal("append test root certificate")
+	}
+	tlsConfig := &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+	client, err := DialTLSWithCertificateGate(
+		context.Background(),
+		&net.Dialer{Timeout: time.Second},
+		"tcp4",
+		listener.Addr().String(),
+		tlsConfig,
+		gateKey,
+		2*time.Second,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = client.Close()
+	if err := <-serverResult; err != nil {
+		t.Fatal(err)
+	}
+	if tlsConfig.ServerName != "" {
+		t.Fatalf("DialTLSWithCertificateGate mutated cached ServerName to %q", tlsConfig.ServerName)
+	}
+}
+
 func certificateGateTestCertificate(t *testing.T) ([]byte, []byte) {
+	t.Helper()
+	certPEM, _, certDER := certificateGateTestIdentity(t)
+	return certPEM, certDER
+}
+
+func certificateGateTestIdentity(t *testing.T) ([]byte, []byte, []byte) {
 	t.Helper()
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -184,10 +254,17 @@ func certificateGateTestCertificate(t *testing.T) ([]byte, []byte) {
 		NotBefore:    time.Now().Add(-time.Minute),
 		NotAfter:     time.Now().Add(time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), der
+	privateDER, err := x509.MarshalECPrivateKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: privateDER}),
+		der
 }

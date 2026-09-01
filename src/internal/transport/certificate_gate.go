@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -159,6 +160,7 @@ func DialTLSWithCertificateGate(
 	if err := ClientCertificateGate(raw, gateKey); err != nil {
 		return nil, err
 	}
+	tlsConfig = tlsConfigForAddress(tlsConfig, address)
 	tlsConn := tls.Client(raw, tlsConfig)
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		return nil, fmt.Errorf("TLS handshake after certificate possession gate: %w", err)
@@ -166,6 +168,24 @@ func DialTLSWithCertificateGate(
 	_ = tlsConn.SetDeadline(time.Time{})
 	closeOnError = false
 	return tlsConn, nil
+}
+
+// tlsConfigForAddress preserves the server-name inference provided by
+// tls.Dialer, which this pre-TLS gate replaces.
+func tlsConfigForAddress(config *tls.Config, address string) *tls.Config {
+	if config == nil {
+		config = &tls.Config{}
+	}
+	if config.ServerName != "" {
+		return config
+	}
+	colonPos := strings.LastIndex(address, ":")
+	if colonPos == -1 {
+		colonPos = len(address)
+	}
+	clone := config.Clone()
+	clone.ServerName = address[:colonPos]
+	return clone
 }
 
 func certificateGateProof(key CertificateGateKey, challenge, responseHeader []byte) []byte {
