@@ -20,6 +20,7 @@ import (
 type Client struct {
 	cfg                    Config
 	tlsConfig              *tls.Config
+	certificateGateKey     transport.CertificateGateKey
 	ctx                    context.Context
 	listeners              map[string]net.Listener
 	virtualAddrs           map[string]string
@@ -90,24 +91,28 @@ func newOpenRequest(cfg Config, reqType string) protocol.OpenRequest {
 
 func checkServerResponse(ctx context.Context, cfg Config, reqType string) (protocol.OpenResponse, error) {
 	ApplyDefaults(&cfg)
-	tlsCfg, err := clientTLSConfig(cfg)
+	tlsCfg, certificateGateKey, err := clientTLSMaterials(cfg)
 	if err != nil {
 		return protocol.OpenResponse{}, err
 	}
-	return checkServerResponseWithTLS(ctx, cfg, reqType, tlsCfg)
+	return checkServerResponseWithTLS(ctx, cfg, reqType, tlsCfg, certificateGateKey)
 }
 
-func checkServerResponseWithTLS(ctx context.Context, cfg Config, reqType string, tlsCfg *tls.Config) (protocol.OpenResponse, error) {
+func checkServerResponseWithTLS(ctx context.Context, cfg Config, reqType string, tlsCfg *tls.Config, certificateGateKey transport.CertificateGateKey) (protocol.OpenResponse, error) {
 	var resp protocol.OpenResponse
 	timeout := time.Duration(cfg.Connection.DialTimeoutSec) * time.Second
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	dialer := tls.Dialer{
-		NetDialer: &net.Dialer{Timeout: timeout},
-		Config:    tlsCfg,
-	}
-	conn, err := dialer.DialContext(ctx, "tcp", cfg.ServerAddr)
+	conn, err := transport.DialTLSWithCertificateGate(
+		ctx,
+		&net.Dialer{Timeout: timeout},
+		"tcp",
+		cfg.ServerAddr,
+		tlsCfg,
+		certificateGateKey,
+		timeout,
+	)
 	if err != nil {
 		return resp, err
 	}
@@ -132,13 +137,6 @@ func checkServerResponseWithTLS(ctx context.Context, cfg Config, reqType string,
 	return resp, nil
 }
 
-func tlsDialer(timeout time.Duration, tlsCfg *tls.Config) tls.Dialer {
-	return tls.Dialer{
-		NetDialer: &net.Dialer{Timeout: timeout},
-		Config:    tlsCfg,
-	}
-}
-
 func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Client, error) {
 	return start(ctx, cfg, "", false, logf)
 }
@@ -149,13 +147,14 @@ func StartVerified(ctx context.Context, cfg Config, serverVersion string, logf t
 
 func start(ctx context.Context, cfg Config, serverVersion string, verified bool, logf transport.LogFunc) (*Client, error) {
 	ApplyDefaults(&cfg)
-	tlsCfg, err := clientTLSConfig(cfg)
+	tlsCfg, certificateGateKey, err := clientTLSMaterials(cfg)
 	if err != nil {
 		return nil, err
 	}
 	client := &Client{
 		cfg:                    cfg,
 		tlsConfig:              tlsCfg,
+		certificateGateKey:     certificateGateKey,
 		ctx:                    ctx,
 		listeners:              map[string]net.Listener{},
 		virtualAddrs:           map[string]string{},
@@ -548,8 +547,8 @@ func (c *Client) handleLocal(local net.Conn, name string, fwd ForwardConfig) {
 		c.log("tls config failed: %v", err)
 		return
 	}
-	dialer := &net.Dialer{Timeout: time.Duration(c.cfg.Connection.DialTimeoutSec) * time.Second}
-	remote, err := tls.DialWithDialer(dialer, "tcp", c.cfg.ServerAddr, tlsCfg)
+	timeout := time.Duration(c.cfg.Connection.DialTimeoutSec) * time.Second
+	remote, err := transport.DialTLSWithCertificateGate(c.ctx, &net.Dialer{Timeout: timeout}, "tcp", c.cfg.ServerAddr, tlsCfg, c.certificateGateKey, timeout)
 	if err != nil {
 		c.recordForwardError(name, err)
 		c.log("connect server failed: %v", err)
@@ -631,8 +630,7 @@ func (c *Client) maintainReverseListen(ctx context.Context, name string, fwd For
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	dialer := &net.Dialer{Timeout: timeout}
-	remote, err := tls.DialWithDialer(dialer, "tcp", c.cfg.ServerAddr, tlsCfg)
+	remote, err := transport.DialTLSWithCertificateGate(ctx, &net.Dialer{Timeout: timeout}, "tcp", c.cfg.ServerAddr, tlsCfg, c.certificateGateKey, timeout)
 	if err != nil {
 		return fmt.Errorf("connect server failed: %w", err)
 	}
@@ -708,8 +706,7 @@ func (c *Client) openReverseStream(ctx context.Context, name string, fwd Forward
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	dialer := &net.Dialer{Timeout: timeout}
-	remote, err := tls.DialWithDialer(dialer, "tcp", c.cfg.ServerAddr, tlsCfg)
+	remote, err := transport.DialTLSWithCertificateGate(ctx, &net.Dialer{Timeout: timeout}, "tcp", c.cfg.ServerAddr, tlsCfg, c.certificateGateKey, timeout)
 	if err != nil {
 		c.recordForwardError(name, err)
 		c.log("reverse stream %s connect server failed: %v", name, err)
@@ -779,23 +776,34 @@ func (c *Client) clientTLSConfig() (*tls.Config, error) {
 }
 
 func clientTLSConfig(cfg Config) (*tls.Config, error) {
+	tlsCfg, _, err := clientTLSMaterials(cfg)
+	return tlsCfg, err
+}
+
+func clientTLSMaterials(cfg Config) (*tls.Config, transport.CertificateGateKey, error) {
+	var certificateGateKey transport.CertificateGateKey
 	tlsCfg := &tls.Config{
 		MinVersion:         transport.TLSMinVersion(cfg.TLS.MinVersion),
 		ServerName:         cfg.TLS.ServerName,
 		InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
 	}
-	if cfg.TLS.CACertFile != "" {
-		pemData, err := os.ReadFile(cfg.TLS.CACertFile)
-		if err != nil {
-			return nil, err
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pemData) {
-			return nil, fmt.Errorf("no server TLS trust data found in %s", cfg.TLS.CACertFile)
-		}
-		tlsCfg.RootCAs = pool
+	if cfg.TLS.CACertFile == "" {
+		return nil, certificateGateKey, fmt.Errorf("tls.ca_cert_file is required for certificate possession gate and server verification")
 	}
-	return tlsCfg, nil
+	pemData, err := os.ReadFile(cfg.TLS.CACertFile)
+	if err != nil {
+		return nil, certificateGateKey, err
+	}
+	certificateGateKey, err = transport.CertificateGateKeyFromPEM(pemData)
+	if err != nil {
+		return nil, certificateGateKey, err
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pemData) {
+		return nil, certificateGateKey, fmt.Errorf("no server TLS trust data found in %s", cfg.TLS.CACertFile)
+	}
+	tlsCfg.RootCAs = pool
+	return tlsCfg, certificateGateKey, nil
 }
 
 func responseError(resp protocol.OpenResponse, fallback string) error {

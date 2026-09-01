@@ -2,11 +2,13 @@ package tunnel
 
 import (
 	"encoding/binary"
+	"errors"
 	"net"
 	"strconv"
 	"strings"
 
 	"lsyltunnel/src/internal/protocol"
+	"lsyltunnel/src/internal/transport"
 )
 
 const (
@@ -71,6 +73,16 @@ func classifyEntryHandshakeError(err error, prefix []byte) string {
 		}
 		return entryCodeInvalidHandshake
 	}
+}
+
+func classifyEntryCertificateGateError(err error, prefix []byte) string {
+	if entryHTTPMethodFromPrefix(prefix) != "" {
+		return entryCodeHTTPProbe
+	}
+	if errors.Is(err, transport.ErrCertificateGateProtocol) || errors.Is(err, transport.ErrCertificateGateProof) {
+		return entryCodeInvalidHandshake
+	}
+	return classifyEntryHandshakeError(err, prefix)
 }
 
 func oversizedHandshakeHTTPMethod(text string) string {
@@ -140,6 +152,12 @@ func (c *entryPeekConn) Prefix() []byte {
 	out := make([]byte, len(c.prefix))
 	copy(out, c.prefix)
 	return out
+}
+
+func (c *entryPeekConn) ResetPrefix() {
+	if c != nil {
+		c.prefix = c.prefix[:0]
+	}
 }
 
 func (s *Server) countEntryProtocolRejected(code string) {

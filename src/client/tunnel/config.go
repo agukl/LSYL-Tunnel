@@ -175,9 +175,6 @@ func ValidateConfig(cfg Config) error {
 	if strings.TrimSpace(cfg.Username) == "" || (cfg.Password == "" && strings.TrimSpace(cfg.SavedCredential.Ciphertext) == "") {
 		return fmt.Errorf("username and password are required")
 	}
-	if !cfg.TLS.InsecureSkipVerify && strings.TrimSpace(cfg.TLS.CACertFile) == "" {
-		return fmt.Errorf("tls.ca_cert_file is required for server verification unless insecure_skip_verify is true")
-	}
 	if len(cfg.Forwards) == 0 {
 		return fmt.Errorf("at least one forward is required")
 	}
@@ -249,6 +246,9 @@ func ValidateConfig(cfg Config) error {
 	}
 	if len(virtualEndpoints) > maxVirtualRedirectEndpoints {
 		return fmt.Errorf("virtual forwarding supports at most %d endpoints", maxVirtualRedirectEndpoints)
+	}
+	if strings.TrimSpace(cfg.TLS.CACertFile) == "" {
+		return fmt.Errorf("tls.ca_cert_file is required for certificate possession gate and server verification")
 	}
 	return nil
 }

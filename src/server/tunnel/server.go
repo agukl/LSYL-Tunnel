@@ -25,6 +25,7 @@ type Server struct {
 	cfg                 Config
 	listener            net.Listener
 	tlsConfig           *tls.Config
+	certificateGateKey  transport.CertificateGateKey
 	httpSrv             *http.Server
 	users               map[string]UserConfig
 	fails               *failTracker
@@ -96,6 +97,13 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 	if err != nil {
 		return nil, fmt.Errorf("load server TLS identity files: %w", err)
 	}
+	if len(cert.Certificate) == 0 {
+		return nil, fmt.Errorf("load server TLS identity files: certificate chain is empty")
+	}
+	certificateGateKey, err := transport.CertificateGateKeyFromDER(cert.Certificate[0])
+	if err != nil {
+		return nil, err
+	}
 	ln, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
 		return nil, err
@@ -118,6 +126,7 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 		cfg:                cfg,
 		listener:           ln,
 		tlsConfig:          tlsCfg,
+		certificateGateKey: certificateGateKey,
 		users:              make(map[string]UserConfig),
 		fails:              fails,
 		reverseListeners:   make(map[string]*reverseListener),
@@ -247,8 +256,14 @@ func (s *Server) acceptLoop(ctx context.Context) {
 
 func (s *Server) handleAcceptedConn(conn net.Conn, acceptedAt time.Time) {
 	peekConn := &entryPeekConn{Conn: conn}
+	_ = peekConn.SetDeadline(time.Now().Add(time.Duration(s.cfg.Security.HandshakeTimeoutSec) * time.Second))
+	if err := transport.ServerCertificateGate(peekConn, s.certificateGateKey); err != nil {
+		s.rejectEntryProtocol(peekConn, remoteHost(peekConn.RemoteAddr()), "", classifyEntryCertificateGateError(err, peekConn.Prefix()), "", true, time.Since(acceptedAt).Milliseconds())
+		_ = peekConn.Close()
+		return
+	}
+	peekConn.ResetPrefix()
 	tlsConn := tls.Server(peekConn, s.tlsConfig)
-	_ = tlsConn.SetDeadline(time.Now().Add(time.Duration(s.cfg.Security.HandshakeTimeoutSec) * time.Second))
 	if err := tlsConn.Handshake(); err != nil {
 		s.rejectEntryProtocol(tlsConn, remoteHost(tlsConn.RemoteAddr()), "", classifyEntryHandshakeError(err, peekConn.Prefix()), "", true, time.Since(acceptedAt).Milliseconds())
 		_ = tlsConn.Close()

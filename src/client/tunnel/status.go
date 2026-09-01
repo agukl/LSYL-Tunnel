@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"lsyltunnel/src/internal/protocol"
+	"lsyltunnel/src/internal/transport"
 )
 
 const (
@@ -315,7 +316,7 @@ func (c *Client) CheckHealthNow(ctx context.Context) HealthStatus {
 		state, message := classifyHealthError(err)
 		return c.finalizeHealthStatus(c.setHealth(state, message, err.Error(), state == HealthAuthError))
 	}
-	resp, err := checkServerResponseWithTLS(checkCtx, c.cfg, "health", tlsCfg)
+	resp, err := checkServerResponseWithTLS(checkCtx, c.cfg, "health", tlsCfg, c.certificateGateKey)
 	if err != nil {
 		state, message := classifyHealthError(err)
 		return c.finalizeHealthStatus(c.setHealth(state, message, err.Error(), state == HealthAuthError))
@@ -438,8 +439,15 @@ func (c *Client) checkForwardResponse(ctx context.Context, name string, fwd Forw
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	dialer := tlsDialer(timeout, tlsCfg)
-	conn, err := dialer.DialContext(ctx, "tcp", c.cfg.ServerAddr)
+	conn, err := transport.DialTLSWithCertificateGate(
+		ctx,
+		&net.Dialer{Timeout: timeout},
+		"tcp",
+		c.cfg.ServerAddr,
+		tlsCfg,
+		c.certificateGateKey,
+		timeout,
+	)
 	if err != nil {
 		return resp, err
 	}

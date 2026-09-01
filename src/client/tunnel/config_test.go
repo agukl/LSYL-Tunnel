@@ -18,6 +18,7 @@ func TestLoadConfigPasswordFile(t *testing.T) {
 username: alice
 password_file: password.txt
 tls:
+  ca_cert_file: server.crt
   insecure_skip_verify: true
 forwards:
   - name: echo
@@ -44,6 +45,7 @@ func TestLoadConfigPasswordEnv(t *testing.T) {
 username: alice
 password_env: LSYL_TUNNEL_TEST_PASSWORD
 tls:
+  ca_cert_file: server.crt
   insecure_skip_verify: true
 forwards:
   - name: echo
@@ -84,6 +86,25 @@ forwards:
 	}
 }
 
+func TestValidateConfigRequiresCertificateForPossessionGate(t *testing.T) {
+	cfg := Config{
+		ServerAddr: "127.0.0.1:9443",
+		Username:   "alice",
+		Password:   "secret",
+		TLS:        TLSConfig{InsecureSkipVerify: true},
+		Forwards: []ForwardConfig{{
+			Name:         "web",
+			Direction:    DirectionClientToServer,
+			ListenAddr:   "127.0.0.1:8080",
+			ServerTarget: "127.0.0.1:80",
+		}},
+	}
+	err := ValidateConfig(cfg)
+	if err == nil || !strings.Contains(err.Error(), "certificate possession gate") {
+		t.Fatalf("ValidateConfig() error = %v, want certificate possession gate requirement", err)
+	}
+}
+
 func TestCheckConfigUpgradeCompatibleRejectsReverseListenerFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.yaml")
 	data := []byte(`config_version: 1
@@ -120,7 +141,7 @@ saved_credential:
 client_id: ""
 log_level: info
 tls:
-  ca_cert_file: ""
+  ca_cert_file: server.crt
   server_name: ""
   min_version: "1.3"
   insecure_skip_verify: true
@@ -162,7 +183,7 @@ saved_credential:
 client_id: workstation
 log_level: info
 tls:
-  ca_cert_file: ""
+  ca_cert_file: server.crt
   server_name: ""
   min_version: "1.3"
   insecure_skip_verify: true
@@ -205,7 +226,7 @@ saved_credential: {}
 client_id: workstation
 log_level: info
 tls:
-  ca_cert_file: ""
+  ca_cert_file: server.crt
   server_name: ""
   min_version: "1.3"
   insecure_skip_verify: true
@@ -351,6 +372,7 @@ func TestLoadConfigRejectsLegacyReverseListenerFields(t *testing.T) {
 username: alice
 password: secret
 tls:
+  ca_cert_file: server.crt
   insecure_skip_verify: true
 forwards:
   - name: reverse-web
@@ -381,6 +403,7 @@ func TestLoadConfigAcceptsReverseListenAddressWithoutRewriting(t *testing.T) {
 username: alice
 password: secret
 tls:
+  ca_cert_file: server.crt
   insecure_skip_verify: true
 forwards:
   - name: mysql
@@ -442,7 +465,7 @@ func TestSaveConfigWritesReverseAddresses(t *testing.T) {
 		ServerAddr: "127.0.0.1:9443",
 		Username:   "alice",
 		Password:   "secret",
-		TLS:        TLSConfig{InsecureSkipVerify: true},
+		TLS:        TLSConfig{CACertFile: "server.crt", InsecureSkipVerify: true},
 		Forwards: []ForwardConfig{{
 			Name:         "reverse-web",
 			Direction:    DirectionServerToClient,
@@ -468,7 +491,7 @@ func TestValidateConfigAllowsMultipleReverseRules(t *testing.T) {
 		ServerAddr: "127.0.0.1:9443",
 		Username:   "alice",
 		Password:   "secret",
-		TLS:        TLSConfig{InsecureSkipVerify: true},
+		TLS:        TLSConfig{CACertFile: "server.crt", InsecureSkipVerify: true},
 		Forwards: []ForwardConfig{{
 			Direction:    DirectionServerToClient,
 			ListenAddr:   "127.0.0.1:13306",

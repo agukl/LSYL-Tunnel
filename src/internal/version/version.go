@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	AppVersion          = "2.2.0"
+	AppVersion          = "3.0.0"
 	LegacyClientVersion = "1.1.0"
 
 	ClientConfigVersion               = 2
@@ -15,9 +15,9 @@ const (
 	ServerConfigVersion               = 1
 	ServerConfigRequiresServerVersion = "2.0.0"
 
-	ProtocolVersion            = 2
+	ProtocolVersion            = 3
 	LegacyProtocolVersion      = 1
-	MinCompatibleClientVersion = "2.0.0"
+	MinCompatibleClientVersion = "3.0.0"
 )
 
 func Compare(a, b string) (int, error) {

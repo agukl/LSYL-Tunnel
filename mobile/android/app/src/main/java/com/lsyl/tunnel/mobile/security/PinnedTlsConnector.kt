@@ -14,7 +14,8 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.TrustManagerFactory
 
 class PinnedTlsConnector(private val certBytes: ByteArray) {
-    private val expectedPin = CertificatePins.sha256Hex(CertificatePins.parseCertificate(certBytes))
+    private val certificate = CertificatePins.parseCertificate(certBytes)
+    private val expectedPin = CertificatePins.sha256Hex(certificate)
     private val context: SSLContext = buildContext()
     private val pending = PendingCloseables<Socket>()
 
@@ -25,6 +26,8 @@ class PinnedTlsConnector(private val certBytes: ByteArray) {
         return try {
             raw.closeOnFailure {
                 raw.connect(InetSocketAddress(endpoint.host, endpoint.port), timeout)
+                raw.soTimeout = timeout
+                CertificateGate.perform(raw, certificate)
                 val tlsHost = profile.tls.serverName.ifBlank { endpoint.host }
                 val tls = pending.track(
                     context.socketFactory.createSocket(raw, tlsHost, endpoint.port, true) as SSLSocket
@@ -66,10 +69,9 @@ class PinnedTlsConnector(private val certBytes: ByteArray) {
     }
 
     private fun buildContext(): SSLContext {
-        val cert = CertificatePins.parseCertificate(certBytes)
         val keyStore = KeyStore.getInstance(KeyStore.getDefaultType())
         keyStore.load(null)
-        keyStore.setCertificateEntry("lsyl-server", cert)
+        keyStore.setCertificateEntry("lsyl-server", certificate)
         val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
         tmf.init(keyStore)
         return SSLContext.getInstance("TLS").apply {

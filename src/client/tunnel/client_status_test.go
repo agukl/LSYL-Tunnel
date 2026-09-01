@@ -144,7 +144,10 @@ func TestStartVerifiedDelaysInitialHealthCheck(t *testing.T) {
 		ServerAddr: listener.Addr().String(),
 		Username:   "alice",
 		Password:   "secret",
-		TLS:        TLSConfig{InsecureSkipVerify: true},
+		TLS: TLSConfig{
+			CACertFile:         writeTestServerCertificate(t, "192.0.2.22"),
+			InsecureSkipVerify: true,
+		},
 		Forwards: []ForwardConfig{{
 			Name:         "verified",
 			ListenAddr:   "127.0.0.1:0",
@@ -188,7 +191,10 @@ func TestStartSoftFailsOccupiedForward(t *testing.T) {
 		ServerAddr: "127.0.0.1:1",
 		Username:   "alice",
 		Password:   "secret",
-		TLS:        TLSConfig{InsecureSkipVerify: true},
+		TLS: TLSConfig{
+			CACertFile:         writeTestServerCertificate(t, "192.0.2.22"),
+			InsecureSkipVerify: true,
+		},
 		Forwards: []ForwardConfig{
 			{Name: "bad", ListenAddr: occupied.Addr().String(), ServerTarget: "127.0.0.1:80"},
 			{Name: "good", ListenAddr: "127.0.0.1:0", ServerTarget: "127.0.0.1:80"},

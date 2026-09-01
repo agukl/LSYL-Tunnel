@@ -20,13 +20,13 @@
 
 `config_version`：服务端配置结构版本。当前支持 `1`；缺省时按历史 V0 配置处理并套用当前默认值。覆盖安装会先按对应版本的字段集做严格 YAML 校验：未知字段、错误层级、V1 缺失必填结构或运行语义不合法时均会停止安装；高于当前程序支持的版本同样拒绝。
 
-`requires.min_server_version`：该配置要求的最低服务端程序版本。当前默认 `"2.0.0"`；配置结构、协议基线或字段含义升级时才应上调。
+`requires.min_server_version`：该配置要求的最低服务端程序版本。当前分发默认 `"3.0.0"`；配置结构、协议基线或字段含义升级时才应上调。
 
-`compatibility.min_client_version`：允许连接本服务端的最低客户端版本。当前默认 `"2.0.0"`。
+`compatibility.min_client_version`：允许连接本服务端的最低客户端版本。当前默认 `"3.0.0"`。
 
 `compatibility.max_client_version`：允许连接本服务端的最高客户端版本，默认留空表示不限制新客户端。只有确认新客户端不能安全连接旧服务端时才填写。
 
-`compatibility.protocol_version`：服务端要求的 LSYL 握手协议版本。当前为 `2`；客户端握手中的 `protocol_version` 不匹配时会被拒绝。
+`compatibility.protocol_version`：服务端要求的 LSYL 握手协议版本。当前为 `3`；客户端握手中的 `protocol_version` 不匹配时会被拒绝。协议 3 在 TLS 前增加证书持有前置门，不兼容协议 2 客户端。
 
 `listen_addr`：服务端隧道入口监听地址。
 
@@ -116,7 +116,7 @@
 
 `config_version`：客户端配置结构版本。当前版本为 `2`，并继续读取严格合法的 V1 和无版本旧配置。V1/V2 会校验完整字段结构，所有版本都拒绝未知字段、错误层级、重复字段和多份 YAML 文档；高于当前程序支持值时拒绝启动、覆盖安装或切换到该配置。
 
-`requires.min_client_version`：该配置要求的最低客户端程序版本。V2 默认并至少为 `"2.1.0"`；配置结构或字段含义升级时同步上调。
+`requires.min_client_version`：该配置要求的最低客户端程序版本。配置结构 V2 允许的最低值为 `"2.1.0"`，当前分发默认 `"3.0.0"`；配置结构或字段含义升级时同步上调。
 
 `server_addr`：服务端隧道地址。
 
@@ -132,7 +132,7 @@
 
 `client_id`：客户端标识，仅用于日志和排查，不作为安全凭据。
 
-`tls.ca_cert_file`：客户端信任的服务端 TLS 公开文件，通常就是服务端生成的 `server.crt`。客户端默认配置指向 `../cert/server.crt`，打包和安装时会把 `src\client\cert\server.crt` 放到客户端目录的 `cert\server.crt`。
+`tls.ca_cert_file`：客户端信任的服务端 TLS 公开文件，通常就是服务端生成的 `server.crt`。它同时用于 TLS 前的证书持有前置门，因此始终必填，即使临时设置 `insecure_skip_verify: true` 也不能省略。客户端默认配置指向 `../cert/server.crt`，打包和安装时会把 `src\client\cert\server.crt` 放到客户端目录的 `cert\server.crt`。
 
 `tls.server_name`：TLS 校验使用的服务端名称，应匹配生成服务端 TLS 文件时的 `-hosts`。
 

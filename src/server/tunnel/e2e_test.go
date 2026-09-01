@@ -20,6 +20,7 @@ import (
 
 	"lsyltunnel/src/client/tunnel"
 	"lsyltunnel/src/internal/protocol"
+	"lsyltunnel/src/internal/transport"
 	appversion "lsyltunnel/src/internal/version"
 )
 
@@ -85,6 +86,98 @@ func TestAccountTunnelForwarding(t *testing.T) {
 	if server.totalStreams.Load() != 1 {
 		t.Fatalf("expected one stream, got %d", server.totalStreams.Load())
 	}
+}
+
+func TestCertificateGateRejectsDifferentCertificateBeforeTLS(t *testing.T) {
+	certFile, keyFile := writeTestCertificate(t)
+	wrongCertFile, _ := writeTestCertificate(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	server, err := Start(ctx, Config{
+		ListenAddr: "127.0.0.1:0",
+		TLS:        TLSConfig{CertFile: certFile, KeyFile: keyFile, MinVersion: "1.2"},
+		Auth: AuthConfig{Users: []UserConfig{{
+			Username:     "alice",
+			PasswordHash: "plain:secret",
+		}}},
+		Security: SecurityConfig{
+			HandshakeTimeoutSec: 2,
+			DialTimeoutSec:      1,
+			MaxHandshakeBytes:   32768,
+			AuthFailWindowSec:   60,
+			AuthFailThreshold:   3,
+			AuthFailBlockSec:    60,
+		},
+	}, t.Logf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	wrongPEM, err := os.ReadFile(wrongCertFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongGateKey, err := transport.CertificateGateKeyFromPEM(wrongPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := net.DialTimeout("tcp", server.Addr(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	_ = raw.SetDeadline(time.Now().Add(2 * time.Second))
+	if err := transport.ClientCertificateGate(raw, wrongGateKey); err != nil {
+		t.Fatal(err)
+	}
+	tlsConn := tls.Client(raw, &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12})
+	if err := tlsConn.Handshake(); err == nil {
+		t.Fatal("TLS handshake succeeded with a different possession certificate")
+	}
+	waitForCounter(t, func() int64 { return server.entryProtocolRejected.Load() }, 1, time.Second)
+	if got := server.authOK.Load(); got != 0 {
+		t.Fatalf("successful authentications = %d, want 0", got)
+	}
+}
+
+func TestCertificateGateRejectsTLSFirstClient(t *testing.T) {
+	certFile, keyFile := writeTestCertificate(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server, err := Start(ctx, Config{
+		ListenAddr: "127.0.0.1:0",
+		TLS:        TLSConfig{CertFile: certFile, KeyFile: keyFile, MinVersion: "1.2"},
+		Auth: AuthConfig{Users: []UserConfig{{
+			Username:     "alice",
+			PasswordHash: "plain:secret",
+		}}},
+		Security: SecurityConfig{
+			HandshakeTimeoutSec: 2,
+			DialTimeoutSec:      1,
+			MaxHandshakeBytes:   32768,
+			AuthFailWindowSec:   60,
+			AuthFailThreshold:   3,
+			AuthFailBlockSec:    60,
+		},
+	}, t.Logf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	conn, err := tls.DialWithDialer(
+		&net.Dialer{Timeout: time.Second},
+		"tcp",
+		server.Addr(),
+		&tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12},
+	)
+	if err == nil {
+		_ = conn.Close()
+		t.Fatal("TLS-first client bypassed the certificate possession gate")
+	}
+	waitForCounter(t, func() int64 { return server.entryProtocolRejected.Load() }, 1, time.Second)
 }
 
 func TestServerLimitsConcurrentStreamsPerUser(t *testing.T) {
@@ -1145,11 +1238,15 @@ func dialTLSForTest(t *testing.T, addr, caFile string) *tls.Conn {
 	if !pool.AppendCertsFromPEM(pemData) {
 		t.Fatal("append CA failed")
 	}
-	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 3 * time.Second}, "tcp", addr, &tls.Config{
+	gateKey, err := transport.CertificateGateKeyFromPEM(pemData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := transport.DialTLSWithCertificateGate(context.Background(), &net.Dialer{Timeout: 3 * time.Second}, "tcp", addr, &tls.Config{
 		RootCAs:    pool,
 		ServerName: "localhost",
 		MinVersion: tls.VersionTLS12,
-	})
+	}, gateKey, 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -152,7 +152,7 @@ func TestRuntimeConfigRejectsMissingForwardTarget(t *testing.T) {
 		ServerAddr: "vpn.example.com:3443",
 		Username:   "alice",
 		Password:   "secret",
-		TLS:        tunnel.TLSConfig{InsecureSkipVerify: true},
+		TLS:        tunnel.TLSConfig{CACertFile: "../cert/server.crt", InsecureSkipVerify: true},
 		Forwards: []tunnel.ForwardConfig{{
 			Name:       "ssh",
 			ListenAddr: "127.0.0.1:2200",
@@ -170,7 +170,7 @@ func TestRuntimeConfigAcceptsReverseListenAddress(t *testing.T) {
 		ServerAddr: "vpn.example.com:3443",
 		Username:   "alice",
 		Password:   "secret",
-		TLS:        tunnel.TLSConfig{InsecureSkipVerify: true},
+		TLS:        tunnel.TLSConfig{CACertFile: "../cert/server.crt", InsecureSkipVerify: true},
 		Forwards: []tunnel.ForwardConfig{{
 			Name:         "mysql",
 			Direction:    tunnel.DirectionServerToClient,

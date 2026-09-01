@@ -55,7 +55,7 @@ func TestCheckConfigUpgradeCompatibleRejectsInvalidClientRange(t *testing.T) {
 compatibility:
   min_client_version: "2.1.0"
   max_client_version: "2.0.0"
-  protocol_version: 2
+  protocol_version: 3
 `))
 
 	err := CheckConfigUpgradeCompatible(current)
@@ -177,9 +177,9 @@ config_version: 1
 requires:
   min_server_version: "2.0.0"
 compatibility:
-  min_client_version: "2.0.0"
+  min_client_version: "3.0.0"
   max_client_version: ""
-  protocol_version: 2
+  protocol_version: 3
 listen_addr: 0.0.0.0:3443
 monitor_addr: 127.0.0.1:19111
 log_level: info
