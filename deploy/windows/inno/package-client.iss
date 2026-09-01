@@ -51,6 +51,7 @@ Source: "{#SourceRoot}\bin\WinDivert.dll"; DestDir: "{app}\bin"; Flags: ignoreve
 Source: "{#SourceRoot}\bin\WinDivert64.sys"; DestDir: "{app}\bin"; Flags: ignoreversion restartreplace; Check: ShouldInstallPinnedRuntime('{app}\bin\WinDivert64.sys', '{#WinDivertDriverSHA256}')
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestName: "lsyl-tunnel-client-gui-quit.exe"; Flags: dontcopy
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestName: "lsyl-tunnel-client-gui-check.exe"; Flags: dontcopy
+Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestName: "lsyl-tunnel-client-gui-cleanup.exe"; Flags: dontcopy
 Source: "{#SourceRoot}\assets\client.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#SourceRoot}\assets\client-connected.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#SourceRoot}\conf\client.yaml"; DestDir: "{app}\conf"; Flags: ignoreversion uninsneveruninstall
@@ -121,6 +122,11 @@ begin
   Result := ExpandConstant('{tmp}\lsyl-tunnel-client-gui-check.exe');
 end;
 
+function ClientUpgradeCleanupHelperPath: String;
+begin
+  Result := ExpandConstant('{tmp}\lsyl-tunnel-client-gui-cleanup.exe');
+end;
+
 function ClientRollbackDir: String;
 begin
   Result := ExpandConstant('{tmp}\lsyl-client-install-rollback');
@@ -136,6 +142,11 @@ begin
   DeleteFile(ClientConfigCheckHelperPath());
 end;
 
+procedure CleanupClientUpgradeHelper;
+begin
+  DeleteFile(ClientUpgradeCleanupHelperPath());
+end;
+
 procedure CleanupClientRollbackFiles;
 begin
   DelTree(ClientRollbackDir(), True, True, True);
@@ -145,6 +156,7 @@ procedure CleanupClientInstallTemps;
 begin
   CleanupClientQuitHelper();
   CleanupClientConfigCheckHelper();
+  CleanupClientUpgradeHelper();
   CleanupClientRollbackFiles();
 end;
 
@@ -180,6 +192,48 @@ begin
   Sleep(800);
   if not ClientQuitUseInstalledApp then
     CleanupClientQuitHelper();
+end;
+
+function CleanupClientUpgradeConflicts: String;
+var
+  ResultCode: Integer;
+  HelperPath: String;
+  InstalledClientExe: String;
+  ResultFile: String;
+  Params: String;
+  Detail: AnsiString;
+  DetailText: String;
+begin
+  Result := '';
+  CleanupClientUpgradeHelper();
+  ExtractTemporaryFile('lsyl-tunnel-client-gui-cleanup.exe');
+  HelperPath := ClientUpgradeCleanupHelperPath();
+  InstalledClientExe := ExpandConstant('{app}\bin\lsyl-tunnel-client-gui.exe');
+  ResultFile := ExpandConstant('{tmp}\client-upgrade-cleanup-result.txt');
+  DeleteFile(ResultFile);
+  Params :=
+    '-installer-cleanup' +
+    ' -installed-client-exe "' + InstalledClientExe + '"' +
+    ' -result-file "' + ResultFile + '"';
+  if not Exec(HelperPath, Params, ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then begin
+    Result := '无法启动客户端升级清理程序，请确认安装器具有管理员权限后重试。';
+    CleanupClientUpgradeHelper();
+    exit;
+  end;
+  if ResultCode <> 0 then begin
+    Detail := '';
+    if FileExists(ResultFile) then
+      LoadStringFromFile(ResultFile, Detail);
+    DetailText := Trim(String(Detail));
+    if DetailText = '' then
+      DetailText := '旧客户端进程或 WinDivert 驱动仍在占用安装文件。';
+    Result :=
+      '无法清理旧客户端冲突，安装已停止。' + #13#10 + #13#10 +
+      DetailText + #13#10 + #13#10 +
+      '请关闭占用程序后重试；若驱动仍无法释放，请重启 Windows 后再次安装。';
+  end;
+  DeleteFile(ResultFile);
+  CleanupClientUpgradeHelper();
 end;
 
 function CheckClientConfigCompatibility: String;
@@ -442,10 +496,17 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  QuitMessage: String;
 begin
-  Result := RequestClientQuit();
-  if Result <> '' then
+  QuitMessage := RequestClientQuit();
+  if QuitMessage <> '' then
+    Log('Cooperative client quit did not complete; continuing with targeted upgrade cleanup: ' + QuitMessage);
+  Result := CleanupClientUpgradeConflicts();
+  if Result <> '' then begin
+    CleanupClientInstallTemps();
     exit;
+  end;
   Result := CheckClientConfigCompatibility();
   if Result <> '' then begin
     CleanupClientInstallTemps();

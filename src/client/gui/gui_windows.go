@@ -73,6 +73,14 @@ func Run() error {
 }
 
 func RunFromArgs(args []string) error {
+	if opts, ok, err := parseClientInstallerCleanupArgs(args); ok || err != nil {
+		if err != nil {
+			return err
+		}
+		err := runClientInstallerCleanup(opts)
+		writeClientInstallerCleanupResult(opts.ResultFile, err)
+		return err
+	}
 	if opts, ok, err := parseClientConfigCompatArgs(args); ok || err != nil {
 		if err != nil {
 			return err

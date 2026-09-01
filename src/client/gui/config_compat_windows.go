@@ -59,12 +59,21 @@ func writeClientConfigCompatResult(path string, err error) {
 }
 
 func IsNonInteractiveCommand(args []string) bool {
-	return IsQuitCommand(args) || isClientConfigCompatCommand(args)
+	return IsQuitCommand(args) || isClientConfigCompatCommand(args) || isClientInstallerCleanupCommand(args)
 }
 
 func isClientConfigCompatCommand(args []string) bool {
 	for _, arg := range args {
 		if arg == "-config-compat-check" || strings.HasPrefix(arg, "-config-compat-check=") {
+			return true
+		}
+	}
+	return false
+}
+
+func isClientInstallerCleanupCommand(args []string) bool {
+	for _, arg := range args {
+		if arg == "-"+clientInstallerCleanupFlag || strings.HasPrefix(arg, "-"+clientInstallerCleanupFlag+"=") {
 			return true
 		}
 	}
