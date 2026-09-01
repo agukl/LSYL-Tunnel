@@ -12,10 +12,11 @@ import (
 )
 
 func TestExpiredCredentialSealKeyRotatesAndPersists(t *testing.T) {
+	oldKeyID := "login-key-old"
 	configPath := writeCredentialSealRotationConfig(t, []CredentialSealKeyConfig{{
-		KeyID:          "login-key-old",
-		PrivateKeyFile: "../certs/login-key-old.key",
-		PublicKeyFile:  "../certs/login-key-old.pub",
+		KeyID:          oldKeyID,
+		PrivateKeyFile: "../certs/" + oldKeyID + ".key",
+		PublicKeyFile:  "../certs/" + oldKeyID + ".pub",
 		ExpiresAt:      time.Now().Add(-time.Hour).Format(time.RFC3339),
 		Active:         true,
 	}})
@@ -36,6 +37,9 @@ func TestExpiredCredentialSealKeyRotatesAndPersists(t *testing.T) {
 	if !strings.HasPrefix(srv.activeCredentialKey.id, "login-key-") {
 		t.Fatalf("unexpected rotated key id: %s", srv.activeCredentialKey.id)
 	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(configPath), "..", "certs", oldKeyID+".key")); !os.IsNotExist(err) {
+		t.Fatalf("expired missing private key should not be generated: %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(configPath), "..", "certs", srv.activeCredentialKey.id+".key")); err != nil {
 		t.Fatalf("rotated private key was not created: %v", err)
 	}
@@ -50,6 +54,37 @@ func TestExpiredCredentialSealKeyRotatesAndPersists(t *testing.T) {
 	}
 	if !strings.Contains(active.PrivateKeyFile, "../certs/") && !strings.Contains(active.PrivateKeyFile, `..\certs\`) {
 		t.Fatalf("persisted private key path did not keep certs directory: %q", active.PrivateKeyFile)
+	}
+}
+
+func TestPrepareFreshInstallConfigUsesBuildMonth(t *testing.T) {
+	configPath := writeCredentialSealRotationConfig(t, []CredentialSealKeyConfig{{
+		KeyID:          "login-key-2026-08",
+		PrivateKeyFile: "../certs/login-key-2026-08.key",
+		PublicKeyFile:  "../certs/login-key-2026-08.pub",
+		ExpiresAt:      "2026-08-20T00:00:00+08:00",
+		Active:         true,
+	}})
+	now := time.Date(2026, time.September, 1, 10, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	if err := PrepareFreshInstallConfig(configPath, now); err != nil {
+		t.Fatal(err)
+	}
+	raw := readCredentialSealConfig(t, configPath)
+	if len(raw.CredentialSeal.Keys) != 1 {
+		t.Fatalf("credential key count = %d, want 1", len(raw.CredentialSeal.Keys))
+	}
+	key := raw.CredentialSeal.Keys[0]
+	if key.KeyID != "login-key-2026-09" {
+		t.Fatalf("key id = %q, want login-key-2026-09", key.KeyID)
+	}
+	if key.ExpiresAt != "2026-12-01T10:30:00+08:00" {
+		t.Fatalf("expiry = %q, want 2026-12-01T10:30:00+08:00", key.ExpiresAt)
+	}
+	if !key.Active {
+		t.Fatal("fresh install key is not active")
+	}
+	if !strings.Contains(filepath.ToSlash(key.PrivateKeyFile), "../certs/login-key-2026-09.key") {
+		t.Fatalf("unexpected private key path: %q", key.PrivateKeyFile)
 	}
 }
 

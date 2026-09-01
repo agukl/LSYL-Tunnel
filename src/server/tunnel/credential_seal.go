@@ -32,9 +32,13 @@ func (s *Server) loadCredentialSealKeys() error {
 		if err != nil {
 			return fmt.Errorf("parse credential seal key %s expires_at: %w", item.KeyID, err)
 		}
-		privateKey, publicPEM, err := credseal.EnsureKeyFiles(item.PrivateKeyFile, item.PublicKeyFile, 3072)
-		if err != nil {
-			return fmt.Errorf("load credential seal key %s: %w", item.KeyID, err)
+		var privateKey *rsa.PrivateKey
+		var publicPEM []byte
+		if expiresAt.After(now) {
+			privateKey, publicPEM, err = credseal.EnsureKeyFiles(item.PrivateKeyFile, item.PublicKeyFile, 3072)
+			if err != nil {
+				return fmt.Errorf("load credential seal key %s: %w", item.KeyID, err)
+			}
 		}
 		key := &credentialSealKey{
 			id:        strings.TrimSpace(item.KeyID),
@@ -189,18 +193,12 @@ func (s *Server) nextCredentialSealKeyConfigLocked(now time.Time, current *crede
 	if bestIndex >= 0 {
 		return s.cfg.CredentialSeal.Keys[bestIndex], bestIndex
 	}
-	expiry := current.expiresAt
-	if expiry.IsZero() {
-		expiry = now
-	}
-	for !expiry.After(now) {
-		expiry = expiry.AddDate(0, 3, 0)
-	}
+	expiry := now.AddDate(0, 3, 0)
 	existing := map[string]bool{}
 	for _, key := range s.cfg.CredentialSeal.Keys {
 		existing[strings.TrimSpace(key.KeyID)] = true
 	}
-	baseID := "login-key-" + expiry.Format("2006-01")
+	baseID := "login-key-" + now.Format("2006-01")
 	keyID := baseID
 	for i := 2; existing[keyID]; i++ {
 		keyID = fmt.Sprintf("%s-%02d", baseID, i)

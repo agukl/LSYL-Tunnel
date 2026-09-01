@@ -269,6 +269,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "if(-not (Select-String -
 findstr /c:"min_server_version" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || (echo [ERROR] Server package config is missing requires.min_server_version & exit /b 1)
 findstr /c:"min_client_version" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || (echo [ERROR] Server package config is missing compatibility.min_client_version & exit /b 1)
 findstr /c:"protocol_version: 3" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || (echo [ERROR] Server package config is missing compatibility.protocol_version & exit /b 1)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%SELF_TMP%\selfcheck-server-package\conf\server.yaml'; $t=Get-Content -Raw -Encoding UTF8 $p; $id='login-key-'+(Get-Date -Format 'yyyy-MM'); $matches=[regex]::Matches($t,'(?m)^\s*- key_id:\s*(\S+)\s*$'); if($matches.Count -ne 1 -or $matches[0].Groups[1].Value -ne $id){ Write-Host '[ERROR] Server package must contain exactly one credential key for the build month.'; exit 1 }" || exit /b 1
 findstr /c:"../data/server-state.json" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1
 findstr /c:"../data/server-permanent-block.txt" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1
 findstr /c:"../logs/request/request.jsonl" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1

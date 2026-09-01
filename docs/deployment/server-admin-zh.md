@@ -69,14 +69,14 @@ auth:
 ```yaml
 credential_seal:
   keys:
-    - key_id: login-key-2026-08
-      private_key_file: ../../certs/login-key-2026-08.key
-      public_key_file: ../../certs/login-key-2026-08.pub
-      expires_at: "2026-08-20T00:00:00+08:00"
+    - key_id: login-key-YYYY-MM
+      private_key_file: ../certs/login-key-YYYY-MM.key
+      public_key_file: ../certs/login-key-YYYY-MM.pub
+      expires_at: "按生成时间顺延三个月的 RFC3339 时间"
       active: true
 ```
 
-私钥文件只留在服务端；文件不存在时服务端会自动生成。服务端运行时会自行轮换过期登录密钥：如果当前 `active` 密钥过期，会先激活配置中已存在且未过期的下一把密钥；如果没有可用下一把，会自动生成新的 `login-key-YYYY-MM` 密钥、设为 `active`，并写回配置文件。旧密钥会保留但失活，旧客户端保存的 `saved_credential` 按原过期时间自然失效；用户在凭据过期后需要重新输入一次密码。
+私钥文件只留在服务端；文件不存在时服务端会自动生成。新安装包会按打包当月写入初始 `login-key-YYYY-MM` 描述，首次启动时在目标服务器生成对应密钥。服务端运行时会自行轮换过期登录密钥：如果当前 `active` 密钥过期，会先激活配置中已存在且未过期的下一把密钥；如果没有可用下一把，会按当前月份自动生成新密钥、设为 `active`，并写回配置文件。不会为缺失文件的历史过期条目重新生成私钥。旧客户端保存的 `saved_credential` 按原过期时间自然失效；用户在凭据过期后需要重新输入一次密码。
 
 ## 4. 配置转发端口和放通用户
 

@@ -181,6 +181,41 @@ func SaveConfig(path string, cfg Config) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
+// PrepareFreshInstallConfig replaces machine-local credential sealing metadata
+// without generating or packaging private key material.
+func PrepareFreshInstallConfig(path string, now time.Time) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return err
+	}
+	ApplyDefaults(&cfg)
+	template := rawCredentialPathTemplate(cfg.CredentialSeal.Keys)
+	privateDir := filepath.Dir(strings.TrimSpace(template.PrivateKeyFile))
+	publicDir := filepath.Dir(strings.TrimSpace(template.PublicKeyFile))
+	if privateDir == "" || privateDir == "." {
+		privateDir = "../certs"
+	}
+	if publicDir == "" || publicDir == "." {
+		publicDir = privateDir
+	}
+	keyID := "login-key-" + now.Format("2006-01")
+	cfg.CredentialSeal.Keys = []CredentialSealKeyConfig{{
+		KeyID:          keyID,
+		PrivateKeyFile: filepath.Join(privateDir, keyID+".key"),
+		PublicKeyFile:  filepath.Join(publicDir, keyID+".pub"),
+		ExpiresAt:      now.AddDate(0, 3, 0).Format(time.RFC3339),
+		Active:         true,
+	}}
+	if err := ValidateConfig(cfg); err != nil {
+		return err
+	}
+	return SaveConfig(path, cfg)
+}
+
 func ApplyDefaults(cfg *Config) {
 	if cfg.ConfigVersion == 0 {
 		cfg.ConfigVersion = appversion.ServerConfigVersion

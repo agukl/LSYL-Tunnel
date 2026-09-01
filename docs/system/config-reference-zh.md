@@ -86,7 +86,7 @@
 
 `credential_seal.keys[].public_key_file`：服务端公钥路径。文件不存在时会由私钥自动导出。
 
-`credential_seal.keys[].expires_at`：密封密钥过期时间，格式为 RFC3339，例如 `2026-08-20T00:00:00+08:00`。过期后客户端需要重新输入密码。
+`credential_seal.keys[].expires_at`：密封密钥过期时间，格式为 RFC3339。新安装配置默认从打包时间顺延三个月；过期后客户端需要重新输入密码。
 
 `credential_seal.keys[].active`：当前下发给客户端的新密封公钥，只允许一个 active。
 

@@ -64,8 +64,8 @@ server.crt
   "client_id": "mobile-hzls-001",
   "saved_credential": {
     "type": "server_sealed",
-    "key_id": "login-key-2026-08",
-    "expires_at": "2026-08-20T00:00:00+08:00",
+    "key_id": "login-key-YYYY-MM",
+    "expires_at": "<RFC3339 expiry>",
     "ciphertext": "..."
   },
   "tls": {
