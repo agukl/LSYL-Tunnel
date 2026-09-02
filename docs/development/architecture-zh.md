@@ -1,6 +1,6 @@
 # 目录结构与代码边界
 
-LSYL Tunnel 按客户端、服务端、共享层和部署脚本拆分。当前项目已经从证书身份认证路线简化为账号密码认证路线，因此目录和运维入口也尽量保持短路径。
+LSYL Tunnel 按客户端、服务端、共享层和部署脚本拆分。公网入口依次使用证书持有前置门、TLS 加密和账号认证；客户端预置服务端公开证书，服务端保存私钥，不使用客户端证书或完整 mTLS。
 
 ## 顶层结构
 
@@ -28,6 +28,7 @@ src/
   cmd/
     lsyl-tunnel-passwd/ 密码哈希工具
     lsyl-tunnel-cert/   服务端 TLS 文件生成工具
+    lsyl-tunnel-profile/ 客户端配置档案和移动端配置导出工具
 
 deploy/windows/
   build/                构建脚本
@@ -41,6 +42,20 @@ deploy/windows/
 
 release.cmd             发布主入口：测试、打包、安装器、签名和验证
 ```
+
+## 核心源码职责
+
+服务端隧道核心位于 `src/server/tunnel`：
+
+- `server.go`：启动、关闭、连接接收、握手和转发主链路。
+- `authorization.go`：正向目标和反向监听授权。
+- `connection_limiter.go`、`fail_tracker.go`：入口连接限制和失败来源跟踪。
+- `monitor.go`、`maintenance.go`：本地监控接口、状态快照和后台清扫。
+- `event_logs.go`、`runtime_events.go`：四类业务日志和内存事件。
+
+服务端管理台后端位于 `src/server/gui`：`admin_api_windows.go` 负责本地 HTTP 路由和状态组装，`admin_config_mapping_windows.go` 负责 GUI 与核心配置互转，`admin_forward_mapping_windows.go` 负责转发字段转换，`admin_monitor_client_windows.go` 负责访问服务端本地监控接口。
+
+Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令分发，`commands.go` 处理命令参数，`profiles.go` 管理档案和目录切换，`inspect.go` 负责配置、证书和文件检查，`interactive.go` 提供交互菜单。
 
 ## 客户端边界
 
@@ -68,6 +83,7 @@ release.cmd             发布主入口：测试、打包、安装器、签名�
 
 - 读取 `src/server/conf/server.yaml`。
 - 监听隧道入口。
+- 在 TLS 之前校验客户端是否持有与服务端私钥匹配的公开证书。
 - 校验用户密码或密封凭据。
 - 按用户授权决定是否允许访问目标。
 - 执行正向目标可达性检查。
@@ -86,7 +102,7 @@ release.cmd             发布主入口：测试、打包、安装器、签名�
 
 `client_to_server`：客户端通过固定本地端口接收连接，服务端连接服务端侧目标。
 
-`virtual`：标准 64 位 Windows 客户端按 `listen_addr` 接管虚拟入口。`:端口` 从服务端信任证书自动选择唯一 IPv4，`IPv4:端口` 用于多 SAN 场景显式选择；最终 IP 必须来自证书 IPv4 SAN，业务端口不能等于 `server_addr` 端口。登录成功后，每条规则由独立提权子进程通过 WinDivert 将匹配端点反射到随机 `127.0.0.1` 监听，流映射使用有界内存表；未匹配端口保持原网络路径，不创建网卡别名或持久路由。用户取消管理员授权、规则停止或提权进程异常时只将对应虚拟规则标记为不可用，不终止客户端连接；重新连接时再次申请授权。发往服务端时仍映射为 `client_to_server`，不改变服务端授权规则。
+`virtual`：标准 64 位 Windows 客户端按 `listen_addr` 接管虚拟入口。`:端口` 从服务端信任证书自动选择唯一 IPv4，`IPv4:端口` 用于多 SAN 场景显式选择；最终 IP 必须来自证书 IPv4 SAN，业务端口不能等于 `server_addr` 端口。登录成功后，同一次连接的多条规则合并到一次提权 helper 会话，通过 WinDivert 将匹配端点分别反射到随机 `127.0.0.1` 监听，流映射使用有界内存表；未匹配端口保持原网络路径，不创建网卡别名或持久路由。用户取消管理员授权、规则停止或 helper 异常时只将受影响规则标记为不可用，不终止客户端连接；重新连接时再次申请授权。发往服务端时仍映射为 `client_to_server`，不改变服务端授权规则。
 
 `server_to_client`：服务端配置被动入口，客户端通过规则中的 `listen_addr` 选择并主动激活对应入口，同时上报本地 `server_target` 供运行记录。服务端按监听地址和登录账号校验归属；收到访问后只发送不透明流 ID，客户端再回建数据流并连接本地目标。服务端不会主动拨入客户端网络，不用客户端目标选择端口，也不会把保留端口下发或写回客户端配置。
 

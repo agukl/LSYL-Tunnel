@@ -185,8 +185,8 @@ func (a *App) run() error {
 		AssignTo:   &a.mw,
 		Title:      windowTitle,
 		Icon:       a.iconForState(),
-		Size:       Size{520, 640},
-		MinSize:    Size{520, 640},
+		Size:       Size{Width: 520, Height: 640},
+		MinSize:    Size{Width: 520, Height: 640},
 		Background: SolidColorBrush{Color: walk.RGB(238, 248, 247)},
 		Layout:     VBox{MarginsZero: true, SpacingZero: true},
 		Children: []Widget{

@@ -69,11 +69,11 @@ func (a *App) Run() error {
 	ui := MainWindow{
 		AssignTo:   &a.mw,
 		Title:      windowTitle,
-		Size:       Size{480, 520},
-		MinSize:    Size{440, 460},
+		Size:       Size{Width: 480, Height: 520},
+		MinSize:    Size{Width: 440, Height: 460},
 		Background: SolidColorBrush{Color: walk.RGB(244, 249, 248)},
 		Font:       Font{Family: "Microsoft YaHei", PointSize: 9},
-		Layout:     VBox{Margins: Margins{18, 16, 18, 16}, Spacing: 8},
+		Layout:     VBox{Margins: Margins{Left: 18, Top: 16, Right: 18, Bottom: 16}, Spacing: 8},
 		Children: []Widget{
 			TextLabel{
 				Text:      "LSYL Tunnel Lite",
@@ -92,7 +92,7 @@ func (a *App) Run() error {
 			},
 			TextLabel{
 				AssignTo: &a.profileLabel,
-				MinSize:  Size{400, 54},
+				MinSize:  Size{Width: 400, Height: 54},
 				NoPrefix: true,
 				Text:     "未导入配置",
 			},
@@ -104,7 +104,7 @@ func (a *App) Run() error {
 			TextEdit{
 				AssignTo: &a.routesEdit,
 				ReadOnly: true,
-				MinSize:  Size{400, 90},
+				MinSize:  Size{Width: 400, Height: 90},
 				VScroll:  true,
 			},
 			Composite{
@@ -113,19 +113,19 @@ func (a *App) Run() error {
 					PushButton{
 						AssignTo:  &a.importButton,
 						Text:      "导入配置",
-						MinSize:   Size{120, 34},
+						MinSize:   Size{Width: 120, Height: 34},
 						OnClicked: a.importProfile,
 					},
 					PushButton{
 						AssignTo:  &a.connectButton,
 						Text:      "连接",
-						MinSize:   Size{100, 34},
+						MinSize:   Size{Width: 100, Height: 34},
 						OnClicked: a.connect,
 					},
 					PushButton{
 						AssignTo:  &a.disconnectButton,
 						Text:      "断开",
-						MinSize:   Size{100, 34},
+						MinSize:   Size{Width: 100, Height: 34},
 						OnClicked: a.disconnect,
 					},
 				},

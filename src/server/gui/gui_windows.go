@@ -118,8 +118,8 @@ func (a *App) runUI() error {
 	ui := MainWindow{
 		AssignTo:   &a.mw,
 		Title:      windowTitle,
-		Size:       Size{1180, 760},
-		MinSize:    Size{980, 640},
+		Size:       Size{Width: 1180, Height: 760},
+		MinSize:    Size{Width: 980, Height: 640},
 		Background: SolidColorBrush{Color: walk.RGB(232, 246, 245)},
 		Layout:     VBox{MarginsZero: true, SpacingZero: true},
 		Children: []Widget{

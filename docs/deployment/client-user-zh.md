@@ -196,7 +196,7 @@ dist\make-installers.cmd
 
 安装或升级会覆盖安装目录中的 `conf\client.yaml` 和 `cert\server.crt`，并先按旧配置的服务端地址归档为 `conf\client.<旧服务地址>.yaml`、`cert\server.<旧服务地址>.crt`。如果同名归档已经存在，会被最近一次覆盖安装的旧配置覆盖。重装后原名文件立即使用新配置，用户也可以在客户端登录页切回已归档的旧配置。
 
-安装器会先请求正在运行的客户端温和退出；如果退出失败，会清理本次临时文件并提示用户从托盘退出后重试。安装中断时会尽量恢复原配置和原服务端证书，不默认强杀客户端进程。
+安装器会先请求正在运行的客户端温和退出；旧版本无法响应时，只会按当前安装目录的完整路径结束旧客户端进程，并清理归属于同一安装目录的 WinDivert 驱动服务。仍有文件占用时会停止安装并提示重启 Windows。安装中断时会尽量恢复原配置和原服务端证书。
 
 生成前仍需要确保 `src\client\cert\server.crt` 已经放好。`release.cmd` 会从 `src\client\conf` 和 `src\client\cert` 重新生成 `dist\LSYL Tunnel Client`，并把 `make-installer.cmd` 与 Inno 模板放进分发包。
 

@@ -302,8 +302,16 @@ func TestEntryLayerRejectsPlainHTTPProbeWithoutRequestLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _ = conn.Write([]byte("GET / HTTP/1.1\r\nHost: tunnel\r\n\r\n"))
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		_ = tcpConn.CloseWrite()
+	}
 	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
-	_, _ = conn.Read(make([]byte, 1))
+	buffer := make([]byte, 1)
+	for {
+		if _, err := conn.Read(buffer); err != nil {
+			break
+		}
+	}
 	_ = conn.Close()
 
 	waitForCounter(t, func() int64 { return server.entryHTTPProbeRejected.Load() }, 1, time.Second)
