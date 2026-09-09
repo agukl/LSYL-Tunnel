@@ -90,6 +90,7 @@ src\client\conf\client.yaml
 
 ```yaml
 server_addr: 127.0.0.1:3443
+remark: 上海生产节点
 username: alice
 password: ""
 client_id: demo-client
@@ -104,6 +105,8 @@ forwards:
     listen_addr: 127.0.0.1:3388
     server_target: 127.0.0.1:3389
 ```
+
+`remark` 是可选的界面备注，只在 Windows 客户端切换配置时跟在服务端地址后显示，不参与连接、认证或转发。
 
 反向转发客户端通过 `listen_addr` 选择服务端已预留端口，并用 `server_target` 配置客户端本地目标：
 

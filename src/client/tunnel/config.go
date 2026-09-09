@@ -78,6 +78,7 @@ type Config struct {
 	ConfigVersion   int                       `yaml:"config_version"`
 	Requires        RequiresConfig            `yaml:"requires"`
 	ServerAddr      string                    `yaml:"server_addr"`
+	Remark          string                    `yaml:"remark,omitempty"`
 	Username        string                    `yaml:"username"`
 	Password        string                    `yaml:"password"`
 	PasswordEnv     string                    `yaml:"password_env"`

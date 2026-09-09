@@ -54,6 +54,61 @@ func TestClientProfileFileSuffix(t *testing.T) {
 	}
 }
 
+func TestClientProfileLabelAppendsOptionalRemark(t *testing.T) {
+	tests := []struct {
+		name       string
+		serverAddr string
+		fallback   string
+		remark     string
+		want       string
+	}{
+		{name: "without remark", serverAddr: "vpn.example.com:3443", fallback: "archive", want: "vpn.example.com:3443"},
+		{name: "with remark", serverAddr: "203.0.113.10:3443", fallback: "archive", remark: "上海生产节点", want: "203.0.113.10:3443 · 上海生产节点"},
+		{name: "normalizes whitespace", serverAddr: "vpn.example.com:3443", fallback: "archive", remark: "  备用\n节点  ", want: "vpn.example.com:3443 · 备用 节点"},
+		{name: "fallback", fallback: "当前配置", remark: "测试", want: "当前配置 · 测试"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := clientProfileLabel(tt.serverAddr, tt.fallback, tt.remark); got != tt.want {
+				t.Fatalf("clientProfileLabel() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadClientProfilesDisplaysConfigRemarks(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "conf", "client.yaml")
+	mustWrite(t, configPath, clientProfileConfigForTest("current.example.com:3443", "当前节点"))
+	mustWrite(t, filepath.Join(dir, "cert", "server.crt"), "certificate-present")
+	mustWrite(t, filepath.Join(dir, "conf", "client.backup.yaml"), clientProfileConfigForTest("backup.example.com:4443", "备用节点"))
+	mustWrite(t, filepath.Join(dir, "cert", "server.backup.crt"), "certificate-present")
+
+	profiles := (&App{configPath: configPath}).loadClientProfiles()
+	if len(profiles) != 2 {
+		t.Fatalf("loadClientProfiles() returned %d profiles, want 2", len(profiles))
+	}
+	if profiles[0].Label != "current.example.com:3443 · 当前节点" {
+		t.Fatalf("current profile label = %q", profiles[0].Label)
+	}
+	if profiles[1].Label != "backup.example.com:4443 · 备用节点" {
+		t.Fatalf("archived profile label = %q", profiles[1].Label)
+	}
+}
+
+func clientProfileConfigForTest(serverAddr, remark string) string {
+	return "server_addr: " + serverAddr + "\n" +
+		"remark: " + remark + "\n" +
+		"username: alice\n" +
+		"tls:\n" +
+		"  ca_cert_file: ../cert/server.crt\n" +
+		"forwards:\n" +
+		"  - name: rdp\n" +
+		"    direction: client_to_server\n" +
+		"    listen_addr: 127.0.0.1:3389\n" +
+		"    server_target: 127.0.0.1:3389\n"
+}
+
 func TestClientProfilesCacheReturnsCopiesAndCanBeInvalidated(t *testing.T) {
 	app := &App{
 		configPath:        filepath.Join(t.TempDir(), "conf", "client.yaml"),

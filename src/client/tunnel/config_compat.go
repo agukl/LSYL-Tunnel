@@ -136,6 +136,9 @@ func validateVersionedClientConfigStructure(data []byte) error {
 			return err
 		}
 	}
+	if err := clientYAMLRequireOptionalScalar(top, "client config", "remark"); err != nil {
+		return err
+	}
 	if err := validateClientScalarMapping(top["requires"], "client config.requires", "min_client_version"); err != nil {
 		return err
 	}
@@ -246,6 +249,17 @@ func clientYAMLRequireScalar(fields map[string]*yaml.Node, path, name string) er
 	node, err := clientYAMLRequiredField(fields, path, name)
 	if err != nil {
 		return err
+	}
+	if node.Kind != yaml.ScalarNode || node.Tag == "!!null" {
+		return fmt.Errorf("%s.%s must be a value", path, name)
+	}
+	return nil
+}
+
+func clientYAMLRequireOptionalScalar(fields map[string]*yaml.Node, path, name string) error {
+	node, ok := fields[name]
+	if !ok {
+		return nil
 	}
 	if node.Kind != yaml.ScalarNode || node.Tag == "!!null" {
 		return fmt.Errorf("%s.%s must be a value", path, name)

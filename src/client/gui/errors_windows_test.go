@@ -230,6 +230,21 @@ func TestFriendlyErrorText(t *testing.T) {
 			want: "连接不上服务端，请检查服务端是否启动或地址端口是否正确。",
 		},
 		{
+			name: "certificate gate eof",
+			raw:  "read certificate possession gate challenge: EOF",
+			want: "连接被服务端断开，请稍后重试或联系管理员。",
+		},
+		{
+			name: "tls handshake timeout after gate",
+			raw:  "TLS handshake after certificate possession gate: read tcp 127.0.0.1:50000->127.0.0.1:55443: i/o timeout",
+			want: "连接超时，请检查网络或服务端防火墙。",
+		},
+		{
+			name: "tls server alert after gate",
+			raw:  "TLS handshake after certificate possession gate: remote error: tls: internal error",
+			want: "TLS 握手失败，请检查服务端状态及两端版本。",
+		},
+		{
 			name: "local port busy",
 			raw:  "listen 127.0.0.1:18080: bind: Only one usage of each socket address is normally permitted.",
 			want: "本地端口已被占用，请关闭占用程序或调整端口。",

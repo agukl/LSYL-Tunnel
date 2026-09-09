@@ -711,6 +711,24 @@ func TestForwardErrorMessageAndRetryPolicy(t *testing.T) {
 			permanent: false,
 		},
 		{
+			name:      "certificate gate eof",
+			err:       errors.New("read certificate possession gate challenge: EOF"),
+			want:      "连接被断开，客户端会自动重试",
+			permanent: false,
+		},
+		{
+			name:      "tls handshake timeout after gate",
+			err:       errors.New("TLS handshake after certificate possession gate: read tcp 127.0.0.1:50000->127.0.0.1:55443: i/o timeout"),
+			want:      "连接超时，客户端会自动重试",
+			permanent: false,
+		},
+		{
+			name:      "tls server alert after gate",
+			err:       errors.New("TLS handshake after certificate possession gate: remote error: tls: internal error"),
+			want:      "TLS 握手失败，客户端会自动重试；若持续出现请确认两端版本",
+			permanent: false,
+		},
+		{
 			name:      "server passive port unavailable",
 			err:       errors.New("reverse_failed: server passive port is unavailable: listen reverse 127.0.0.1:18080: bind: Only one usage of each socket address is normally permitted."),
 			want:      "服务端被动端口不可用，客户端会自动重试，请联系管理员检查服务端端口占用",
@@ -867,6 +885,24 @@ func TestClassifyHealthErrorMessages(t *testing.T) {
 			err:       errors.New("i/o timeout"),
 			wantState: HealthServerUnavailable,
 			wantMsg:   "连接超时，请检查网络或服务端防火墙",
+		},
+		{
+			name:      "certificate gate eof",
+			err:       errors.New("read certificate possession gate challenge: EOF"),
+			wantState: HealthServerUnavailable,
+			wantMsg:   "连接被服务端断开，请稍后重试或联系管理员",
+		},
+		{
+			name:      "tls handshake timeout after gate",
+			err:       errors.New("TLS handshake after certificate possession gate: read tcp 127.0.0.1:50000->127.0.0.1:55443: i/o timeout"),
+			wantState: HealthServerUnavailable,
+			wantMsg:   "连接超时，请检查网络或服务端防火墙",
+		},
+		{
+			name:      "tls server alert after gate",
+			err:       errors.New("TLS handshake after certificate possession gate: remote error: tls: internal error"),
+			wantState: HealthServerUnavailable,
+			wantMsg:   "TLS 握手失败，请检查服务端状态及两端版本",
 		},
 	}
 	for _, tt := range tests {

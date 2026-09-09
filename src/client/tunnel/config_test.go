@@ -64,6 +64,34 @@ forwards:
 	}
 }
 
+func TestClientConfigOptionalRemarkRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client.yaml")
+	cfg := Config{
+		ServerAddr: "vpn.example.com:3443",
+		Remark:     "上海生产节点",
+		TLS:        TLSConfig{CACertFile: "server.crt"},
+		Forwards: []ForwardConfig{{
+			Name:         "rdp",
+			Direction:    DirectionClientToServer,
+			ListenAddr:   "127.0.0.1:3389",
+			ServerTarget: "127.0.0.1:3389",
+		}},
+	}
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadConfigRaw(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Remark != cfg.Remark {
+		t.Fatalf("LoadConfigRaw() remark = %q, want %q", loaded.Remark, cfg.Remark)
+	}
+	if err := CheckConfigUpgradeCompatible(path); err != nil {
+		t.Fatalf("CheckConfigUpgradeCompatible() rejected optional remark: %v", err)
+	}
+}
+
 func TestCheckConfigUpgradeCompatibleRejectsNewerConfigVersion(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "client.yaml")

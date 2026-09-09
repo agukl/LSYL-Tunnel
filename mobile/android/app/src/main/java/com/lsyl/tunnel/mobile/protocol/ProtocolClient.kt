@@ -7,7 +7,7 @@ import org.json.JSONObject
 import java.io.IOException
 import javax.net.ssl.SSLSocket
 
-private const val CLIENT_VERSION = "3.0.0"
+private const val CLIENT_VERSION = "3.1.0"
 private const val PROTOCOL_VERSION = 3
 
 data class OpenResponse(

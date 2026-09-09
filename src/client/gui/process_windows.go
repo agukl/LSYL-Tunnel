@@ -246,8 +246,6 @@ func friendlyErrorText(raw string) string {
 		return "服务端证书已过期或尚未生效，请联系管理员重新下发有效证书。"
 	case strings.Contains(text, "unknown authority") || strings.Contains(text, "not trusted"):
 		return "服务端证书不受信任，请联系管理员重新下发证书。"
-	case strings.Contains(text, "certificate") || strings.Contains(text, "x509") || strings.Contains(text, "tls"):
-		return "服务端证书校验失败，请联系管理员检查证书和地址。"
 	case strings.Contains(text, "username or password") || strings.Contains(text, "auth_failed"):
 		return "用户名或密码不正确。"
 	case strings.Contains(text, "credential_expired") || strings.Contains(text, "saved login has expired"):
@@ -328,6 +326,16 @@ func friendlyErrorText(raw string) string {
 		return "网络不可达，请检查本机网络。"
 	case strings.Contains(text, "connection reset") || strings.Contains(text, "forcibly closed") || strings.Contains(text, "wsarecv") || strings.Contains(text, "eof"):
 		return "连接被服务端断开，请稍后重试或联系管理员。"
+	case containsAnyText(text, "connection aborted", "broken pipe", "closed network connection"):
+		return "连接已中断，请稍后重试或联系管理员。"
+	case strings.Contains(text, "x509"):
+		return "服务端证书校验失败，请联系管理员检查证书和地址。"
+	case strings.Contains(text, "tls handshake after certificate possession gate"):
+		return "TLS 握手失败，请检查服务端状态及两端版本。"
+	case strings.Contains(text, "certificate"):
+		return "服务端证书校验失败，请联系管理员检查证书和地址。"
+	case strings.Contains(text, "tls"):
+		return "TLS 握手失败，请检查服务端状态及两端版本。"
 	case strings.Contains(text, "access is denied") || strings.Contains(text, "拒绝访问"):
 		return "权限不足，请以管理员身份运行或检查安装目录权限。"
 	case (strings.Contains(text, "field ") && strings.Contains(text, "not found in type")) ||

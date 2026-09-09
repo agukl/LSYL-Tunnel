@@ -64,13 +64,9 @@ func (a *App) loadClientProfiles() []clientProfile {
 		}
 		cfg, err := readClientConfigRaw(path)
 		serverAddr := strings.TrimSpace(cfg.ServerAddr)
-		label := serverAddr
-		if label == "" {
-			label = suffix
-		}
 		profile := clientProfile{
 			ID:         suffix,
-			Label:      label,
+			Label:      clientProfileLabel(serverAddr, suffix, cfg.Remark),
 			ServerAddr: serverAddr,
 			Available:  true,
 		}
@@ -105,13 +101,9 @@ func (a *App) invalidateClientProfiles() {
 func (a *App) currentClientProfile() clientProfile {
 	cfg, err := readClientConfigRaw(a.configPath)
 	serverAddr := strings.TrimSpace(cfg.ServerAddr)
-	label := serverAddr
-	if label == "" {
-		label = "当前配置"
-	}
 	profile := clientProfile{
 		ID:         currentClientProfileID,
-		Label:      label,
+		Label:      clientProfileLabel(serverAddr, "当前配置", cfg.Remark),
 		ServerAddr: serverAddr,
 		Current:    true,
 		Available:  true,
@@ -133,6 +125,18 @@ func (a *App) currentClientProfile() clientProfile {
 		}
 	}
 	return profile
+}
+
+func clientProfileLabel(serverAddr, fallback, remark string) string {
+	label := strings.TrimSpace(serverAddr)
+	if label == "" {
+		label = strings.TrimSpace(fallback)
+	}
+	remark = strings.Join(strings.Fields(remark), " ")
+	if remark == "" {
+		return label
+	}
+	return label + " · " + remark
 }
 
 func (a *App) switchClientProfile(profileID string) error {

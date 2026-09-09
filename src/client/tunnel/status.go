@@ -590,8 +590,6 @@ func classifyHealthError(err error) (string, string) {
 		return HealthAuthError, "服务端证书已过期或尚未生效，请联系管理员重新下发有效证书"
 	case containsAny(text, "unknown authority", "not trusted"):
 		return HealthAuthError, "服务端证书不受信任，请联系管理员重新下发证书"
-	case containsAny(text, "certificate", "x509", "tls"):
-		return HealthAuthError, "服务端证书校验失败，请联系管理员检查证书"
 	case containsAny(text, "missing port in address", "too many colons in address", "unknown port"):
 		return HealthAuthError, "服务端地址格式不正确，请填写 地址:端口"
 	case containsAny(text, "no such host"):
@@ -604,6 +602,16 @@ func classifyHealthError(err error) (string, string) {
 		return HealthServerUnavailable, "网络不可达，请检查本机网络"
 	case containsAny(text, "connection reset", "forcibly closed", "wsarecv", "eof"):
 		return HealthServerUnavailable, "连接被服务端断开，请稍后重试或联系管理员"
+	case containsAny(text, "connection aborted", "broken pipe", "closed network connection"):
+		return HealthServerUnavailable, "连接已中断，请稍后重试或联系管理员"
+	case containsAny(text, "x509"):
+		return HealthAuthError, "服务端证书校验失败，请联系管理员检查证书"
+	case containsAny(text, "tls handshake after certificate possession gate"):
+		return HealthServerUnavailable, "TLS 握手失败，请检查服务端状态及两端版本"
+	case containsAny(text, "certificate"):
+		return HealthAuthError, "服务端证书校验失败，请联系管理员检查证书"
+	case containsAny(text, "tls"):
+		return HealthServerUnavailable, "TLS 握手失败，请检查服务端状态及两端版本"
 	default:
 		return HealthServerUnavailable, "服务端暂时不可达"
 	}
@@ -636,8 +644,6 @@ func ForwardErrorMessage(err error) string {
 		return "服务端证书和当前地址不匹配，请检查服务端地址或重新下发证书"
 	case containsAny(text, "unknown authority", "not trusted"):
 		return "服务端证书不受信任，请联系管理员重新下发证书"
-	case containsAny(text, "certificate", "x509", "tls"):
-		return "服务端证书校验失败，请联系管理员检查证书"
 	case containsAny(text, "reverse listen address is not configured on server"):
 		return "反向监听地址未在服务端配置，请联系管理员检查保留端口"
 	case containsAny(text, "not allowed to activate this reverse listen address"):
@@ -662,6 +668,16 @@ func ForwardErrorMessage(err error) string {
 		return "网络不可达，请检查本机网络或服务端地址"
 	case containsAny(text, "connection reset", "forcibly closed", "wsarecv", "eof"):
 		return "连接被断开，客户端会自动重试"
+	case containsAny(text, "connection aborted", "broken pipe", "closed network connection"):
+		return "连接已中断，客户端会自动重试"
+	case containsAny(text, "x509"):
+		return "服务端证书校验失败，请联系管理员检查证书"
+	case containsAny(text, "tls handshake after certificate possession gate"):
+		return "TLS 握手失败，客户端会自动重试；若持续出现请确认两端版本"
+	case containsAny(text, "certificate"):
+		return "服务端证书校验失败，请联系管理员检查证书"
+	case containsAny(text, "tls"):
+		return "TLS 握手失败，客户端会自动重试；若持续出现请确认两端版本"
 	default:
 		return "规则连接异常，客户端会自动重试；若持续出现请查看客户端日志"
 	}
@@ -675,6 +691,30 @@ func IsPermanentForwardError(err error) bool {
 	if _, permanent, ok := classifyVirtualForwardError(text); ok {
 		return permanent
 	}
+	if containsAny(
+		text,
+		"connection refused",
+		"actively refused",
+		"connectex",
+		"timeout",
+		"deadline",
+		"i/o timeout",
+		"network is unreachable",
+		"no route to host",
+		"no such host",
+		"connection reset",
+		"forcibly closed",
+		"wsarecv",
+		"eof",
+		"connection aborted",
+		"broken pipe",
+		"closed network connection",
+	) {
+		return false
+	}
+	if containsAny(text, "tls handshake after certificate possession gate") && !containsAny(text, "x509") {
+		return false
+	}
 	return containsAny(
 		text,
 		"auth_failed",
@@ -685,7 +725,6 @@ func IsPermanentForwardError(err error) bool {
 		"protocol_version_unsupported",
 		"certificate",
 		"x509",
-		"tls",
 		"target_denied",
 		"not allowed",
 		"not configured on server",
