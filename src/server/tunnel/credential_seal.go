@@ -103,9 +103,6 @@ func (s *Server) passwordFromRequest(req protocol.OpenRequest) (password, code, 
 	if plain.Username != req.Username {
 		return "", "auth_failed", "username or password is incorrect"
 	}
-	if plain.ClientID != "" && req.ClientID != "" && plain.ClientID != req.ClientID {
-		return "", "auth_failed", "username or password is incorrect"
-	}
 	if plain.ExpiresAt == "" {
 		return "", "credential_expired", "saved login has expired, please enter password again"
 	}

@@ -49,7 +49,7 @@ server.crt
 
 分发包不再包含独立命令行 Profile 工具。GUI 导出过程会校验：客户端必须已有 `saved_credential`，TLS 不允许跳过校验，转发只允许 `client_to_server`，移动端本地监听会规范为 `127.0.0.1:<port>`，且端口必须大于等于 `1024`。
 
-同一个 `.lsylprofile` 也可以导入 Win7 轻量客户端 `lsyl-tunnel-client-lite.exe`。轻量客户端复用移动端的安全边界，只提供导入、连接、断开，不做托盘值守。
+同一个 `.lsylprofile` 也可以导入 Win7 轻量客户端 `lsyl-tunnel-client-lite.exe`。轻量客户端复用移动端的安全边界，只提供导入、连接、断开，不做托盘值守。导入时不会沿用导出电脑的 `client_id`，而是使用 Win7 目标机器的本机名，避免多台设备在服务端日志中显示为同一个客户端；升级后的轻量客户端启动时也会自动修正已经保存的旧标识。
 
 完整发布默认把移动端 APK 放到 `dist/installers/LSYL-Tunnel-Android.apk`，不再生成 `dist/LSYL Tunnel Lightweight Clients`。发布入口会调用 Gradle 重新构建 Android APK；如果构建机没有 Gradle，需要设置 `GRADLE_EXE`，把 Gradle 放到 `tool\gradle-8.9`，或设置 `MOBILE_APK` 指向已有 APK。Win7 轻量客户端随普通客户端安装包和默认客户端 kit 目录一起交付。
 

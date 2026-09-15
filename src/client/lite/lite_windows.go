@@ -149,6 +149,9 @@ func (a *App) Run() error {
 	a.mw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		a.shutdown()
 	})
+	if err := ensureLocalClientID(a.store.ConfigPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		a.appendLogUI("更新客户端标识失败: " + err.Error())
+	}
 	a.reloadProfileUI()
 	a.appendLogUI("配置目录: " + a.store.Root)
 	a.refreshButtonsUI()
@@ -170,6 +173,29 @@ func defaultProfileStore() (profileStore, error) {
 		ConfigPath: filepath.Join(root, "conf", "client.yaml"),
 		CertPath:   filepath.Join(root, "cert", "server.crt"),
 	}, nil
+}
+
+func ensureLocalClientID(configPath string) error {
+	cfg, err := tunnel.LoadConfigRaw(configPath)
+	if err != nil {
+		return err
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		return fmt.Errorf("读取本机名失败: %w", err)
+	}
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		return errors.New("本机名为空")
+	}
+	if cfg.ClientID == hostname {
+		return nil
+	}
+	cfg.ClientID = hostname
+	if err := tunnel.SaveConfig(configPath, cfg); err != nil {
+		return fmt.Errorf("保存客户端标识失败: %w", err)
+	}
+	return nil
 }
 
 func (a *App) importProfile() {

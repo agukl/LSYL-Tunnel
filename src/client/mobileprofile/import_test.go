@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,16 @@ func TestImportBytesConvertsProfileToClientConfig(t *testing.T) {
 	}
 	if cfg.Username != "alice" {
 		t.Fatalf("Username = %q", cfg.Username)
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ClientID != strings.TrimSpace(hostname) {
+		t.Fatalf("ClientID = %q, want importing machine hostname %q", cfg.ClientID, hostname)
+	}
+	if cfg.ClientID == "desktop-client-1" {
+		t.Fatal("ClientID retained the exporting machine identity")
 	}
 	if cfg.Password != "" || cfg.PasswordEnv != "" || cfg.PasswordFile != "" {
 		t.Fatalf("secret fields leaked into config: %#v", cfg)

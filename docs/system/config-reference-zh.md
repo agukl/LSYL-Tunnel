@@ -132,7 +132,7 @@
 
 `saved_credential`：GUI 登录成功后写入的短期密文凭证。它不是明文密码，但在过期前仍可用于登录；泄露时应修改账号密码并轮换服务端密封密钥。
 
-`client_id`：客户端标识，仅用于日志和排查，不作为安全凭据。
+`client_id`：客户端标识，仅用于日志和排查，不作为安全凭据。Win7 轻量客户端导入 `.lsylprofile` 时会使用目标机器的本机名，不继承导出机器的标识。
 
 `tls.ca_cert_file`：客户端信任的服务端 TLS 公开文件，通常就是服务端生成的 `server.crt`。它同时用于 TLS 前的证书持有前置门，因此始终必填，即使临时设置 `insecure_skip_verify: true` 也不能省略。客户端默认配置指向 `../cert/server.crt`，打包和安装时会把 `src\client\cert\server.crt` 放到客户端目录的 `cert\server.crt`。
 

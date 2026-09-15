@@ -638,7 +638,7 @@ func TestAccountTunnelHealthProbeDoesNotDialTargetOrCountAuthOK(t *testing.T) {
 	}
 }
 
-func TestAccountTunnelUsesSealedCredential(t *testing.T) {
+func TestAccountTunnelUsesSealedCredentialAcrossClientIDs(t *testing.T) {
 	certFile, keyFile := writeTestCertificate(t)
 	echoLn := startEchoServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -694,7 +694,7 @@ func TestAccountTunnelUsesSealedCredential(t *testing.T) {
 		ServerAddr:      server.Addr(),
 		Username:        "alice",
 		SavedCredential: sealed,
-		ClientID:        "sealed-client",
+		ClientID:        "importing-client",
 		TLS:             tunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost", MinVersion: "1.2"},
 		Connection:      tunnel.ConnectionConfig{DialTimeoutSec: 3},
 		Forwards: []tunnel.ForwardConfig{{

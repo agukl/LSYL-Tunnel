@@ -186,7 +186,6 @@ func profileToConfig(profile profileFile, certPEM []byte) (ImportedProfile, erro
 	cfg := tunnel.Config{
 		ServerAddr: strings.TrimSpace(profile.ServerAddr),
 		Username:   strings.TrimSpace(profile.Username),
-		ClientID:   strings.TrimSpace(profile.ClientID),
 		LogLevel:   "info",
 		TLS: tunnel.TLSConfig{
 			CACertFile:         caCertFile,
@@ -198,6 +197,7 @@ func profileToConfig(profile profileFile, certPEM []byte) (ImportedProfile, erro
 		SavedCredential: profile.SavedCredential,
 		Forwards:        forwards,
 	}
+	// Portable profiles must not carry the exporting machine's runtime identity.
 	tunnel.ApplyDefaults(&cfg)
 	return ImportedProfile{
 		Config:    cfg,

@@ -4,8 +4,34 @@ package lite
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"lsyltunnel/src/client/tunnel"
 )
+
+func TestEnsureLocalClientIDMigratesImportedIdentity(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "conf", "client.yaml")
+	if err := tunnel.SaveConfig(configPath, tunnel.Config{ClientID: "exporting-client"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureLocalClientID(configPath); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := tunnel.LoadConfigRaw(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ClientID != strings.TrimSpace(hostname) {
+		t.Fatalf("ClientID = %q, want local hostname %q", cfg.ClientID, hostname)
+	}
+}
 
 func TestFriendlyLiteError(t *testing.T) {
 	tests := []struct {
