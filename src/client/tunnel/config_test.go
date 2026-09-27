@@ -92,6 +92,78 @@ func TestClientConfigOptionalRemarkRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCheckConfigUpgradeCompatibleAcceptsEmptyOptionalRemark(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client.yaml")
+	data := []byte(`config_version: 1
+requires:
+  min_client_version: "1.1.0"
+server_addr: 127.0.0.1:9443
+remark:
+username: ""
+password: ""
+password_env: ""
+password_file: ""
+saved_credential: {}
+client_id: ""
+log_level: info
+tls:
+  ca_cert_file: ../cert/server.crt
+  server_name: ""
+  min_version: "1.3"
+  insecure_skip_verify: false
+connection:
+  dial_timeout_sec: 5
+forwards:
+  - name: web
+    direction: client_to_server
+    listen_addr: 127.0.0.1:18080
+    server_target: 10.20.30.40:8080
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckConfigUpgradeCompatible(path); err != nil {
+		t.Fatalf("CheckConfigUpgradeCompatible() rejected empty optional remark: %v", err)
+	}
+}
+
+func TestCheckConfigUpgradeCompatibleRejectsStructuredRemark(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client.yaml")
+	data := []byte(`config_version: 1
+requires:
+  min_client_version: "1.1.0"
+server_addr: 127.0.0.1:9443
+remark:
+  text: production
+username: ""
+password: ""
+password_env: ""
+password_file: ""
+saved_credential: {}
+client_id: ""
+log_level: info
+tls:
+  ca_cert_file: ../cert/server.crt
+  server_name: ""
+  min_version: "1.3"
+  insecure_skip_verify: false
+connection:
+  dial_timeout_sec: 5
+forwards:
+  - name: web
+    direction: client_to_server
+    listen_addr: 127.0.0.1:18080
+    server_target: 10.20.30.40:8080
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckConfigUpgradeCompatible(path)
+	if err == nil || !strings.Contains(err.Error(), "cannot unmarshal !!map into string") {
+		t.Fatalf("CheckConfigUpgradeCompatible() error = %v, want structured remark rejection", err)
+	}
+}
+
 func TestCheckConfigUpgradeCompatibleRejectsNewerConfigVersion(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "client.yaml")

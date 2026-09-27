@@ -261,7 +261,11 @@ func clientYAMLRequireOptionalScalar(fields map[string]*yaml.Node, path, name st
 	if !ok {
 		return nil
 	}
-	if node.Kind != yaml.ScalarNode || node.Tag == "!!null" {
+	// An empty optional YAML value is equivalent to an omitted string.
+	if node.Tag == "!!null" {
+		return nil
+	}
+	if node.Kind != yaml.ScalarNode {
 		return fmt.Errorf("%s.%s must be a value", path, name)
 	}
 	return nil
