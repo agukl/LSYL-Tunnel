@@ -20,8 +20,11 @@ tool/
   inno/ISCC.exe
   Inno Setup 6/ISCC.exe
   signtool/signtool.exe
+  webview2/MicrosoftEdgeWebview2Setup.exe
 ```
 
 `tool/signtool` must include the Windows SDK signing dependency DLLs and manifests, not only `signtool.exe`.
 
 The actual tool binaries are intentionally ignored by git.
+
+`tool/webview2` caches the Microsoft Evergreen bootstrapper downloaded during GUI packaging. It is a deployment prerequisite, not a build tool. Packaging verifies its Microsoft signature. To build installers for offline targets, set `WEBVIEW2_RUNTIME_INSTALLER` to the official x64 Evergreen Standalone Installer, or place it at `tool/webview2/MicrosoftEdgeWebView2RuntimeInstallerX64.exe`. The offline installer takes precedence over the cached bootstrapper.

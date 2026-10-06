@@ -1,5 +1,5 @@
 #define AppName "LSYL Tunnel Client"
-#define AppVersion "3.1.0"
+#define AppVersion "3.1.1"
 #define WinDivertDLLSHA256 "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
 #define WinDivertDriverSHA256 "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
 ; This script is copied into the client distributable package:
@@ -25,6 +25,7 @@ PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog commandline
 UsePreviousPrivileges=yes
 ArchitecturesInstallIn64BitMode=x64compatible
+MinVersion=10.0
 CloseApplications=yes
 RestartApplications=no
 WizardStyle=modern
@@ -44,6 +45,7 @@ Name: "{app}\tmp\gui"; Permissions: users-modify
 Name: "{app}\licenses\WinDivert\source"
 
 [Files]
+Source: "{#SourceRoot}\prerequisites\MicrosoftEdgeWebview2Setup.exe"; Flags: dontcopy
 Source: "{#SourceRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-gui.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-client-lite.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
@@ -57,6 +59,7 @@ Source: "{#SourceRoot}\assets\client-connected.ico"; DestDir: "{app}\assets"; Fl
 Source: "{#SourceRoot}\conf\client.yaml"; DestDir: "{app}\conf"; Flags: ignoreversion uninsneveruninstall
 Source: "{#SourceRoot}\cert\*"; DestDir: "{app}\cert"; Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall
 Source: "{#SourceRoot}\licenses\WinDivert\*"; DestDir: "{app}\licenses\WinDivert"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceRoot}\licenses\WebView2\*"; DestDir: "{app}\licenses\WebView2"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\LSYL Tunnel Client"; Filename: "{app}\bin\lsyl-tunnel-client-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\assets\client.ico"
@@ -88,6 +91,8 @@ var
   ClientRollbackArchiveConfigFile: String;
   ClientRollbackArchiveCertFile: String;
   ClientQuitUseInstalledApp: Boolean;
+
+#include "webview2-runtime.iss"
 
 function ShouldInstallPinnedRuntime(FileName, ExpectedSHA256: String): Boolean;
 var
@@ -499,6 +504,9 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   QuitMessage: String;
 begin
+  Result := EnsureWebView2Runtime(NeedsRestart);
+  if Result <> '' then
+    exit;
   QuitMessage := RequestClientQuit();
   if QuitMessage <> '' then
     Log('Cooperative client quit did not complete; continuing with targeted upgrade cleanup: ' + QuitMessage);

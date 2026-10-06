@@ -10,14 +10,17 @@ src/
     cmd/                客户端 CLI / GUI 入口
     cert/               客户端打包用的服务端 TLS 信任文件，只放公开证书
     conf/               客户端默认配置
+    front/              HTML / CSS / JavaScript，构建时嵌入标准客户端 GUI
     gui/                登录界面、托盘值守、窗口控制、本地管理 API
+    lite/               Win7 原生轻量界面，不依赖 WebView2
+    mobileprofile/      移动端和轻量客户端的 Profile 导入导出
     tunnel/             客户端隧道逻辑、登录探测、转发监听、配置加载
   server/
     assets/             服务端 GUI 和安装器图标资源
     cmd/                服务端 CLI / GUI / Windows 服务入口
     conf/               服务端默认配置
     front/              Web 运维平台页面资源，构建时嵌入服务端 GUI
-    gui/                WebView 外壳、本地管理 API、配置读写、Windows 服务控制
+    gui/                WebView2 外壳、本地管理 API、配置读写、Windows 服务控制
     tunnel/             服务端认证、授权、正反向转发、监控、运行事件
   internal/
     protocol/           客户端和服务端共享的握手协议
@@ -25,22 +28,28 @@ src/
     passutil/           密码哈希与校验
     credseal/           客户端本地保存密码的服务端密封凭据
     winservice/         Windows 服务运行封装和按天日志
+    webviewhost/        标准 Windows GUI 共用的 WebView2 宿主与运行时检查
   cmd/
     lsyl-tunnel-passwd/ 密码哈希工具
     lsyl-tunnel-cert/   服务端 TLS 文件生成工具
     lsyl-tunnel-profile/ 客户端配置档案和移动端配置导出工具
 
 deploy/windows/
-  build/                构建脚本
+  build.cmd             标准 Go 构建入口
+  build-win7-lite.cmd   Win7 独立工具链构建入口
+  go-env.cmd            Go 环境选择
+  run.cmd               开发运行入口
   cert/                 服务端 TLS 文件脚本
-  run/                  开发运行脚本
   service/              Windows 服务脚本
-  app/                  客户端/服务端打包、release 构建目录和 dist 组装脚本
-  inno/                 Inno Setup 安装器配置和图标输入
+  app/                  源码打包、Android 构建和安装依赖准备
+  inno/                 安装器模板、共享前置依赖、现场重打包脚本
   sign/                 代码签名初始化和签名脚本
   test/                 自检脚本
 
 release.cmd             发布主入口：测试、打包、安装器、签名和验证
+mobile/android/         Android 应用与 JVM 测试
+third_party/            随产品分发的第三方组件及许可
+tool/                   本机开发工具和依赖安装器缓存，不作为源码提交
 ```
 
 ## 核心源码职责
@@ -53,7 +62,7 @@ release.cmd             发布主入口：测试、打包、安装器、签名�
 - `monitor.go`、`maintenance.go`：本地监控接口、状态快照和后台清扫。
 - `event_logs.go`、`runtime_events.go`：四类业务日志和内存事件。
 
-服务端管理台后端位于 `src/server/gui`：`admin_api_windows.go` 负责本地 HTTP 路由和状态组装，`admin_config_mapping_windows.go` 负责 GUI 与核心配置互转，`admin_forward_mapping_windows.go` 负责转发字段转换，`admin_monitor_client_windows.go` 负责访问服务端本地监控接口。
+服务端管理台后端位于 `src/server/gui`：`http_windows.go` 负责本地 HTTP 服务和路由，`admin_api_windows.go` 负责请求处理和状态组装，`admin_config_mapping_windows.go` 负责 GUI 与核心配置互转，`admin_forward_mapping_windows.go` 负责转发字段转换，`admin_monitor_client_windows.go` 负责访问服务端本地监控接口。
 
 Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令分发，`commands.go` 处理命令参数，`profiles.go` 管理档案和目录切换，`inspect.go` 负责配置、证书和文件检查，`interactive.go` 提供交互菜单。
 
@@ -110,6 +119,21 @@ Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令�
 
 ## GUI 边界
 
+双端采用相同的源码分工，不另建前端框架或构建链：
+
+| 修改内容 | 所在位置 |
+| --- | --- |
+| 页面结构、样式、交互 | 各端 `front/index.html`、`styles.css`、`app.js` |
+| 静态资源嵌入 | 各端 `front/front.go`，新增文件时同步 `go:embed` |
+| 应用启动与退出组织 | 各端 `gui/gui_windows.go` |
+| 本地 HTTP 服务、路由与静态资源 | 各端 `gui/http_windows.go` |
+| 原生窗口行为 | 各端 `gui/window_windows.go`；客户端托盘在 `tray_windows.go` |
+| 开发目录与安装目录定位 | 各端 `gui/paths_windows.go` |
+| 管理台内存日志与服务日志尾部读取 | 服务端 `gui/logging_windows.go`，不负责四类业务日志写入 |
+| WebView2 初始化与运行时检查 | `src/internal/webviewhost`，不包含隧道业务 |
+
+页面资源通过 `go:embed` 编入 exe，并由回环 HTTP 服务提供；更改页面后需要重新构建 GUI。发布机器不需要 Node，也不需要单独复制前端文件。`tunnel` 不依赖 `gui`、`front` 或 WebView2，Win7 Lite 和 Android 保持独立界面实现。
+
 客户端 GUI：
 
 - 内置隧道引擎，不再额外拉起普通客户端进程。
@@ -143,9 +167,20 @@ build/bin/client/
 build/bin/server/
 build/tmp/
 dist/
+dist.stage/
+dist.previous/
 certs/
 runtime/logs/
 runtime/data/
 ```
 
-根目录 `certs/` 可以由服务端证书脚本重新生成；`src/client/cert/` 是客户端分发包输入目录，会随客户端一起打包和安装。
+`build/` 存放可重建产物，`dist.stage/` 和 `dist.previous/` 仅用于发布暂存和替换恢复，不是源码。保留失败发布目录可用于排查，不要直接在其中维护代码。
+
+`src/client/conf/`、`src/server/conf/`、`src/client/cert/` 和根目录 `certs/` 是本地配置及交付身份输入；`runtime/` 是开发运行数据。这些内容即使被 Git 忽略也不能视为可随意删除的缓存。现场调整只在 `dist/LSYL Tunnel Client` 中进行，程序和脚本修改必须回到 `src`、`deploy`，再重新打包。
+
+## 维护约束
+
+- 窗口生命周期、HTTP 接口与隧道生命周期分别维护；仅在确有共享职责时提取公共模块。
+- 测试与实现相邻。纯页面资源测试放在 `front`，Windows 集成测试使用 `_windows_test.go`；重构后执行 `go test ./src/...` 和 Windows 自检。
+- 运行时性能边界保持不变：客户端缓存只读 TLS 配置并复用虚拟转发 helper；服务端事件使用固定环形缓冲，日志复用序列化结果，IP 表只在定时或容量触顶时清扫。
+- 长期文档按功能维护，历史方案和执行计划由 Git 历史保留；不要为每轮改动另建一套平行说明。

@@ -1,5 +1,5 @@
 #define AppName "LSYL Tunnel Server"
-#define AppVersion "3.1.0"
+#define AppVersion "3.1.1"
 ; This script is copied into the server distributable package:
 ;   LSYL Tunnel Server\installer\server.iss
 ; It compiles the files from that package directory, not from source.
@@ -21,6 +21,7 @@ Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
+MinVersion=10.0
 CloseApplications=yes
 RestartApplications=no
 WizardStyle=modern
@@ -44,7 +45,9 @@ Name: "{app}\logs\flow-traffic"; Flags: uninsneveruninstall
 Name: "{app}\logs\service"; Flags: uninsneveruninstall
 
 [Files]
+Source: "{#SourceRoot}\prerequisites\MicrosoftEdgeWebview2Setup.exe"; Flags: dontcopy
 Source: "{#SourceRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceRoot}\licenses\WebView2\*"; DestDir: "{app}\licenses\WebView2"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceRoot}\bin\lsyl-tunnel-server.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-server-svc.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-server-gui.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
@@ -75,6 +78,8 @@ Type: files; Name: "{app}\uninstall-server-app.ps1"
 [Code]
 var
   CertPage: TInputQueryWizardPage;
+
+#include "webview2-runtime.iss"
 
 procedure InitializeWizard;
 begin
@@ -166,6 +171,9 @@ begin
     Result := CompatError;
     exit;
   end;
+  Result := EnsureWebView2Runtime(NeedsRestart);
+  if Result <> '' then
+    exit;
   StopServerService();
   Result := '';
 end;

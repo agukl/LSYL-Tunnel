@@ -5,7 +5,6 @@ package gui
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"time"
 
@@ -42,16 +41,6 @@ type loginForm struct {
 
 type profileSwitchRequest struct {
 	ID string `json:"id"`
-}
-
-func (a *App) handleHome(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	_, _ = io.WriteString(w, clientHTML)
 }
 
 func (a *App) handleState(w http.ResponseWriter, r *http.Request) {

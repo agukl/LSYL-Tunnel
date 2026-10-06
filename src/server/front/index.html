@@ -2,7 +2,6 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <title>LSYL Tunnel Server</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -76,6 +75,7 @@
             <h3>最近业务事件</h3>
             <span>来自 business/request 日志，按时间倒序展示抽象后的业务记录。</span>
           </div>
+          <div class="log-scrollbar" id="businessScrollBar" aria-label="业务流水横向滚动" tabindex="0"><div id="businessScrollTrack"></div></div>
           <div class="table-wrap detail-table-wrap">
             <table class="data-table detail-table readable-table business-log-table" id="businessTable">
               <thead>
@@ -98,6 +98,7 @@
       <section id="requests" class="panel tab-panel log-panel request-panel">
         <h2 class="panel-title">请求流水</h2>
         <div class="detail-section">
+          <div class="log-scrollbar" id="requestScrollBar" aria-label="请求流水横向滚动" tabindex="0"><div id="requestScrollTrack"></div></div>
           <div class="table-wrap detail-table-wrap">
             <table class="data-table detail-table readable-table request-log-table" id="requestTable">
               <thead>
@@ -351,6 +352,14 @@
 
     </main>
   </div>
+  <dialog id="refreshDialog" class="confirm-dialog" aria-labelledby="refreshDialogTitle">
+    <h3 id="refreshDialogTitle">配置尚未保存</h3>
+    <p>刷新将丢弃当前修改，并重新读取已保存的配置。</p>
+    <form method="dialog" class="modal-actions">
+      <button class="btn muted" value="cancel" autofocus>保留修改</button>
+      <button class="btn danger" value="discard">丢弃并刷新</button>
+    </form>
+  </dialog>
   <div id="resetModal" class="modal hidden">
     <div class="modal-card">
       <h3>重置用户密码</h3>

@@ -96,6 +96,8 @@ dist/LSYL Tunnel Client
 
 客户端安装包会安装普通 GUI、Win7 轻量客户端、配置、图标和 `cert/server.crt`。默认运行方式是 GUI 进程模式 + 托盘值守；轻量客户端需要导入 `.lsylprofile` 后手动连接/断开。两者都不注册客户端 Windows 服务。
 
+普通客户端 GUI 使用 WebView2，仅支持 Windows 10 及以上。安装器会检查 Microsoft Edge WebView2 Evergreen Runtime，缺失时调用随包附带的微软安装器补装，失败则停止安装。默认使用小型引导安装器，补装时目标机器需要联网；已有运行时则直接跳过。`WebView2Loader.dll` 已嵌入 GUI 可执行文件，不需额外拷贝到 `bin`；浏览器用户数据写入当前用户的本地缓存目录。Win7 Lite 不使用 WebView2，Win7 系统应使用专门的轻量客户端安装包。
+
 Win7 轻量客户端由 `deploy\windows\build-win7-lite.cmd` 使用 Go 1.20.x 构建为 32 位 exe。构建机可通过 `GO120EXE` 指定 Go 1.20；未指定时脚本先查 PATH，再查 `tool\go1.20.14`。默认找不到 Go 1.20 时直接失败；只有显式设置 `ALLOW_GO120_DOWNLOAD=1` 时，脚本才会下载 Go 1.20 到 `tool\go1.20.14`。最终用户机器不需要 Go 或其他运行时。
 
 完整发布包默认不再生成单独的 `dist/LSYL Tunnel Lightweight Clients`。`release.cmd` 会在临时工作目录 `build/tmp/dist-work` 中调用 Gradle 重新构建 Android APK，再放入 `dist/installers/LSYL-Tunnel-Android.apk`；没有 Gradle 环境时可以设置 `MOBILE_APK` 指向已有 APK，否则发布失败且不会默认复用历史 APK。客户端安装包已经包含 Win7 轻量客户端。最终 `dist` 默认保留 `dist/LSYL Tunnel Client`，用于现场改配置和证书后重新生成客户端安装包；只有使用 `release.cmd /no-client-kit` 时才不保留。
@@ -150,6 +152,10 @@ build/tmp/dist-work/LSYL Tunnel Server
 - 创建服务端 GUI 快捷方式。
 - 保留已存在的 `conf/server.yaml`。
 - 覆盖安装前执行 `config-compat-check`。检查会按 `config_version` 校验原始 YAML 的字段集、层级和必填结构，并检查转发授权语义；未知字段、结构错误、缺失必填项、无效放通用户、重复反向端口或版本不兼容时都会停止安装。
+
+服务端管理 GUI 支持 Windows 10、Windows Server 2016 及以上桌面环境。安装器会在停止旧服务前检查并补装 Microsoft Edge WebView2 Evergreen Runtime；补装失败时停止本次安装。服务端 Windows 服务本身不依赖 WebView2。按所有用户安装时要求机器级运行时，避免只安装到管理员个人账号而导致其他用户无法打开 GUI。客户端和服务端安装包均附带 WebView2 宿主及嵌入式 loader 的许可文件。
+
+构建时默认将微软引导安装器缓存到 `tool/webview2/MicrosoftEdgeWebview2Setup.exe`，校验微软数字签名后放入安装包。客户端 kit 保留该安装器和共享安装脚本，现场重新打包也能补装运行时。离线部署可先从 [Microsoft 官方下载页](https://developer.microsoft.com/en-us/microsoft-edge/webview2/#download-section)安装 Evergreen Standalone Installer（x64）；也可将完整安装器放到 `tool/webview2/MicrosoftEdgeWebView2RuntimeInstallerX64.exe`，或通过 `WEBVIEW2_RUNTIME_INSTALLER` 指定其路径后重新从源码打包。完整安装器会明显增加分发包体积，因此默认不携带。
 
 默认安装路径：
 
@@ -350,6 +356,10 @@ cmd /c deploy\windows\test\selfcheck.cmd
 - Inno 配置和图标资源是否存在。
 
 自检不会主动安装或启动 Windows 服务，因为这些动作需要 UAC 授权。
+
+## 许可证交付
+
+根目录 `LICENSE` 是项目许可证的唯一维护源。发布流程复制到 `dist/LICENSE`、客户端 kit 和 Windows 双端安装目录；Android APK 随 `dist/LICENSE` 一起交付，不在 APK 内维护另一份正文。WinDivert、WebView2 和可选 Inno 工具链的第三方许可单独随对应组件交付，不能被项目许可证替代。
 
 ## 7. 签名发布
 

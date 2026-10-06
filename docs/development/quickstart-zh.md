@@ -2,6 +2,8 @@
 
 本文用于本机开发和功能验证。生产部署前请阅读 [Windows 部署与安装](../deployment/windows-deployment-zh.md)、[服务端管理员指南](../deployment/server-admin-zh.md)、[客户端用户指南](../deployment/client-user-zh.md) 和 [安全模型](../system/security-zh.md)。
 
+代码定位见 [目录结构与代码边界](architecture-zh.md)。标准 Windows 双端页面分别位于 `src/client/front` 和 `src/server/front`，用 `go:embed` 随 GUI 构建，不需要 npm。改完 HTML、CSS 或 JS 后重新构建对应 GUI；窗口和本地接口逻辑在各端 `gui`，隧道逻辑在 `tunnel`。
+
 ## 1. 构建程序
 
 ```powershell

@@ -1,12 +1,23 @@
-package gui
+package front
 
 import (
 	"strings"
 	"testing"
 )
 
-func TestClientHTMLTextAndScriptAreIntact(t *testing.T) {
+func TestClientAssetsTextAndScriptAreIntact(t *testing.T) {
+	var assets strings.Builder
+	for _, name := range []string{"index.html", "styles.css", "app.js"} {
+		data, err := FS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assets.Write(data)
+	}
+	content := assets.String()
 	required := []string{
+		`<link rel="stylesheet" href="/styles.css">`,
+		`<script src="/app.js"></script>`,
 		"未连接",
 		"服务端地址",
 		"用户名",
@@ -17,9 +28,10 @@ func TestClientHTMLTextAndScriptAreIntact(t *testing.T) {
 		"连续重连失败",
 		"隐藏到托盘",
 		"退出客户端",
-		"右键打开配置菜单",
+		"id=\"configMenuBtn\"",
+		"aria-controls=\"logoMenu\" aria-expanded=\"false\"",
 		"id=\"logoMenu\"",
-		"function showLogoMenu",
+		"function toggleLogoMenu",
 		"function installLogoMenuDismiss",
 		"id=\"mobileExportMenuBtn\"",
 		"id=\"profileList\" class=\"profile-list\" role=\"menu\"",
@@ -49,8 +61,8 @@ func TestClientHTMLTextAndScriptAreIntact(t *testing.T) {
 		"if(!profile.available) return profile.message || '不可用';",
 	}
 	for _, text := range required {
-		if !strings.Contains(clientHTML, text) {
-			t.Fatalf("client HTML is missing required text: %q", text)
+		if !strings.Contains(content, text) {
+			t.Fatalf("client frontend is missing required text: %q", text)
 		}
 	}
 
@@ -79,13 +91,15 @@ func TestClientHTMLTextAndScriptAreIntact(t *testing.T) {
 		"profileHint",
 		"profile-hint",
 		"toggleProfileDropdown",
+		"id=\"mobileExportLogo\"",
+		"function showLogoMenu",
 		"setInterval(refresh, 2500)",
 		"animation:pulseGreen",
 		"@keyframes pulseGreen",
 	}
 	for _, text := range forbidden {
-		if strings.Contains(clientHTML, text) {
-			t.Fatalf("client HTML contains corrupted text or markup: %q", text)
+		if strings.Contains(content, text) {
+			t.Fatalf("client frontend contains corrupted text or markup: %q", text)
 		}
 	}
 }

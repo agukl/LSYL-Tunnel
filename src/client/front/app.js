@@ -1,562 +1,3 @@
-//go:build windows
-
-package gui
-
-const clientHTML = `<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta http-equiv="X-UA-Compatible" content="IE=edge">
-<title>LSYL Tunnel Client</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='10' y1='8' x2='54' y2='58'%3E%3Cstop stop-color='%23102A43'/%3E%3Cstop offset='.55' stop-color='%230D8F87'/%3E%3Cstop offset='1' stop-color='%2318B6A7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='6' y='6' width='52' height='52' rx='14' fill='url(%23g)'/%3E%3Cpath d='M20 45 L32 18 L44 45' fill='none' stroke='white' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M25 35 H39' fill='none' stroke='%23D9FFF6' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
-<style>
-* { box-sizing:border-box; }
-html, body {
-  width:100%;
-  height:100%;
-  margin:0;
-  padding:0;
-  overflow:hidden;
-  -ms-overflow-style:none;
-}
-body {
-  font-family:"Microsoft YaHei UI", "Segoe UI", sans-serif;
-  color:#122b36;
-  background:linear-gradient(180deg, #348f95 0, #56b9b4 60px, #eef8f7 60px, #dff1f2 100%);
-  user-select:none;
-}
-input { user-select:text; }
-button, input { font-family:"Microsoft YaHei UI", "Segoe UI", sans-serif; }
-.app {
-  width:100%;
-  height:100%;
-  overflow:hidden;
-  background:transparent;
-  position:relative;
-}
-.app:after {
-  content:"";
-  position:absolute;
-  inset:0;
-  pointer-events:none;
-  z-index:20;
-  box-shadow:none;
-}
-.titlebar {
-  height:60px;
-  padding:0 10px 0 16px;
-  color:#fff;
-  background:
-    radial-gradient(circle at 0% 0%, rgba(255,255,255,.16), transparent 26%),
-    radial-gradient(circle at 100% 0%, rgba(255,255,255,.08), transparent 24%),
-    linear-gradient(120deg, #2f8e93 0%, #43a5a3 50%, #68c2bc 100%);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.18);
-  border-bottom:1px solid rgba(230,248,245,.72);
-  cursor:default;
-  position:relative;
-  overflow:hidden;
-}
-.titlebar:before {
-  content:"";
-  position:absolute;
-  inset:0;
-  background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,0) 56%);
-  pointer-events:none;
-}
-.title-left {
-  float:left;
-  height:60px;
-  line-height:60px;
-  font-size:15px;
-  font-weight:800;
-  letter-spacing:.2px;
-  position:relative;
-  z-index:1;
-}
-.mini-logo {
-  display:inline-block;
-  width:26px;
-  height:26px;
-  margin:17px 9px 0 0;
-  vertical-align:top;
-  border-radius:8px;
-  background:linear-gradient(145deg, #073447 0%, #0c8d82 56%, #35c4ae 100%);
-  box-shadow:0 10px 18px rgba(16,73,78,.24), inset 0 0 0 1px rgba(255,255,255,.24);
-  position:relative;
-  cursor:pointer;
-}
-.mini-logo:before {
-  content:"";
-  position:absolute;
-  left:8px;
-  top:6px;
-  width:10px;
-  height:13px;
-  border-left:3px solid #fff;
-  border-right:3px solid #fff;
-  border-top:3px solid #fff;
-  transform:skewX(-18deg);
-  border-radius:2px;
-}
-.logo-menu {
-  display:none;
-  position:absolute;
-  left:16px;
-  top:51px;
-  z-index:60;
-  width:330px;
-  padding:11px;
-  border-radius:14px;
-  color:#163944;
-  background:#fff;
-  border:1px solid rgba(130,174,180,.42);
-  box-shadow:0 14px 30px rgba(19,72,82,.22);
-}
-.logo-menu.open { display:block; }
-.logo-menu-title {
-  margin:0 0 8px;
-  color:#57717b;
-  font-size:12px;
-  line-height:16px;
-  font-weight:900;
-}
-.logo-menu .menu-action {
-  width:100%;
-  height:36px;
-  margin-top:8px;
-  border-radius:10px;
-  font-size:12px;
-}
-.logo-menu-empty {
-  display:none;
-  color:#6a818d;
-  font-size:12px;
-  font-weight:800;
-  line-height:18px;
-}
-.title-actions {
-  float:right;
-  height:60px;
-  white-space:nowrap;
-  position:relative;
-  z-index:1;
-}
-.top-status {
-  display:inline-block;
-  height:34px;
-  line-height:34px;
-  margin:13px 10px 0 0;
-  padding:0 13px;
-  border-radius:999px;
-  background:rgba(255,255,255,.17);
-  color:#fff;
-  font-size:12px;
-  font-weight:800;
-  vertical-align:top;
-}
-.top-status i {
-  display:inline-block;
-  width:8px;
-  height:8px;
-  margin-right:7px;
-  border-radius:50%;
-  background:#b8ccd0;
-  box-shadow:0 0 0 5px rgba(255,255,255,.12);
-}
-.top-status.on i {
-  background:#5df0a0;
-  box-shadow:0 0 0 5px rgba(93,240,160,.18);
-}
-.top-status.warn i {
-  background:#f6c34a;
-  box-shadow:0 0 0 5px rgba(246,195,74,.18);
-}
-.top-status.bad i {
-  background:#f36f56;
-  box-shadow:0 0 0 5px rgba(243,111,86,.18);
-}
-.win-btn,
-.top-refresh {
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  width:44px;
-  height:38px;
-  margin:11px 0 0 5px;
-  padding:0;
-  border:0;
-  border-radius:10px;
-  color:#fff;
-  background:rgba(255,255,255,.14);
-  line-height:1;
-  cursor:pointer;
-  vertical-align:top;
-  transition:background .16s ease, transform .16s ease;
-}
-.win-btn:hover,
-.top-refresh:hover {
-  background:rgba(255,255,255,.24);
-  transform:none;
-}
-.win-btn:active,
-.top-refresh:active { transform:scale(.97); }
-.win-btn.close:hover { background:#176f73; }
-.window-icon {
-  display:block;
-  width:18px;
-  height:18px;
-  pointer-events:none;
-}
-.top-refresh .window-icon,
-.win-btn.close .window-icon {
-  width:20px;
-  height:20px;
-}
-.content {
-  height:580px;
-  padding:26px 24px 24px;
-  overflow:hidden;
-  background:
-    radial-gradient(circle at 10% 3%, rgba(29,170,154,.14), transparent 28%),
-    linear-gradient(180deg, #eef8f7 0%, #dff1f2 100%);
-}
-.main-card {
-  height:100%;
-  padding:22px;
-  border-radius:30px;
-  background:#fff;
-  border:1px solid rgba(152,190,194,.34);
-  box-shadow:0 18px 38px rgba(24,72,82,.14);
-  position:relative;
-  overflow:hidden;
-}
-.main-card:before {
-  content:"";
-  position:absolute;
-  left:-80px;
-  top:-90px;
-  width:190px;
-  height:190px;
-  border-radius:50%;
-  background:rgba(16,153,140,.08);
-}
-.panel { position:relative; z-index:1; }
-.login-panel { display:block; }
-.connected-panel { display:none; }
-.reconnect-panel { display:none; }
-.app.running .login-panel { display:none; }
-.app.running .connected-panel { display:block; }
-.app.running.reconnecting .connected-panel { display:none; }
-.app.running.reconnecting .reconnect-panel { display:block; }
-.top-refresh {
-  display:none;
-}
-.app.running .top-refresh {
-  display:inline-flex;
-}
-.status-line {
-  height:35px;
-  margin-bottom:14px;
-}
-.status-chip {
-  display:inline-block;
-  height:34px;
-  line-height:34px;
-  padding:0 14px;
-  border-radius:999px;
-  font-size:13px;
-  font-weight:900;
-  color:#536b77;
-  background:#edf3f5;
-}
-.status-chip:before {
-  content:"";
-  display:inline-block;
-  width:10px;
-  height:10px;
-  margin-right:8px;
-  border-radius:50%;
-  background:#8aa0ad;
-  box-shadow:0 0 0 5px rgba(138,160,173,.14);
-}
-.status-chip.on {
-  color:#087551;
-  background:#ddf8ec;
-}
-.status-chip.on:before {
-  background:#22c55e;
-  box-shadow:0 0 0 5px rgba(34,197,94,.14);
-}
-.status-chip.warn {
-  color:#815800;
-  background:#fff7dc;
-}
-.status-chip.warn:before {
-  background:#f6c34a;
-  box-shadow:0 0 0 5px rgba(246,195,74,.14);
-}
-.status-chip.bad {
-  color:#9a3929;
-  background:#fff0ec;
-}
-.status-chip.bad:before {
-  background:#f36f56;
-  box-shadow:0 0 0 5px rgba(243,111,86,.14);
-}
-.field { margin-top:13px; }
-label {
-  display:block;
-  margin-bottom:7px;
-  color:#294a58;
-  font-size:13px;
-  font-weight:900;
-}
-input,
-select {
-  width:100%;
-  height:43px;
-  padding:0 13px;
-  border:1px solid #cbdfe2;
-  border-radius:14px;
-  outline:none;
-  color:#102d3b;
-  background:#fcffff;
-  font-size:15px;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.8);
-}
-input:focus,
-select:focus {
-  border-color:#10998c;
-  box-shadow:0 0 0 4px rgba(16,153,140,.12);
-}
-select {
-  appearance:none;
-  -webkit-appearance:none;
-}
-button {
-  border:0;
-  border-radius:15px;
-  height:44px;
-  padding:0 17px;
-  font-size:14px;
-  font-weight:900;
-  cursor:pointer;
-  transition:transform .14s ease, box-shadow .14s ease, background .14s ease, opacity .14s ease;
-}
-button:hover { transform:translateY(-1px); }
-button:active { transform:translateY(0); }
-button:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:none; }
-.primary {
-  width:100%;
-  margin-top:17px;
-  color:#fff;
-  background:linear-gradient(135deg, #0b7c75 0%, #14a093 100%);
-  box-shadow:0 12px 22px rgba(12,130,121,.24);
-}
-.secondary {
-  color:#1e5360;
-  background:#edf6f7;
-}
-.secondary:hover { background:#e4f0f2; }
-.profile-switch {
-  display:none;
-  margin-top:0;
-}
-.profile-list {
-  max-height:260px;
-  overflow-x:hidden;
-  overflow-y:auto;
-}
-.profile-option {
-  display:block;
-  width:100%;
-  height:auto;
-  min-height:42px;
-  margin:0;
-  padding:7px 9px;
-  border-radius:9px;
-  color:#173a46;
-  background:transparent;
-  box-shadow:none;
-  text-align:left;
-}
-.profile-option + .profile-option {
-  margin-top:3px;
-}
-.profile-option:hover {
-  background:#eef8f9;
-  transform:none;
-}
-.profile-option.current {
-  background:#e6f6f3;
-  color:#0a7069;
-}
-.profile-option:disabled {
-  opacity:.62;
-  cursor:not-allowed;
-}
-.profile-option-main,
-.profile-option-meta {
-  display:block;
-  overflow:hidden;
-  white-space:nowrap;
-  text-overflow:ellipsis;
-}
-.profile-option-main {
-  font-size:13px;
-  line-height:18px;
-  font-weight:900;
-}
-.profile-option-meta {
-  margin-top:1px;
-  color:#6a818d;
-  font-size:11px;
-  line-height:15px;
-  font-weight:800;
-}
-.danger {
-  color:#915f00;
-  background:#fff8e8;
-  border:1px solid #f1d391;
-}
-.danger:hover { background:#fff1d0; }
-.row { margin-top:16px; overflow:hidden; }
-.row button { width:48%; }
-.row button:first-child { float:left; }
-.row button:last-child { float:right; }
-.wide { width:100%; margin-top:14px; }
-.connected-title {
-  margin:3px 0 12px;
-  color:#102d3b;
-  font-size:24px;
-  line-height:30px;
-  font-weight:900;
-}
-.route {
-  min-height:132px;
-  max-height:270px;
-  padding:14px 15px;
-  border-radius:18px;
-  color:#0f2f3a;
-  background:#edf9f6;
-  border-left:5px solid #0b9186;
-  white-space:pre-wrap;
-  line-height:1.55;
-  font-weight:900;
-  overflow:auto;
-}
-.route-line {
-  margin:0 0 5px;
-}
-.route-line.issue {
-  color:#c33a2f;
-}
-.route-line:last-child { margin-bottom:0; }
-.note {
-  margin-top:12px;
-  color:#6a818d;
-  line-height:1.65;
-  font-size:13px;
-}
-.inline-message {
-  display:none;
-  margin-top:12px;
-  padding:10px 12px;
-  border-radius:13px;
-  color:#0b766c;
-  background:#eaf8f4;
-  border:1px solid #bfe3dd;
-  font-size:13px;
-  font-weight:800;
-  line-height:1.45;
-}
-.inline-message.show { display:block; }
-.inline-message.bad {
-  color:#9a5a00;
-  background:#fffaf0;
-  border-color:#f1d391;
-}
-.version-badge {
-  position:absolute;
-  right:10px;
-  bottom:7px;
-  z-index:25;
-  color:rgba(65,91,102,.45);
-  font-size:10px;
-  font-weight:600;
-  line-height:14px;
-  letter-spacing:0;
-  pointer-events:none;
-  text-shadow:0 1px 0 rgba(255,255,255,.75);
-}
-</style>
-</head>
-<body scroll="no" oncontextmenu="return false">
-<div id="app" class="app">
-  <div id="titlebar" class="titlebar" onmousedown="return beginDrag(event)">
-    <div class="title-left"><span id="mobileExportLogo" class="mini-logo" title="右键打开配置菜单" oncontextmenu="return showLogoMenu(event)"></span>LSYL Tunnel</div>
-    <div class="title-actions">
-      <span id="topStatus" class="top-status off"><i></i><span id="topStatusText">未连接</span></span>
-      <button class="top-refresh" title="刷新状态" aria-label="刷新状态" onclick="refreshHealth(true)"><svg class="window-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 7.8A6.8 6.8 0 0 1 18.4 10" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/><path d="M18.4 5.8V10h-4.2" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.8 16.2A6.8 6.8 0 0 1 5.6 14" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.6 18.2V14h4.2" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      <button class="win-btn minimize" title="最小化" onclick="return minimizeWindow(event)"><svg class="window-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 12h10" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round"/></svg></button>
-      <button id="closeBtn" class="win-btn close" title="关闭" onclick="return closeWindow(event)"><svg class="window-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8l8 8M16 8l-8 8" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round"/></svg></button>
-    </div>
-  </div>
-  <div id="logoMenu" class="logo-menu">
-    <div id="profileSwitch" class="profile-switch">
-      <div class="logo-menu-title">切换客户端配置</div>
-      <div id="profileList" class="profile-list" role="menu"></div>
-    </div>
-    <button id="mobileExportMenuBtn" class="secondary menu-action" onclick="return exportMobileProfile(event)">导出移动端配置</button>
-    <div id="logoMenuEmpty" class="logo-menu-empty">暂无可切换配置</div>
-  </div>
-
-  <div class="content">
-    <div class="main-card">
-      <div class="panel login-panel">
-        <div class="status-line"><span id="statusLogin" class="status-chip">未连接</span></div>
-        <div class="field">
-          <label for="server_addr">服务端地址</label>
-          <input id="server_addr" autocomplete="off" placeholder="vpn.example.com:3443">
-        </div>
-        <div class="field">
-          <label for="username">用户名</label>
-          <input id="username" autocomplete="username" placeholder="请输入用户名">
-        </div>
-        <div class="field">
-          <label for="password">密码</label>
-          <input id="password" type="password" autocomplete="current-password" placeholder="请输入密码">
-        </div>
-        <button id="loginBtn" class="primary" onclick="login()">连接</button>
-        <div id="loginMsg" class="inline-message"></div>
-      </div>
-
-      <div class="panel connected-panel">
-        <div class="connected-title">正在后台值守</div>
-        <div id="route" class="route">读取中...</div>
-        <div class="note">关闭窗口会隐藏到托盘，不会断开连接。需要彻底退出时，请点击“退出客户端”。</div>
-        <div class="row">
-          <button class="secondary" onclick="hideWindow()">隐藏到托盘</button>
-          <button class="danger" onclick="stopClient()">断开连接</button>
-        </div>
-        <button class="secondary wide" onclick="quitApp()">退出客户端</button>
-        <div id="runMsg" class="inline-message"></div>
-      </div>
-
-      <div class="panel reconnect-panel">
-        <div class="status-line"><span id="statusReconnect" class="status-chip warn">正在重连</span></div>
-        <div class="connected-title">正在重连服务端</div>
-        <div id="reconnectInfo" class="route">等待状态...</div>
-        <div class="note">客户端会按指数退避自动重试。若连续重连失败，会取消当前连接状态并回到连接页。</div>
-        <button class="secondary wide" onclick="refreshHealth()">立即重试</button>
-        <button class="danger wide" onclick="stopClient()">取消连接</button>
-        <button class="secondary wide" onclick="quitApp()">退出客户端</button>
-      </div>
-    </div>
-  </div>
-  <div id="versionBadge" class="version-badge"></div>
-</div>
-<script>
 var busy = false;
 var lastRunning = null;
 var lastState = null;
@@ -584,8 +25,7 @@ function suppressContextMenu(){
   document.oncontextmenu = block;
   if(document.body) document.body.oncontextmenu = block;
   if(document.documentElement) document.documentElement.oncontextmenu = block;
-  if(document.addEventListener) document.addEventListener('contextmenu', block, false);
-  if(document.attachEvent) document.attachEvent('oncontextmenu', block);
+  document.addEventListener('contextmenu', block, false);
 }
 function isWindowButton(target){
   while(target){
@@ -596,8 +36,7 @@ function isWindowButton(target){
 }
 function isLogoTarget(target){
   while(target){
-    if(target.id === 'mobileExportLogo') return true;
-    if(target.className && String(target.className).indexOf('mini-logo') >= 0) return true;
+    if(target.id === 'configMenuBtn') return true;
     target = target.parentNode;
   }
   return false;
@@ -605,7 +44,7 @@ function isLogoTarget(target){
 function isLogoMenuTarget(target){
   while(target){
     if(target.id === 'logoMenu') return true;
-    if(target.id === 'mobileExportLogo') return true;
+    if(target.id === 'configMenuBtn') return true;
     target = target.parentNode;
   }
   return false;
@@ -696,6 +135,7 @@ function clearMessages(){
 function hideLogoMenu(){
   var menu = el('logoMenu');
   if(menu) menu.className = 'logo-menu';
+  el('configMenuBtn').setAttribute('aria-expanded', 'false');
 }
 function syncLogoMenu(state, running){
   var exportBtn = el('mobileExportMenuBtn');
@@ -705,14 +145,25 @@ function syncLogoMenu(state, running){
   if(exportBtn) exportBtn.style.display = running ? 'block' : 'none';
   if(empty) empty.style.display = (!running && !canSwitch) ? 'block' : 'none';
 }
-function showLogoMenu(evt){
+function toggleLogoMenu(evt){
   stopEvent(evt);
+  if(el('logoMenu').className.indexOf('open') >= 0){
+    hideLogoMenu();
+    return false;
+  }
   var state = lastState || {};
   var running = !!state.running;
   renderProfiles(state, running);
   syncLogoMenu(state, running);
   var menu = el('logoMenu');
   if(menu) menu.className = 'logo-menu open';
+  el('configMenuBtn').setAttribute('aria-expanded', 'true');
+  if(evt && evt.detail === 0){
+    var items = menu.querySelectorAll('button:not(:disabled)');
+    for(var i=0;i<items.length;i++){
+      if(items[i].offsetParent !== null){ items[i].focus(); break; }
+    }
+  }
   return false;
 }
 function handleLogoMenuMouseDown(evt){
@@ -721,8 +172,33 @@ function handleLogoMenuMouseDown(evt){
   if(!isLogoMenuTarget(target)) hideLogoMenu();
 }
 function installLogoMenuDismiss(){
-  if(document.addEventListener) document.addEventListener('mousedown', handleLogoMenuMouseDown, true);
-  else if(document.attachEvent) document.attachEvent('onmousedown', handleLogoMenuMouseDown);
+  document.addEventListener('mousedown', handleLogoMenuMouseDown, true);
+  document.addEventListener('focusin', function(evt){
+    if(!isLogoMenuTarget(evt.target)) hideLogoMenu();
+  }, false);
+  document.addEventListener('keydown', function(evt){
+    if(el('logoMenu').className.indexOf('open') < 0) return;
+    var code = evt.keyCode || evt.which;
+    if(code === 27){
+      hideLogoMenu();
+      el('configMenuBtn').focus();
+      stopEvent(evt);
+    } else if(code === 38 || code === 40){
+      var nodes = el('logoMenu').querySelectorAll('button:not(:disabled)');
+      var items = [];
+      var index = -1;
+      for(var i=0;i<nodes.length;i++){
+        if(nodes[i].offsetParent === null) continue;
+        if(nodes[i] === document.activeElement) index = items.length;
+        items.push(nodes[i]);
+      }
+      if(items.length){
+        index = index < 0 ? (code === 40 ? 0 : items.length - 1) : (index + (code === 40 ? 1 : -1) + items.length) % items.length;
+        items[index].focus();
+        stopEvent(evt);
+      }
+    }
+  }, false);
 }
 function showMessage(message, bad){
   var running = el('app').className.indexOf('running') >= 0;
@@ -735,6 +211,7 @@ function setStatus(running, state){
   var cls = statusClass(running, state.stats || {});
   el('topStatus').className = 'top-status ' + cls;
   el('topStatusText').innerText = text;
+  el('topStatus').title = text;
   el('statusLogin').className = running ? 'status-chip ' + cls : 'status-chip';
   el('statusLogin').innerText = text;
   el('statusReconnect').className = 'status-chip ' + cls;
@@ -1056,6 +533,3 @@ function exportMobileProfile(evt){
 suppressContextMenu();
 installLogoMenuDismiss();
 refresh();
-</script>
-</body>
-</html>`

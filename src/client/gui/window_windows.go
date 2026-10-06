@@ -65,157 +65,55 @@ func (a *App) minimizeWindow() {
 	})
 }
 
-func (a *App) bindWebViewResizeGuard(web *walk.WebView) {
-	if a.mw == nil || web == nil {
+func (a *App) bindBrowserResize(panel *walk.Composite) {
+	if a.mw == nil || a.web == nil || panel == nil {
 		return
 	}
-	resize := func() {
-		a.requestWebViewLayout(web, false, 90*time.Millisecond)
-	}
-	a.mw.SizeChanged().Attach(resize)
-	a.requestWebViewLayout(web, true, 90*time.Millisecond)
+	panel.SizeChanged().Attach(a.resizeBrowser)
+	a.mw.SizeChanged().Attach(a.resizeBrowser)
+	a.mw.BoundsChanged().Attach(func() {
+		if !a.exiting {
+			a.web.NotifyPositionChanged()
+		}
+	})
+	a.resizeBrowser()
 }
 
-func (a *App) scheduleInitialShow(web *walk.WebView, delay time.Duration) {
+func (a *App) scheduleInitialShow(delay time.Duration) {
 	time.AfterFunc(delay, func() {
 		defer func() { _ = recover() }()
 		if a.mw == nil || a.mw.Handle() == 0 {
 			return
 		}
-		a.mw.Synchronize(func() {
-			a.showInitialWindow(web)
-		})
+		a.mw.Synchronize(a.showInitialWindow)
 	})
 }
 
-func (a *App) showInitialWindow(web *walk.WebView) {
+func (a *App) showInitialWindow() {
 	if a.mw == nil || a.initialShown {
 		return
 	}
 	a.initialShown = true
 	a.mw.Show()
-	a.requestWebViewLayout(web, true, 90*time.Millisecond)
+	a.resizeBrowser()
 }
 
-func (a *App) requestWebViewLayout(web *walk.WebView, force bool, delays ...time.Duration) {
-	if a.fillWebViewToClient(web, force) && a.regionFallback {
-		a.redrawWindow()
-	}
-	if delay := maxLayoutDelay(delays...); delay > 0 {
-		a.scheduleWebViewLayout(web, force, delay)
-	}
-}
-
-func (a *App) startWebLayoutLoop() {
-	if a.webLayoutReq != nil {
+func (a *App) resizeBrowser() {
+	if a.exiting || a.mw == nil || a.web == nil || a.mw.Handle() == 0 {
 		return
-	}
-	a.webLayoutReq = make(chan webLayoutRequest, 1)
-	go func(reqCh <-chan webLayoutRequest) {
-		defer func() { _ = recover() }()
-		var (
-			timer   *time.Timer
-			timerCh <-chan time.Time
-			pending webLayoutRequest
-		)
-		for {
-			select {
-			case req, ok := <-reqCh:
-				if !ok {
-					if timer != nil {
-						timer.Stop()
-					}
-					return
-				}
-				if req.web == nil || req.delay <= 0 {
-					continue
-				}
-				if pending.web == nil {
-					pending = req
-				} else {
-					pending.web = req.web
-					pending.force = pending.force || req.force
-					pending.delay = req.delay
-				}
-				if timer == nil {
-					timer = time.NewTimer(req.delay)
-				} else {
-					if !timer.Stop() {
-						select {
-						case <-timer.C:
-						default:
-						}
-					}
-					timer.Reset(req.delay)
-				}
-				timerCh = timer.C
-			case <-timerCh:
-				req := pending
-				pending = webLayoutRequest{}
-				timerCh = nil
-				if a.mw == nil || req.web == nil || a.mw.Handle() == 0 || req.web.Handle() == 0 {
-					continue
-				}
-				a.mw.Synchronize(func() {
-					if a.fillWebViewToClient(req.web, req.force) && a.regionFallback {
-						a.redrawWindow()
-					}
-				})
-			}
-		}
-	}(a.webLayoutReq)
-}
-
-func (a *App) scheduleWebViewLayout(web *walk.WebView, force bool, delay time.Duration) {
-	if a.webLayoutReq == nil || web == nil || delay <= 0 {
-		return
-	}
-	req := webLayoutRequest{web: web, force: force, delay: delay}
-	select {
-	case a.webLayoutReq <- req:
-	default:
-		select {
-		case <-a.webLayoutReq:
-		default:
-		}
-		a.webLayoutReq <- req
-	}
-}
-
-func maxLayoutDelay(delays ...time.Duration) time.Duration {
-	var max time.Duration
-	for _, delay := range delays {
-		if delay > max {
-			max = delay
-		}
-	}
-	return max
-}
-
-func (a *App) fillWebViewToClient(web *walk.WebView, force bool) bool {
-	if a.mw == nil || web == nil || a.mw.Handle() == 0 || web.Handle() == 0 {
-		return false
 	}
 	if !win.IsWindowVisible(a.mw.Handle()) || win.IsIconic(a.mw.Handle()) {
-		return false
+		return
 	}
 	bounds := a.mw.ClientBoundsPixels()
 	if bounds.Width <= 0 || bounds.Height <= 0 {
-		return false
+		return
 	}
-	rect := walk.Rectangle{Width: bounds.Width, Height: bounds.Height}
-	if !force && rect == a.lastWebBounds {
-		return false
-	}
-	if parent := web.Parent(); parent != nil {
-		_ = parent.SetBoundsPixels(rect)
-	}
-	_ = web.SetBoundsPixels(rect)
-	a.lastWebBounds = rect
+	a.web.Resize()
 	if a.regionFallback {
 		a.applyRoundedWindowRegion(a.mw.Handle(), int32(bounds.Width), int32(bounds.Height))
+		a.redrawWindow()
 	}
-	return true
 }
 
 func (a *App) redrawWindow() {

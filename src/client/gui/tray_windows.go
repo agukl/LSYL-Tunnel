@@ -4,15 +4,10 @@ package gui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/lxn/walk"
 	"github.com/lxn/win"
 	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/registry"
 )
 
 const clientSingleInstanceMutexName = `Local\LSYLTunnelGuiSingleInstance`
@@ -84,15 +79,13 @@ func (a *App) showWindow() {
 			return
 		}
 		wasHidden := a.windowHidden.Load()
-		if a.web != nil && a.mw.Visible() && !win.IsIconic(a.mw.Handle()) {
-			a.requestWebViewLayout(a.web, false, 90*time.Millisecond)
-		} else {
+		if !a.mw.Visible() || win.IsIconic(a.mw.Handle()) {
 			win.ShowWindow(a.mw.Handle(), win.SW_RESTORE)
-			a.requestWebViewLayout(a.web, true, 120*time.Millisecond)
 		}
+		a.resizeBrowser()
 		a.windowHidden.Store(false)
 		if wasHidden && a.web != nil {
-			_ = a.web.Refresh()
+			a.web.Reload()
 		}
 	})
 }
@@ -200,77 +193,4 @@ func (a *App) releaseSingleInstance() {
 	_ = windows.ReleaseMutex(a.instanceMutex)
 	_ = windows.CloseHandle(a.instanceMutex)
 	a.instanceMutex = 0
-}
-
-func enableWebViewIE11Mode() {
-	exe, err := os.Executable()
-	if err != nil {
-		return
-	}
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, `Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION`, registry.SET_VALUE)
-	if err != nil {
-		return
-	}
-	defer key.Close()
-	_ = key.SetDWordValue(filepath.Base(exe), 11001)
-}
-
-func detectWorkspaceRoot() string {
-	if env := strings.TrimSpace(os.Getenv("LSYL_TUNNEL_WORKSPACE")); env != "" {
-		if info, err := os.Stat(env); err == nil && info.IsDir() {
-			return env
-		}
-	}
-	var starts []string
-	if cwd, err := os.Getwd(); err == nil {
-		starts = append(starts, cwd)
-	}
-	if exe, err := os.Executable(); err == nil {
-		starts = append(starts, filepath.Dir(exe))
-	}
-	for _, start := range starts {
-		if root := findWorkspaceFrom(start); root != "" {
-			return root
-		}
-	}
-	if len(starts) > 0 {
-		return starts[0]
-	}
-	return "."
-}
-
-func findWorkspaceFrom(start string) string {
-	cur := filepath.Clean(start)
-	for i := 0; i < 8; i++ {
-		if fileExists(filepath.Join(cur, "go.mod")) ||
-			fileExists(filepath.Join(cur, "src", "client", "conf", "client.yaml")) ||
-			fileExists(filepath.Join(cur, "client", "conf", "client.yaml")) ||
-			fileExists(filepath.Join(cur, "conf", "client.yaml")) {
-			return cur
-		}
-		next := filepath.Dir(cur)
-		if next == cur {
-			break
-		}
-		cur = next
-	}
-	return ""
-}
-
-func detectClientConfigPath(workspace string) string {
-	if candidate := filepath.Join(workspace, "src", "client", "conf", "client.yaml"); fileExists(candidate) {
-		return candidate
-	}
-	if candidate := filepath.Join(workspace, "client", "conf", "client.yaml"); fileExists(candidate) {
-		return candidate
-	}
-	if candidate := filepath.Join(workspace, "conf", "client.yaml"); fileExists(candidate) {
-		return candidate
-	}
-	return filepath.Join(workspace, "src", "client", "conf", "client.yaml")
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }

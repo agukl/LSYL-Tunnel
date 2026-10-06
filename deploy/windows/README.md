@@ -168,6 +168,7 @@ deploy\windows\inno\make-server-installer.cmd "D:\out\installers"
 - `make-server-installer.cmd` 会被复制到临时服务端包，正式发布由 `release.cmd` 调用。
 - `make-installers.cmd` 存在于默认带客户端 kit 的最终 `dist` 中，并且只重新生成客户端安装器。
 - `package-client.iss` 和 `package-server.iss` 是 Inno 模板，不直接作为命令运行。
+- `webview2-runtime.iss` 是双端共用的安装前置依赖逻辑；`app\prepare-webview2.ps1` 准备并校验微软安装器。两者随临时包和客户端 kit 复制，修改源文件后须重新生成安装包，不能只替换 GUI exe。
 
 安装器脚本查找 `ISCC.exe` 的顺序：
 

@@ -4,7 +4,7 @@ LSYL Tunnel is a username/password-authenticated TCP tunnel and port-forwarding 
 
 The account password remains the client identity boundary. Before TLS, the client must prove possession of the pre-distributed server certificate material; TLS then protects tunnel traffic and verifies the server. The client does not present a certificate or private key.
 
-Current release version: `3.1.0`
+Current release version: `3.1.1`
 
 Chinese documentation: [docs/README-zh.md](docs/README-zh.md)
 System flow overview (Chinese): [docs/system/overview-zh.md](docs/system/overview-zh.md)
@@ -15,7 +15,7 @@ Release process (Chinese): [docs/release/release-process-zh.md](docs/release/rel
 ```text
 src/client/             Client CLI, GUI, Win7 Lite UI, config, bundled trust cert, tunnel logic
 src/server/             Server CLI, Web admin console, service wrapper, config, tunnel logic
-src/internal/           Shared protocol, transport, password, credential sealing, service helpers
+src/internal/           Shared protocol, transport, password, credential sealing, WebView2 and service helpers
 src/cmd/                Admin and development helper tools
 mobile/android/         Android client source
 build/bin/              Local build outputs, split by client, server, and auxiliary tools
@@ -23,7 +23,8 @@ build/tmp/              Local test, GUI, and packaging scratch files
 runtime/data/           Local development runtime state
 runtime/logs/           Local development runtime logs, grouped by log type
 deploy/windows/         Windows scripts grouped by build/run/cert/service/app/inno/test
-third_party/windivert/  Vendored WinDivert runtime, license, notice, and matching source archive
+third_party/            Redistributed dependency files, licenses, and required source archives
+tool/                   Local build tools and prerequisite installer cache (not source)
 docs/                   Chinese documentation
 ```
 
@@ -104,6 +105,8 @@ The client GUI runs the tunnel engine in-process by default. After login it open
 The Lite binary is built separately with Go 1.20.x as `windows/386` and `CGO_ENABLED=0`, so the target PC does not need Go, WebView, .NET, Java, or any bundled runtime.
 
 The server GUI is a local Web operations console. Frontend assets live in `src/server/front` and are embedded into `lsyl-tunnel-server-gui.exe`; the GUI exposes only a local `127.0.0.1` management API for status, configuration editing, and restarting the `LSYLTunnelServer` service.
+
+Both standard Windows GUIs keep HTML, CSS, and JavaScript in their respective `src/client/front` and `src/server/front` directories. Go embeds these assets into each executable; there is no Node build step or external web directory to deploy. Native window integration and local HTTP APIs stay in `gui`, while `src/internal/webviewhost` owns the shared WebView2 host. Win7 Lite and Android do not depend on this host.
 
 The server installer generates a self-signed server TLS identity during install when `certs/server.crt` or `certs/server.key` is missing. During upgrades, it preserves the installed `conf/server.yaml` and blocks installation if the installed config version requires a newer server. Administrators distribute only `server.crt` to clients; `server.key` stays on the server. Server uninstall keeps `conf`, `certs`, `data`, and `logs` by default.
 

@@ -1,10 +1,12 @@
 (function () {
   var state = null;
   var dirty = false;
+  var editRevision = 0;
   var busy = false;
   var activeTab = 'overview';
   var resetPasswordRow = null;
   var analysisLoaded = false;
+  var customSelectCount = 0;
   var lockedSecurityIds = ['listenAddr', 'monitorAddr', 'logLevel', 'tlsCert', 'tlsKey', 'tlsMinVersion', 'sealKeyID', 'sealPrivate', 'sealPublic', 'sealExpires'];
   var editableSecurityIds = ['handshakeTimeout', 'dialTimeout', 'maxHandshakeBytes', 'maxConcurrentConnections', 'maxConcurrentConnectionsPerIP', 'connectionRateWindow', 'maxNewConnectionsPerIPWindow', 'maxTrackedConnectionIPs', 'connectionLimiterCleanupSec', 'maxTrackedFailureIPs', 'failureTrackerCleanupSec', 'entryTrafficLogQueueSize', 'maxConcurrentStreamsPerUser', 'streamRateLimitBytesPerSec', 'authFailWindow', 'authFailThreshold', 'authFailBlock'];
 
@@ -68,6 +70,7 @@
 
   function markDirty() {
     dirty = true;
+    editRevision++;
     setText('summaryText', '配置有未保存修改');
   }
 
@@ -97,9 +100,15 @@
   }
 
   function loadState(fillForms) {
+    var requestedRevision = editRevision;
     api('GET', '/api/state', null, function (res) {
       if (!res || !res.config) {
         showToast(res && res.message ? res.message : '状态读取失败', true);
+        return;
+      }
+      if (fillForms && requestedRevision !== editRevision) {
+        renderState(res, false);
+        showToast('刷新期间配置发生修改，未覆盖当前编辑内容。', true);
         return;
       }
       renderState(res, !!fillForms);
@@ -120,7 +129,7 @@
     pill.className = pillClass;
     pill.getElementsByTagName('strong')[0].textContent = svc.status || '未知';
 
-    setText('summaryText', state.message || (svc.running ? '服务正在运行' : '服务未运行'));
+    setText('summaryText', dirty && !fillForms ? '配置有未保存修改' : (state.message || (svc.running ? '服务正在运行' : '服务未运行')));
     setText('listenAddrView', (mon && mon.listen_addr) || cfg.listen_addr || '-');
     setText('activeConnectionsView', numberText(mon.active_connections));
     setText('activeStreamsView', numberText(mon.active_streams));
@@ -584,6 +593,7 @@
     button.className = 'custom-select-button';
     button.setAttribute('aria-haspopup', 'listbox');
     button.setAttribute('aria-expanded', 'false');
+    button.setAttribute('aria-label', name === 'direction' ? '转发方向' : '放通用户');
     var label = document.createElement('span');
     label.className = 'custom-select-label';
     var arrow = document.createElement('span');
@@ -594,6 +604,9 @@
     var list = document.createElement('div');
     list.className = 'custom-select-list';
     list.setAttribute('role', 'listbox');
+    list.setAttribute('aria-label', name === 'direction' ? '转发方向' : '放通用户');
+    list.id = 'select-options-' + (++customSelectCount);
+    button.setAttribute('aria-controls', list.id);
 
     button.onclick = function () {
       if (!button.disabled) { toggleCustomSelect(control); }
@@ -622,6 +635,7 @@
     }
     if (!selected && options.length) { selected = options[0]; }
     control._customLabel.textContent = selected ? selected.text : '';
+    control._customButton.title = control._customLabel.textContent;
     control._customButton.disabled = !!control.disabled || !!control._customEmpty;
     control._customShell.className = 'custom-select' + (control._customButton.disabled ? ' disabled' : '');
     var list = control._customList;
@@ -631,6 +645,9 @@
       var item = document.createElement('button');
       item.type = 'button';
       item.className = 'custom-select-option' + (option.value === control.value ? ' selected' : '') + (option.disabled ? ' disabled' : '');
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', option.value === control.value ? 'true' : 'false');
+      item.tabIndex = -1;
       item.textContent = option.text;
       item.disabled = !!option.disabled || !!control.disabled;
       item.onclick = customSelectOptionClick(control, option.value);
@@ -646,6 +663,7 @@
       closeCustomSelect(control);
       renderCustomSelect(control);
       if (control._customChange) { control._customChange(); }
+      control._customButton.focus();
     };
   }
 
@@ -653,6 +671,11 @@
     return function (event) {
       event = event || window.event;
       var code = event.keyCode || event.which;
+      if (code === 9) {
+        closeCustomSelect(control);
+        control._customButton.focus();
+        return;
+      }
       if (code === 27) {
         closeCustomSelect(control);
         control._customButton.focus();
@@ -713,6 +736,12 @@
 
   function focusFirstCustomOption(control) {
     var buttons = control._customList.getElementsByTagName('button');
+    for (var selected = 0; selected < buttons.length; selected++) {
+      if (!buttons[selected].disabled && buttons[selected].getAttribute('aria-selected') === 'true') {
+        buttons[selected].focus();
+        return;
+      }
+    }
     for (var i = 0; i < buttons.length; i++) {
       if (!buttons[i].disabled) { buttons[i].focus(); return; }
     }
@@ -750,11 +779,7 @@
       }
       closeAllCustomSelects();
     };
-    if (document.addEventListener) {
-      document.addEventListener('click', dismiss, false);
-    } else if (document.attachEvent) {
-      document.attachEvent('onclick', dismiss);
-    }
+    document.addEventListener('click', dismiss, false);
   }
 
   function serverHostCell(value) {
@@ -1354,6 +1379,7 @@
     initResizableTable($('businessTable'));
     if (!items || items.length === 0) {
       appendEmptyRow(tbody, 7, '暂无业务记录');
+      updateLogHorizontalScroll('businessTable', 'businessScrollBar', 'businessScrollTrack');
       return;
     }
     for (var i = 0; i < items.length; i++) {
@@ -1368,6 +1394,7 @@
       appendPlainCell(tr, eventReasonText(ev), 'ellipsis-cell');
       tbody.appendChild(tr);
     }
+    updateLogHorizontalScroll('businessTable', 'businessScrollBar', 'businessScrollTrack');
   }
 
   function renderRequestLogs(items) {
@@ -1376,6 +1403,7 @@
     initResizableTable($('requestTable'));
     if (!items || items.length === 0) {
       appendEmptyRow(tbody, 8, '暂无请求记录');
+      updateLogHorizontalScroll('requestTable', 'requestScrollBar', 'requestScrollTrack');
       return;
     }
     for (var i = 0; i < items.length; i++) {
@@ -1393,6 +1421,35 @@
       appendPlainCell(tr, compactJSON(item), 'raw-json-cell');
       tbody.appendChild(tr);
     }
+    updateLogHorizontalScroll('requestTable', 'requestScrollBar', 'requestScrollTrack');
+  }
+
+  function updateLogHorizontalScroll(tableID, barID, trackID) {
+    var table = $(tableID);
+    var bar = $(barID);
+    var track = $(trackID);
+    if (!table || !bar || !track) { return; }
+    var wrap = table.parentNode;
+    if (!wrap.clientWidth) { return; }
+    var width = Math.max(table.scrollWidth, table.offsetWidth);
+    bar.style.display = width > wrap.clientWidth ? 'block' : 'none';
+    // Both scrollbars must have the same range, including any vertical scrollbar space.
+    track.style.width = Math.max(0, width + bar.clientWidth - wrap.clientWidth) + 'px';
+    bar.scrollLeft = wrap.scrollLeft;
+  }
+
+  function bindLogHorizontalScroll(tableID, barID, trackID) {
+    var table = $(tableID);
+    var bar = $(barID);
+    var wrap = table.parentNode;
+    bar.onscroll = function () { wrap.scrollLeft = bar.scrollLeft; };
+    wrap.onscroll = function () { bar.scrollLeft = wrap.scrollLeft; };
+    updateLogHorizontalScroll(tableID, barID, trackID);
+  }
+
+  function updateLogScrollbars() {
+    updateLogHorizontalScroll('businessTable', 'businessScrollBar', 'businessScrollTrack');
+    updateLogHorizontalScroll('requestTable', 'requestScrollBar', 'requestScrollTrack');
   }
 
   function initAnalysisDefaults() {
@@ -1843,6 +1900,7 @@
       loadAnalysis();
     }
     initResizableTables();
+    updateLogScrollbars();
   }
 
   function setClassEnabled(node, className, enabled) {
@@ -1858,19 +1916,11 @@
   }
 
   function addDocumentEvent(name, handler) {
-    if (document.addEventListener) {
-      document.addEventListener(name, handler, true);
-    } else if (document.attachEvent) {
-      document.attachEvent('on' + name, handler);
-    }
+    document.addEventListener(name, handler, true);
   }
 
   function removeDocumentEvent(name, handler) {
-    if (document.removeEventListener) {
-      document.removeEventListener(name, handler, true);
-    } else if (document.detachEvent) {
-      document.detachEvent('on' + name, handler);
-    }
+    document.removeEventListener(name, handler, true);
   }
 
   function stopMouseEvent(evt) {
@@ -1967,7 +2017,14 @@
     if (total > 0) {
       table.style.width = total + 'px';
       table.style.minWidth = total + 'px';
+      var handles = table.querySelectorAll('.column-resizer');
+      for (var j = 0; j < handles.length; j++) {
+        var pixels = Math.max(56, parseInt(widths[j], 10) || 56);
+        handles[j].setAttribute('aria-valuenow', Math.round(pixels / total * 100));
+        handles[j].setAttribute('aria-valuetext', pixels + ' 像素');
+      }
     }
+    updateLogScrollbars();
   }
 
   function beginColumnResize(table, headers, index, evt) {
@@ -2009,9 +2066,26 @@
       (function (columnIndex) {
         var handle = document.createElement('span');
         handle.className = 'column-resizer';
-        handle.title = '拖拽调整列宽';
+        handle.title = '拖拽或按左右方向键调整列宽';
+        handle.tabIndex = 0;
+        handle.setAttribute('role', 'separator');
+        handle.setAttribute('aria-orientation', 'vertical');
+        handle.setAttribute('aria-valuemin', '0');
+        handle.setAttribute('aria-valuemax', '100');
+        handle.setAttribute('aria-label', '调整' + headers[columnIndex].textContent + '列宽');
         handle.onmousedown = function (evt) {
           return beginColumnResize(table, headers, columnIndex, evt);
+        };
+        handle.onkeydown = function (evt) {
+          evt = evt || window.event;
+          var code = evt.keyCode || evt.which;
+          if (code !== 37 && code !== 39) { return; }
+          var widths = currentTableColumnWidths(table, headers);
+          if (!widths) { return; }
+          widths[columnIndex] = Math.max(56, widths[columnIndex] + (code === 39 ? 12 : -12));
+          applyTableColumnWidths(table, widths);
+          saveTableColumnWidths(table, widths);
+          preventEvent(evt);
         };
         headers[columnIndex].appendChild(handle);
       })(i);
@@ -2059,7 +2133,15 @@
     for (var i = 0; i < buttons.length; i++) {
       buttons[i].onclick = function () {
         var action = this.getAttribute('data-action');
-        if (action === 'refresh') { loadState(true); }
+        if (action === 'refresh') {
+          if (!dirty) {
+            loadState(true);
+          } else {
+            var dialog = $('refreshDialog');
+            dialog.returnValue = 'cancel';
+            dialog.showModal();
+          }
+        }
         else if (action === 'save') { saveConfig(); }
         else if (action === 'restart') { restartService(); }
       };
@@ -2075,6 +2157,9 @@
     };
     $('resetCancelBtn').onclick = closeResetPassword;
     $('resetConfirmBtn').onclick = confirmResetPassword;
+    $('refreshDialog').addEventListener('close', function () {
+      if (this.returnValue === 'discard') { loadState(true); }
+    });
     if ($('analysisRunBtn')) {
       $('analysisRunBtn').onclick = loadAnalysis;
     }
@@ -2085,6 +2170,9 @@
     bindSecurityFields();
     bindActions();
     bindCustomSelectDismissal();
+    bindLogHorizontalScroll('businessTable', 'businessScrollBar', 'businessScrollTrack');
+    bindLogHorizontalScroll('requestTable', 'requestScrollBar', 'requestScrollTrack');
+    window.addEventListener('resize', updateLogScrollbars);
     initAnalysisDefaults();
     setActiveTab(activeTab);
     loadState(true);

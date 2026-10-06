@@ -27,7 +27,10 @@ if not exist "%PACKAGE_DIR%\logs\flow-traffic" mkdir "%PACKAGE_DIR%\logs\flow-tr
 if not exist "%PACKAGE_DIR%\logs\service" mkdir "%PACKAGE_DIR%\logs\service" || exit /b 1
 if not exist "%PACKAGE_DIR%\assets" mkdir "%PACKAGE_DIR%\assets" || exit /b 1
 if not exist "%PACKAGE_DIR%\installer\Languages" mkdir "%PACKAGE_DIR%\installer\Languages" || exit /b 1
+if not exist "%PACKAGE_DIR%\licenses\WebView2" mkdir "%PACKAGE_DIR%\licenses\WebView2" || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%prepare-webview2.ps1" -PackageDir "%PACKAGE_DIR%" || exit /b 1
 copy /y ".\LICENSE" "%PACKAGE_DIR%\LICENSE" >nul || exit /b 1
+copy /y ".\third_party\webview2\LICENSE-*.txt" "%PACKAGE_DIR%\licenses\WebView2\" >nul || exit /b 1
 copy /y ".\build\bin\server\lsyl-tunnel-server.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\build\bin\server\lsyl-tunnel-server-svc.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\build\bin\server\lsyl-tunnel-server-gui.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
@@ -54,6 +57,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 copy /y "%SCRIPT_DIR%..\inno\make-server-installer.cmd" "%PACKAGE_DIR%\make-installer.cmd" >nul || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\verify-installer-version.ps1" "%PACKAGE_DIR%\verify-installer-version.ps1" >nul || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\package-server.iss" "%PACKAGE_DIR%\installer\server.iss" >nul || exit /b 1
+copy /y "%SCRIPT_DIR%..\inno\webview2-runtime.iss" "%PACKAGE_DIR%\installer\webview2-runtime.iss" >nul || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\Languages\ChineseSimplified.isl" "%PACKAGE_DIR%\installer\Languages\ChineseSimplified.isl" >nul || exit /b 1
 > "%PACKAGE_DIR%\README.txt" (
   echo LSYL Tunnel Server package
@@ -78,6 +82,10 @@ copy /y "%SCRIPT_DIR%..\inno\Languages\ChineseSimplified.isl" "%PACKAGE_DIR%\ins
   echo The installer registers the LSYLTunnelServer Windows service as manual start by default.
   echo Select the installer auto-start task only when the server should start automatically with Windows.
   echo Existing conf, certs, data and logs are preserved during install and default uninstall.
+  echo Server GUI requires Windows 10 or Windows Server 2016 or later and Microsoft Edge WebView2 Runtime.
+  echo Setup installs WebView2 when missing. The bundled bootstrapper requires Internet access.
+  echo For offline sites, set WEBVIEW2_RUNTIME_INSTALLER to the Microsoft x64 standalone installer before packaging.
+  echo The server service does not depend on WebView2.
   echo Server logs are grouped under logs\request, logs\business, logs\entry-traffic, logs\flow-traffic and logs\service.
 )
 echo Server package created:

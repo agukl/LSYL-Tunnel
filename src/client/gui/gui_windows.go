@@ -5,8 +5,6 @@ package gui
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -16,6 +14,7 @@ import (
 	"time"
 
 	"lsyltunnel/src/client/tunnel"
+	"lsyltunnel/src/internal/webviewhost"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
@@ -31,7 +30,7 @@ type App struct {
 	panelURL   string
 
 	mw  *walk.MainWindow
-	web *walk.WebView
+	web *webviewhost.Host
 	ni  *walk.NotifyIcon
 
 	iconIdle      *walk.Icon
@@ -56,15 +55,7 @@ type App struct {
 	profileCache      []clientProfile
 	profileCacheUntil time.Time
 
-	webLayoutReq  chan webLayoutRequest
-	lastWebBounds walk.Rectangle
-	initialShown  bool
-}
-
-type webLayoutRequest struct {
-	web   *walk.WebView
-	force bool
-	delay time.Duration
+	initialShown bool
 }
 
 func Run() error {
@@ -140,7 +131,9 @@ func (a *App) Run() (err error) {
 }
 
 func (a *App) run() error {
-	enableWebViewIE11Mode()
+	if err := webviewhost.CheckRuntime(); err != nil {
+		return err
+	}
 	if err := a.loadClientIcons(); err != nil {
 		a.appendLog("图标初始化失败: " + friendlyError(err))
 	}
@@ -150,37 +143,13 @@ func (a *App) run() error {
 	a.appendLog("配置文件: " + a.configPath)
 	a.appendLog("隧道引擎: 内置后台值守")
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", a.handleHome)
-	mux.HandleFunc("/api/state", a.handleState)
-	mux.HandleFunc("/api/health/check", a.handleHealthCheck)
-	mux.HandleFunc("/api/start", a.handleStart)
-	mux.HandleFunc("/api/stop", a.handleStop)
-	mux.HandleFunc("/api/profile/switch", a.handleProfileSwitch)
-	mux.HandleFunc("/api/mobile/export", a.handleMobileExport)
-	mux.HandleFunc("/api/hide", a.handleHide)
-	mux.HandleFunc("/api/quit", a.handleQuit)
-	mux.HandleFunc("/api/window/minimize", a.handleWindowMinimize)
-	mux.HandleFunc("/api/window/close", a.handleWindowClose)
-	mux.HandleFunc("/api/window/drag", a.handleWindowDrag)
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	srv, err := a.startAdminServer()
 	if err != nil {
 		return err
 	}
-	a.panelURL = "http://" + ln.Addr().String() + "/"
-	tmpDir := filepath.Join(appTmpDir(a.workspace), "gui")
-	_ = os.MkdirAll(tmpDir, 0o755)
-	_ = os.WriteFile(filepath.Join(tmpDir, "client-gui.url"), []byte(a.panelURL), 0o644)
+	defer srv.Close()
 
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
-	go func() {
-		if serveErr := srv.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
-			a.appendLog("界面服务异常: " + serveErr.Error())
-		}
-	}()
-
-	var web *walk.WebView
+	var browserPanel *walk.Composite
 	ui := MainWindow{
 		AssignTo:   &a.mw,
 		Title:      windowTitle,
@@ -190,15 +159,10 @@ func (a *App) run() error {
 		Background: SolidColorBrush{Color: walk.RGB(238, 248, 247)},
 		Layout:     VBox{MarginsZero: true, SpacingZero: true},
 		Children: []Widget{
-			WebView{
-				AssignTo:                 &web,
-				URL:                      a.panelURL,
-				Background:               SolidColorBrush{Color: walk.RGB(238, 248, 247)},
-				NativeContextMenuEnabled: false,
-				StretchFactor:            1,
-				OnDocumentCompleted: func(string) {
-					a.showInitialWindow(web)
-				},
+			Composite{
+				AssignTo:      &browserPanel,
+				Layout:        VBox{MarginsZero: true, SpacingZero: true},
+				StretchFactor: 1,
 			},
 		},
 	}
@@ -206,12 +170,15 @@ func (a *App) run() error {
 		_ = srv.Close()
 		return err
 	}
-	a.web = web
-	a.startWebLayoutLoop()
 	a.mw.ToolBar().SetVisible(false)
 	a.mw.StatusBar().SetVisible(false)
 	a.applyFramelessWindow()
-	a.bindWebViewResizeGuard(web)
+	a.web, err = webviewhost.New(uintptr(browserPanel.Handle()), a.panelURL, "Client", a.showInitialWindow)
+	if err != nil {
+		a.mw.Dispose()
+		return err
+	}
+	a.bindBrowserResize(browserPanel)
 	defer a.disposeTray()
 
 	a.mw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
@@ -232,14 +199,7 @@ func (a *App) run() error {
 		defer cancel()
 		_ = srv.Shutdown(ctx)
 	})
-	a.scheduleInitialShow(web, 900*time.Millisecond)
+	a.scheduleInitialShow(900 * time.Millisecond)
 	a.mw.Run()
 	return nil
-}
-
-func appTmpDir(workspace string) string {
-	if fileExists(filepath.Join(workspace, "go.mod")) {
-		return filepath.Join(workspace, "build", "tmp")
-	}
-	return filepath.Join(workspace, "tmp")
 }

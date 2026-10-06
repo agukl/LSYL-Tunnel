@@ -10,10 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"lsyltunnel/src/internal/passutil"
-	frontassets "lsyltunnel/src/server/front"
 	"lsyltunnel/src/server/tunnel"
 
 	"golang.org/x/sys/windows/svc"
@@ -72,30 +70,6 @@ type passwordHashResult struct {
 	OK           bool   `json:"ok"`
 	Message      string `json:"message"`
 	PasswordHash string `json:"password_hash,omitempty"`
-}
-
-func (a *App) registerAdminRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/api/state", a.handleAdminState)
-	mux.HandleFunc("/api/config", a.handleAdminConfig)
-	mux.HandleFunc("/api/password/hash", a.handleAdminPasswordHash)
-	mux.HandleFunc("/api/service/restart", a.handleAdminServiceRestart)
-	mux.HandleFunc("/api/security/unblock", a.handleAdminUnblockIP)
-	mux.HandleFunc("/api/security/permanent-block/delete", a.handleAdminDeletePermanentBlock)
-	mux.HandleFunc("/api/log-analysis", a.handleAdminLogAnalysis)
-	mux.Handle("/", noStore(http.FileServer(http.FS(frontassets.FS))))
-}
-
-func noStore(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (a *App) frontDir() string {
-	return filepath.Join(a.workspace, "src", "server", "front")
 }
 
 func (a *App) handleAdminState(w http.ResponseWriter, r *http.Request) {
@@ -479,44 +453,6 @@ func serviceStatusText(state svc.State, installed bool, err error) string {
 		return "未知状态"
 	}
 }
-func serviceLogTail(path string, max int) []string {
-	for _, candidate := range serviceLogTailCandidates(path) {
-		data, err := os.ReadFile(candidate)
-		if err != nil {
-			continue
-		}
-		return lastLines(data, max)
-	}
-	return nil
-}
-
-func serviceLogTailCandidates(path string) []string {
-	date := time.Now().Format("2006-01-02")
-	ext := filepath.Ext(path)
-	name := strings.TrimSuffix(filepath.Base(path), ext)
-	daily := filepath.Join(filepath.Dir(path), name+"-"+date+ext)
-	if daily == path {
-		return []string{path}
-	}
-	return []string{daily, path}
-}
-
-func lastLines(data []byte, max int) []string {
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	kept := make([]string, 0, max)
-	for _, line := range lines {
-		line = strings.TrimRight(line, "\r")
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		kept = append(kept, line)
-		if len(kept) > max {
-			kept = kept[len(kept)-max:]
-		}
-	}
-	return kept
-}
-
 func friendlyError(err error) string {
 	if err == nil {
 		return ""

@@ -5,8 +5,8 @@
 当前版本：
 
 ```text
-APP_VERSION=3.1.0
-WINDOWS_FILE_VERSION=3.1.0.0
+APP_VERSION=3.1.1
+WINDOWS_FILE_VERSION=3.1.1.0
 PROTOCOL_VERSION=3
 ```
 
@@ -24,9 +24,11 @@ Windows `FileVersion` 使用四段号，由产品版本派生，例如 `3.0.0 ->
 
 每次升版至少检查这些位置：
 
+- `src/internal/version/version.go`（产品号与协议、配置兼容门槛分别维护）
 - `README.md`
 - `docs/README-zh.md`
 - `docs/release/release-notes-zh.md`
+- `docs/release/release-process-zh.md`（本页当前版本）
 - `deploy/windows/inno/package-client.iss`
 - `deploy/windows/inno/package-server.iss`
 - `mobile/android/app/build.gradle.kts`
