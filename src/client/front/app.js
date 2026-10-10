@@ -36,7 +36,7 @@ function isWindowButton(target){
 }
 function isLogoTarget(target){
   while(target){
-    if(target.id === 'configMenuBtn') return true;
+    if(target.id === 'logoMenuBtn') return true;
     target = target.parentNode;
   }
   return false;
@@ -44,7 +44,7 @@ function isLogoTarget(target){
 function isLogoMenuTarget(target){
   while(target){
     if(target.id === 'logoMenu') return true;
-    if(target.id === 'configMenuBtn') return true;
+    if(target.id === 'logoMenuBtn') return true;
     target = target.parentNode;
   }
   return false;
@@ -135,7 +135,7 @@ function clearMessages(){
 function hideLogoMenu(){
   var menu = el('logoMenu');
   if(menu) menu.className = 'logo-menu';
-  el('configMenuBtn').setAttribute('aria-expanded', 'false');
+  el('logoMenuBtn').setAttribute('aria-expanded', 'false');
 }
 function syncLogoMenu(state, running){
   var exportBtn = el('mobileExportMenuBtn');
@@ -145,26 +145,27 @@ function syncLogoMenu(state, running){
   if(exportBtn) exportBtn.style.display = running ? 'block' : 'none';
   if(empty) empty.style.display = (!running && !canSwitch) ? 'block' : 'none';
 }
-function toggleLogoMenu(evt){
+function showLogoMenu(evt){
   stopEvent(evt);
-  if(el('logoMenu').className.indexOf('open') >= 0){
-    hideLogoMenu();
-    return false;
-  }
   var state = lastState || {};
   var running = !!state.running;
   renderProfiles(state, running);
   syncLogoMenu(state, running);
   var menu = el('logoMenu');
   if(menu) menu.className = 'logo-menu open';
-  el('configMenuBtn').setAttribute('aria-expanded', 'true');
-  if(evt && evt.detail === 0){
-    var items = menu.querySelectorAll('button:not(:disabled)');
-    for(var i=0;i<items.length;i++){
-      if(items[i].offsetParent !== null){ items[i].focus(); break; }
-    }
+  el('logoMenuBtn').setAttribute('aria-expanded', 'true');
+  var items = menu.querySelectorAll('button:not(:disabled)');
+  for(var i=0;i<items.length;i++){
+    if(items[i].offsetParent !== null){ items[i].focus(); break; }
   }
   return false;
+}
+function handleLogoMenuKeyDown(evt){
+  var code = evt.keyCode || evt.which;
+  if(code === 13 || code === 32 || code === 40 || code === 93 || (code === 121 && evt.shiftKey)){
+    return showLogoMenu(evt);
+  }
+  return true;
 }
 function handleLogoMenuMouseDown(evt){
   evt = evt || window.event;
@@ -181,7 +182,7 @@ function installLogoMenuDismiss(){
     var code = evt.keyCode || evt.which;
     if(code === 27){
       hideLogoMenu();
-      el('configMenuBtn').focus();
+      el('logoMenuBtn').focus();
       stopEvent(evt);
     } else if(code === 38 || code === 40){
       var nodes = el('logoMenu').querySelectorAll('button:not(:disabled)');

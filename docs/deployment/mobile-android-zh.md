@@ -51,7 +51,7 @@ profile.json
 server.crt
 ```
 
-该文件由 Windows 客户端侧生成，不建议手工编辑 zip。用户先在客户端 GUI 成功连接一次，让本机 `conf/client.yaml` 写入未过期的 `saved_credential`。在窗口左上角“配置”菜单中选择“导出移动端配置”，确认后自动导出到当前用户系统“下载”目录，文件名格式为：
+该文件由 Windows 客户端侧生成，不建议手工编辑 zip。用户先在客户端 GUI 成功连接一次，让本机 `conf/client.yaml` 写入未过期的 `saved_credential`。右键点击窗口左上角图标，选择“导出移动端配置”，确认后自动导出到当前用户系统“下载”目录，文件名格式为：
 
 ```text
 <用户名>_<凭据到期日期>.lsylprofile

@@ -61,34 +61,21 @@ button, input { font-family:"Microsoft YaHei UI", "Segoe UI", sans-serif; }
   position:relative;
   z-index:1;
 }
-.config-menu-trigger {
-  height:30px;
-  margin-left:10px;
-  padding:0 9px;
-  border:1px solid rgba(255,255,255,.42);
-  border-radius:7px;
-  color:#fff;
-  background:rgba(255,255,255,.14);
-  font-size:12px;
-  font-weight:800;
-  line-height:28px;
-  cursor:pointer;
-  vertical-align:middle;
-}
-.config-menu-trigger:hover,
-.config-menu-trigger[aria-expanded="true"] { background:rgba(255,255,255,.25); }
-.config-menu-trigger:focus-visible { outline:2px solid #fff; outline-offset:2px; }
 .mini-logo {
   display:inline-block;
   width:26px;
   height:26px;
   margin:17px 9px 0 0;
+  padding:0;
+  border:0;
   vertical-align:top;
   border-radius:8px;
   background:linear-gradient(145deg, #073447 0%, #0c8d82 56%, #35c4ae 100%);
   box-shadow:0 10px 18px rgba(16,73,78,.24), inset 0 0 0 1px rgba(255,255,255,.24);
   position:relative;
+  cursor:pointer;
 }
+.mini-logo:focus-visible { outline:2px solid #fff; outline-offset:3px; }
 .mini-logo:before {
   content:"";
   position:absolute;

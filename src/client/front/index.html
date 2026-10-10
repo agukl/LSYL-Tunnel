@@ -9,7 +9,7 @@
 <body scroll="no" oncontextmenu="return false">
 <div id="app" class="app">
   <div id="titlebar" class="titlebar" onmousedown="return beginDrag(event)">
-    <div class="title-left"><span class="mini-logo" aria-hidden="true"></span>LSYL Tunnel<button id="configMenuBtn" type="button" class="config-menu-trigger" aria-controls="logoMenu" aria-expanded="false" onclick="return toggleLogoMenu(event)">配置 ▾</button></div>
+    <div class="title-left"><button id="logoMenuBtn" type="button" class="mini-logo" title="配置菜单" aria-label="配置菜单" aria-haspopup="menu" aria-controls="logoMenu" aria-expanded="false" oncontextmenu="return showLogoMenu(event)" onkeydown="return handleLogoMenuKeyDown(event)"></button>LSYL Tunnel</div>
     <div class="title-actions">
       <span id="topStatus" class="top-status off"><i></i><span id="topStatusText">未连接</span></span>
       <button class="top-refresh" title="刷新状态" aria-label="刷新状态" onclick="refreshHealth(true)"><svg class="window-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 7.8A6.8 6.8 0 0 1 18.4 10" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/><path d="M18.4 5.8V10h-4.2" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.8 16.2A6.8 6.8 0 0 1 5.6 14" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.6 18.2V14h4.2" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/></svg></button>

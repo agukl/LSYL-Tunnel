@@ -20,8 +20,8 @@ func TestClientFrontendRoutes(t *testing.T) {
 		contains    string
 	}{
 		{"/", http.StatusOK, "text/html", `<link rel="stylesheet" href="/styles.css">`},
-		{"/styles.css", http.StatusOK, "text/css", ".config-menu-trigger"},
-		{"/app.js", http.StatusOK, "javascript", "function toggleLogoMenu"},
+		{"/styles.css", http.StatusOK, "text/css", ".mini-logo:focus-visible"},
+		{"/app.js", http.StatusOK, "javascript", "function showLogoMenu"},
 		{"/app.js?v=1", http.StatusOK, "javascript", "installLogoMenuDismiss();"},
 		{"/front.go", http.StatusNotFound, "text/plain", ""},
 		{"/conf/client.yaml", http.StatusNotFound, "text/plain", ""},
