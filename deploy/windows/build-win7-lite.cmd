@@ -32,6 +32,7 @@ if /i "%LSYL_RELEASE_PROTECT%"=="1" (
   echo [INFO] Win7 Lite keeps Go 1.20 compatibility; applying -trimpath and -s -w without garble.
 )
 "%GO120EXE%" build -modfile=go.win7.mod -mod=readonly -trimpath -ldflags "-H windowsgui -s -w" -o "%OUT%" ".\src\client\cmd\lsyl-tunnel-client-lite" || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%verify-client-lite-identity.ps1" -BinaryFile "%OUT%" || exit /b 1
 echo Win7 Lite client build completed: %OUT%
 goto :eof
 

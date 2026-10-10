@@ -36,6 +36,8 @@ Windows `FileVersion` 使用四段号，由产品版本派生，例如 `3.0.0 ->
 - `deploy/windows/test/selfcheck.cmd`
 - 各 Windows `app.manifest` 和 `rsrc.syso`
 
+Win7 Lite 的两份资源 `rsrc_windows_386.syso`、`rsrc_windows_amd64.syso` 必须保留自己的文件身份：`InternalName=lsyl-tunnel-client-lite`、`OriginalFilename=lsyl-tunnel-client-lite.exe`，不能复用普通 GUI 的名称。Lite 构建脚本会自动校验这两个字段，不匹配时停止打包。
+
 ## 兼容判断
 
 发版前必须给出两个结论：
