@@ -216,8 +216,12 @@ func forwardFromConfig(fwd tunnel.ForwardConfig) (forwardConfig, error) {
 	if port < 1024 {
 		return forwardConfig{}, fmt.Errorf("forward %q listen port %d is below 1024 and cannot be used by Android", forwardNameForError(fwd), port)
 	}
-	if _, _, err := splitHostPort(fwd.ServerTarget); err != nil {
+	targetHost, _, err := splitHostPort(fwd.ServerTarget)
+	if err != nil {
 		return forwardConfig{}, fmt.Errorf("forward %q server_target is invalid: %w", forwardNameForError(fwd), err)
+	}
+	if !netaddr.IsForwardTargetHost(targetHost) {
+		return forwardConfig{}, fmt.Errorf("forward %q server_target must use 127.0.0.1 or a private IP address", forwardNameForError(fwd))
 	}
 	listenAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	name := strings.TrimSpace(fwd.Name)

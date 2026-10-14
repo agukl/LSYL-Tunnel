@@ -518,6 +518,12 @@ func friendlyLiteError(err error) string {
 	switch {
 	case errors.Is(err, context.Canceled):
 		return "操作已取消。"
+	case strings.Contains(text, "loopback host ") && strings.Contains(text, "use 127.0.0.1"):
+		return strings.ReplaceAll(strings.ReplaceAll(err.Error(), "loopback host ", "回环地址 "), "is not supported; use 127.0.0.1", "不再支持，请使用 127.0.0.1")
+	case strings.Contains(text, "server_target must use 127.0.0.1 or a private ip address"):
+		return "正向 server_target 必须填写 127.0.0.1 或私有 IP:端口，不支持域名或公网 IP。"
+	case strings.Contains(text, "has duplicate runtime name"):
+		return "本客户端内的转发规则标识重复，请填写不同的 name。"
 	case strings.Contains(text, "credential_expired") || strings.Contains(text, "saved login has expired") || strings.Contains(text, "saved_credential has expired"):
 		return "登录凭据已过期，请让客户端重新生成配置后再导入。"
 	case strings.Contains(text, "auth_failed") || strings.Contains(text, "username or password"):

@@ -17,13 +17,13 @@ class ForwardTextConfigTest {
                 server_target: 192.168.1.7:3389
               - name: database
                 listen_addr: 127.0.0.1:13306
-                server_target: db.internal:3306
+                server_target: 10.0.0.7:3306
             """.trimIndent()
         )
 
         assertEquals(2, parsed.size)
         assertEquals("192.168.1.7:3389", parsed[0].serverTarget)
-        assertEquals("db.internal:3306", parsed[1].serverTarget)
+        assertEquals("10.0.0.7:3306", parsed[1].serverTarget)
         assertTrue(parsed.all { it.direction == DIRECTION_CLIENT_TO_SERVER })
     }
 
@@ -80,11 +80,13 @@ class ForwardTextConfigTest {
             InvalidCase(ruleYaml("rdp", "0.0.0.0:13389", "192.168.1.7:3389"), "规则 rdp 的本地监听只能使用 127.0.0.1"),
             InvalidCase(ruleYaml("rdp", "127.0.0.1:22", "192.168.1.7:3389"), "规则 rdp 的本地端口必须大于等于 1024"),
             InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "missing-port"), "规则 rdp 的 server_target 格式无效"),
-            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "https://host:443"), "规则 rdp 的 server_target 主机无效"),
-            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "bad host:443"), "规则 rdp 的 server_target 主机无效"),
+            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "https://host:443"), "server_target 必须使用 127.0.0.1 或私有 IP"),
+            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "bad host:443"), "server_target 必须使用 127.0.0.1 或私有 IP"),
+            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "db.internal:3306"), "不支持域名或公网 IP"),
+            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "203.0.113.10:3306"), "不支持域名或公网 IP"),
             InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "\"[::1]:443\""), "规则 rdp 的 server_target 不再支持回环地址 ::1，请使用 127.0.0.1"),
             InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "localhost:3389"), "规则 rdp 的 server_target 不再支持回环地址 localhost，请使用 127.0.0.1"),
-            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "999.1.1.1:443"), "规则 rdp 的 server_target 主机无效"),
+            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "999.1.1.1:443"), "server_target 必须使用 127.0.0.1 或私有 IP"),
             InvalidCase(
                 """
                 forwards:

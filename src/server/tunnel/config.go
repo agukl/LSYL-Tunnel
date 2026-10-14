@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"lsyltunnel/src/internal/netaddr"
 	appversion "lsyltunnel/src/internal/version"
 
 	"gopkg.in/yaml.v3"
@@ -173,6 +174,12 @@ func SaveConfig(path string, cfg Config) error {
 	if err := validateLoopbackAddresses(cfg); err != nil {
 		return err
 	}
+	for _, fwd := range cfg.Forwards {
+		if err := validateReverseListenFields(fwd); err != nil {
+			return err
+		}
+	}
+	cfg.Forwards = append([]ForwardConfig(nil), cfg.Forwards...)
 	ApplyDefaults(&cfg)
 	data, err := yaml.Marshal(configForSave(cfg))
 	if err != nil {
@@ -239,6 +246,7 @@ func ApplyDefaults(cfg *Config) {
 		cfg.TLS.MinVersion = "1.3"
 	}
 	for i := range cfg.Forwards {
+		cfg.Forwards[i].Direction = strings.TrimSpace(cfg.Forwards[i].Direction)
 		if cfg.Forwards[i].Direction == "" {
 			cfg.Forwards[i].Direction = DirectionClientToServer
 		}
@@ -311,17 +319,13 @@ func normalizeReverseListenPort(forward *ForwardConfig) {
 	if forward == nil || forward.Direction != DirectionServerToClient {
 		return
 	}
-	if forward.ListenPort <= 0 && strings.TrimSpace(forward.ListenAddr) != "" {
-		host, port, err := splitHostPort(forward.ListenAddr)
-		if err == nil && host == "127.0.0.1" {
-			forward.ListenPort = port
-		}
+	// Preserve invalid or conflicting fields so validation can report the original input.
+	if err := validateReverseListenFields(*forward); err != nil {
+		return
 	}
-	if forward.ListenPort > 0 && strings.TrimSpace(forward.ListenAddr) != "" {
-		host, _, err := splitHostPort(forward.ListenAddr)
-		if err != nil || host != "127.0.0.1" {
-			return
-		}
+	if forward.ListenPort == 0 && strings.TrimSpace(forward.ListenAddr) != "" {
+		_, port, _ := splitHostPort(forward.ListenAddr)
+		forward.ListenPort = port
 	}
 	if forward.ListenPort > 0 && forward.ListenPort <= 65535 {
 		forward.ListenAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(forward.ListenPort))
@@ -371,10 +375,13 @@ func ValidateConfig(cfg Config) error {
 			if err != nil {
 				return fmt.Errorf("forward %q server_target is invalid", forward.Name)
 			}
-			if host != "127.0.0.1" && !isPrivateTargetIP(host) {
+			if !netaddr.IsForwardTargetHost(host) {
 				return fmt.Errorf("forward %q server_target must be a loopback or private IP (127.0.0.1 or private IP)", forward.Name)
 			}
 		case DirectionServerToClient:
+			if err := validateReverseListenFields(forward); err != nil {
+				return err
+			}
 			port := forward.ListenPort
 			if port <= 0 {
 				host, legacyPort, err := splitHostPort(forward.ListenAddr)

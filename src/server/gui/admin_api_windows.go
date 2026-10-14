@@ -460,6 +460,8 @@ func friendlyError(err error) string {
 	text := err.Error()
 	lower := strings.ToLower(text)
 	switch {
+	case strings.Contains(lower, "listen_port conflicts with legacy listen_addr"):
+		return strings.ReplaceAll(text, "listen_port conflicts with legacy listen_addr; keep only listen_port or use the same port", "反向 listen_port 与旧 listen_addr 端口冲突，请只保留 listen_port 或填写相同端口")
 	case strings.Contains(lower, "loopback host ") && strings.Contains(lower, "is not supported; use 127.0.0.1"):
 		return strings.ReplaceAll(strings.ReplaceAll(text, "loopback host ", "回环地址 "), "is not supported; use 127.0.0.1", "不再支持，请使用 127.0.0.1")
 	case strings.Contains(lower, "monitor_addr must use a loopback address"):

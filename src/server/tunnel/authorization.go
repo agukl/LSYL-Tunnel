@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"lsyltunnel/src/internal/netaddr"
 	"lsyltunnel/src/internal/protocol"
 )
 
@@ -81,10 +82,7 @@ func (s *Server) authorizeTarget(user UserConfig, target string) error {
 	if forward == nil {
 		return fmt.Errorf("user is not allowed to access this target")
 	}
-	if host == "127.0.0.1" {
-		return nil
-	}
-	if isPrivateTargetIP(host) {
+	if netaddr.IsForwardTargetHost(host) {
 		return nil
 	}
 	return fmt.Errorf("target is not allowed")

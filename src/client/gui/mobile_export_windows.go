@@ -74,6 +74,8 @@ func mobileExportFriendlyError(err error) string {
 	}
 	text := err.Error()
 	switch {
+	case containsAnyText(text, "loopback host ", "server_target must use 127.0.0.1 or a private IP address"):
+		return friendlyErrorText(text)
 	case containsAnyText(text, "请先登录成功"):
 		return text
 	case containsAnyText(text, "saved_credential"):

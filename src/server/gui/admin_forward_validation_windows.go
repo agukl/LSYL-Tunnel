@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"lsyltunnel/src/internal/netaddr"
 	"lsyltunnel/src/server/tunnel"
 )
 
@@ -130,7 +131,7 @@ func validateAdminForwardsForSaveWithOptions(form adminConfig, opts adminForward
 			issues.addError(fieldPrefix+".server_target", "target address must include a host and port")
 			continue
 		}
-		if !isAdminLoopbackHost(host) && !isAdminPrivateIP(host) {
+		if !netaddr.IsForwardTargetHost(host) {
 			issues.addError(fieldPrefix+".server_target", "目标地址必须使用 127.0.0.1 或私有 IP")
 			continue
 		}
@@ -184,11 +185,6 @@ func adminForwardAddressHost(addr string) (string, error) {
 
 func isAdminLoopbackHost(host string) bool {
 	return host == "127.0.0.1"
-}
-
-func isAdminPrivateIP(host string) bool {
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	return ip != nil && ip.IsPrivate()
 }
 
 func adminUserSet(users []adminUser) map[string]bool {

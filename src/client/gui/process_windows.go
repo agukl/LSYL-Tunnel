@@ -276,6 +276,14 @@ func friendlyErrorText(raw string) string {
 		return "本地端口已被占用，请关闭占用程序或调整端口。"
 	case strings.Contains(text, "has unsupported direction"):
 		return forwardRuleConfigMessage(raw, "direction 不受支持，请联系管理员检查客户端配置。")
+	case strings.Contains(text, "has duplicate runtime name"):
+		return forwardRuleConfigMessage(raw, "本客户端内的规则标识重复，请填写不同的 name；无需与服务端规则名一致。")
+	case strings.Contains(text, "server_target must use 127.0.0.1 or a private ip address"):
+		return forwardRuleConfigMessage(raw, "正向 server_target 必须填写 127.0.0.1 或私有 IP:端口，不支持域名或公网 IP。")
+	case strings.Contains(text, "listen_addr must include a host and port") && !strings.Contains(text, "reverse"):
+		return forwardRuleConfigMessage(raw, "正向 listen_addr 格式不正确，请填写 地址:端口。")
+	case strings.Contains(text, "listen_addr port must be between 0 and 65535"):
+		return forwardRuleConfigMessage(raw, "正向 listen_addr 端口必须在 0 到 65535 之间；0 表示随机监听端口。")
 	case strings.Contains(text, "contains unknown field"):
 		return forwardRuleConfigMessage(raw, "包含当前客户端不支持的字段，请联系管理员重新生成配置。")
 	case strings.Contains(text, "requires server_target"):

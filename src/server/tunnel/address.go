@@ -27,6 +27,8 @@ func normalizeTarget(target string) string {
 	return net.JoinHostPort(strings.ToLower(strings.Trim(host, "[]")), port)
 }
 
+// Historical ban cleanup must recognize all loopback forms, not just the
+// canonical spelling accepted by configuration validation.
 func isLoopbackName(host string) bool {
 	host = strings.ToLower(strings.Trim(host, "[]"))
 	if host == "localhost" {
@@ -34,11 +36,6 @@ func isLoopbackName(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
-}
-
-func isPrivateTargetIP(host string) bool {
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	return ip != nil && ip.IsPrivate()
 }
 
 func remoteHost(addr net.Addr) string {

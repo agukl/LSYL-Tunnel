@@ -122,8 +122,8 @@ internal object MobileForwardValidator {
                 throw ProfileImportException("规则 $label 的 server_target 格式无效")
             }
             requireCanonicalLoopbackHost(target.host, "规则 $label 的 server_target")
-            if (!validTargetHost(target.host)) {
-                throw ProfileImportException("规则 $label 的 server_target 主机无效")
+            if (!isForwardTargetHost(target.host)) {
+                throw ProfileImportException("规则 $label 的 server_target 必须使用 127.0.0.1 或私有 IP，不支持域名或公网 IP")
             }
             if (!names.add(forward.name)) throw ProfileImportException("规则名称重复: ${forward.name}")
             if (!listenPorts.add(local.port)) {
@@ -131,22 +131,4 @@ internal object MobileForwardValidator {
             }
         }
     }
-
-    private fun validTargetHost(host: String): Boolean {
-        val candidate = host.removeSuffix(".")
-        if (candidate.isEmpty() || candidate.length > 253) return false
-        if (candidate.all { it.isDigit() || it == '.' }) return validIpv4(candidate)
-        return candidate.split('.').all { DOMAIN_LABEL.matches(it) }
-    }
-
-    private fun validIpv4(host: String): Boolean {
-        val octets = host.split('.')
-        return octets.size == 4 && octets.all { octet ->
-            octet.isNotEmpty() &&
-                (octet == "0" || !octet.startsWith('0')) &&
-                octet.toIntOrNull()?.let { it in 0..255 } == true
-        }
-    }
-
-    private val DOMAIN_LABEL = Regex("[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
 }

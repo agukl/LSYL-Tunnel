@@ -194,10 +194,16 @@ func ValidateConfig(cfg Config) error {
 		serverPort, _ = strconv.Atoi(portText)
 	}
 	seenVirtualEndpoints := map[string]string{}
+	seenNames := map[string]bool{}
 	virtualEndpoints := make([]string, 0)
 	var virtualResolver *virtualAddressResolver
 	for _, fwd := range cfg.Forwards {
 		direction := strings.TrimSpace(fwd.Direction)
+		name := forwardName(fwd)
+		if seenNames[name] {
+			return fmt.Errorf("forward %q has duplicate runtime name; use unique names within this client", name)
+		}
+		seenNames[name] = true
 		switch direction {
 		case DirectionClientToServer, DirectionServerToClient, DirectionVirtual:
 		default:
@@ -218,6 +224,9 @@ func ValidateConfig(cfg Config) error {
 				return fmt.Errorf("forward %q reverse server_target must use a loopback address (127.0.0.1)", fwd.Name)
 			}
 			continue
+		}
+		if !netaddr.IsForwardTargetHost(targetHost) {
+			return fmt.Errorf("forward %q server_target must use 127.0.0.1 or a private IP address", fwd.Name)
 		}
 		if direction == DirectionVirtual {
 			virtualHost, virtualPort, err := parseVirtualListenAddr(fwd.ListenAddr)
@@ -250,6 +259,13 @@ func ValidateConfig(cfg Config) error {
 		}
 		if strings.TrimSpace(fwd.ListenAddr) == "" {
 			return fmt.Errorf("forward %q requires listen_addr and server_target", fwd.Name)
+		}
+		_, portText, err := net.SplitHostPort(strings.TrimSpace(fwd.ListenAddr))
+		if err != nil {
+			return fmt.Errorf("forward %q listen_addr must include a host and port", fwd.Name)
+		}
+		if port, err := strconv.Atoi(portText); err != nil || port < 0 || port > 65535 {
+			return fmt.Errorf("forward %q listen_addr port must be between 0 and 65535", fwd.Name)
 		}
 	}
 	if len(virtualEndpoints) > maxVirtualRedirectEndpoints {
@@ -321,7 +337,7 @@ func normalizeVirtualIPv4(value string) (net.IP, error) {
 	if virtualIP == nil {
 		return nil, fmt.Errorf("virtual listen_addr does not support domain names; use an IPv4 address from the server certificate SAN")
 	}
-	if virtualIP.To4() == nil {
+	if virtualIP.To4() == nil || strings.Contains(value, ":") {
 		return nil, fmt.Errorf("virtual listen_addr host must be an IPv4 address")
 	}
 	virtualIP = virtualIP.To4()
