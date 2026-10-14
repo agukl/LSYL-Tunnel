@@ -199,6 +199,9 @@ func profileToConfig(profile profileFile, certPEM []byte) (ImportedProfile, erro
 	}
 	// Portable profiles must not carry the exporting machine's runtime identity.
 	tunnel.ApplyDefaults(&cfg)
+	if err := tunnel.ValidateConfig(cfg); err != nil {
+		return ImportedProfile{}, err
+	}
 	return ImportedProfile{
 		Config:    cfg,
 		CertPEM:   append([]byte(nil), certPEM...),

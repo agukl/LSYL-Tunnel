@@ -35,7 +35,7 @@ func (s *Server) prepareConfiguredForwards() error {
 				s.log("reverse forward skipped name=%s listen=%s reason=invalid_listen error=%v", name, listenAddr, err)
 				continue
 			}
-			if !isLoopbackName(host) {
+			if host != "127.0.0.1" {
 				s.log("reverse forward skipped name=%s listen=%s reason=non_loopback_listen", name, listenAddr)
 				continue
 			}
@@ -98,8 +98,8 @@ func (s *Server) auditServerToClientForward(ctx context.Context, name string, fw
 		s.recordEvent(RuntimeEvent{Kind: "forward_check", Result: "failed", ForwardName: name, Direction: DirectionServerToClient, ListenAddr: listenAddr, Code: "invalid_listen", Message: err.Error()})
 		return
 	}
-	if !isLoopbackName(host) {
-		s.recordEvent(RuntimeEvent{Kind: "forward_check", Result: "failed", ForwardName: name, Direction: DirectionServerToClient, ListenAddr: listenAddr, Code: "non_loopback_listen", Message: "reverse listen address must be loopback"})
+	if host != "127.0.0.1" {
+		s.recordEvent(RuntimeEvent{Kind: "forward_check", Result: "failed", ForwardName: name, Direction: DirectionServerToClient, ListenAddr: listenAddr, Code: "non_loopback_listen", Message: "reverse listen address must use 127.0.0.1"})
 		return
 	}
 	if s.reverseListener(listenAddr) != nil {

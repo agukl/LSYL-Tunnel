@@ -48,7 +48,7 @@ saved_credential:
 client_id: desktop-client-1
 tls:
   ca_cert_file: ../cert/server.crt
-  server_name: localhost
+  server_name: 127.0.0.1
   min_version: "1.3"
   insecure_skip_verify: false
 connection:
@@ -56,7 +56,7 @@ connection:
 forwards:
   - name: web
     direction: client_to_server
-    listen_addr: localhost:13388
+    listen_addr: 127.0.0.1:13388
     server_target: 127.0.0.1:65398
 `
 

@@ -230,6 +230,8 @@ func friendlyErrorText(raw string) string {
 	switch {
 	case text == "":
 		return ""
+	case strings.Contains(text, "loopback host ") && strings.Contains(text, "is not supported; use 127.0.0.1"):
+		return strings.ReplaceAll(strings.ReplaceAll(raw, "loopback host ", "回环地址 "), "is not supported; use 127.0.0.1", "不再支持，请使用 127.0.0.1")
 	case strings.Contains(text, "客户端已经") || (strings.Contains(text, "already") && strings.Contains(text, "running")):
 		return "已经连接，正在后台值守"
 	case strings.Contains(text, "客户端未运行"):
@@ -287,13 +289,13 @@ func friendlyErrorText(raw string) string {
 	case strings.Contains(text, "server_to_client requires listen_addr"):
 		return forwardRuleConfigMessage(raw, "反向转发缺少服务端监听地址 listen_addr。")
 	case strings.Contains(text, "reverse listen_addr must include a loopback host and port"):
-		return forwardRuleConfigMessage(raw, "反向 listen_addr 必须填写为服务端回环地址:端口。")
+		return forwardRuleConfigMessage(raw, "反向 listen_addr 必须填写为 127.0.0.1:端口。")
 	case strings.Contains(text, "reverse listen_addr port must be between"):
 		return forwardRuleConfigMessage(raw, "反向 listen_addr 端口必须在 1 到 65535 之间。")
 	case strings.Contains(text, "reverse listen_addr must use a loopback address"):
-		return forwardRuleConfigMessage(raw, "反向 listen_addr 必须使用服务端回环地址。")
+		return forwardRuleConfigMessage(raw, "反向 listen_addr 必须使用 127.0.0.1。")
 	case strings.Contains(text, "reverse server_target must use a loopback address"):
-		return forwardRuleConfigMessage(raw, "反向转发目标 server_target 必须使用客户端回环地址。")
+		return forwardRuleConfigMessage(raw, "反向转发目标 server_target 必须使用 127.0.0.1。")
 	case strings.Contains(text, "reverse listen address is required"):
 		return "反向转发缺少服务端监听地址 listen_addr，请检查客户端配置。"
 	case strings.Contains(text, "reverse listen address is not configured on server"):

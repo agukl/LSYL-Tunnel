@@ -460,6 +460,10 @@ func friendlyError(err error) string {
 	text := err.Error()
 	lower := strings.ToLower(text)
 	switch {
+	case strings.Contains(lower, "loopback host ") && strings.Contains(lower, "is not supported; use 127.0.0.1"):
+		return strings.ReplaceAll(strings.ReplaceAll(text, "loopback host ", "回环地址 "), "is not supported; use 127.0.0.1", "不再支持，请使用 127.0.0.1")
+	case strings.Contains(lower, "monitor_addr must use a loopback address"):
+		return "monitor_addr 必须填写为 127.0.0.1:端口"
 	case strings.Contains(lower, "access is denied") || strings.Contains(text, "拒绝访问"):
 		return "没有权限执行该操作，请以管理员身份运行管理台或检查目录权限"
 	case strings.Contains(lower, "global access grants"):
@@ -471,7 +475,7 @@ func friendlyError(err error) string {
 	case strings.Contains(lower, "port is invalid"):
 		return "端口格式不正确，请填写 1-65535 的数字"
 	case strings.Contains(lower, "listen_addr must be a server-local loopback address"):
-		return "反向代理只能监听服务端本机回环地址，例如 127.0.0.1:18080"
+		return "反向代理只能监听 127.0.0.1:端口，例如 127.0.0.1:18080"
 	case strings.Contains(lower, "cert_file") || strings.Contains(lower, "key_file") || strings.Contains(lower, "tls identity"):
 		return "TLS 证书或私钥配置不正确，请检查证书文件路径"
 	case strings.Contains(lower, "actively refused") || strings.Contains(lower, "connection refused") || strings.Contains(lower, "connectex"):

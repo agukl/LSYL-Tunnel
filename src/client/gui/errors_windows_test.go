@@ -112,7 +112,7 @@ func TestFriendlyErrorText(t *testing.T) {
 		{
 			name: "invalid reverse listen address",
 			raw:  `forward "mysql" reverse listen_addr must include a loopback host and port`,
-			want: "转发规则 \"mysql\" 配置错误：反向 listen_addr 必须填写为服务端回环地址:端口。",
+			want: "转发规则 \"mysql\" 配置错误：反向 listen_addr 必须填写为 127.0.0.1:端口。",
 		},
 		{
 			name: "invalid reverse listen port",
@@ -122,7 +122,7 @@ func TestFriendlyErrorText(t *testing.T) {
 		{
 			name: "non-loopback reverse listen address",
 			raw:  `forward "mysql" reverse listen_addr must use a loopback address`,
-			want: "转发规则 \"mysql\" 配置错误：反向 listen_addr 必须使用服务端回环地址。",
+			want: "转发规则 \"mysql\" 配置错误：反向 listen_addr 必须使用 127.0.0.1。",
 		},
 		{
 			name: "missing reverse listener in request",
@@ -142,7 +142,7 @@ func TestFriendlyErrorText(t *testing.T) {
 		{
 			name: "reverse target is not loopback",
 			raw:  `forward "mysql" reverse server_target must use a loopback address`,
-			want: "转发规则 \"mysql\" 配置错误：反向转发目标 server_target 必须使用客户端回环地址。",
+			want: "转发规则 \"mysql\" 配置错误：反向转发目标 server_target 必须使用 127.0.0.1。",
 		},
 		{
 			name: "missing ordinary forward fields",

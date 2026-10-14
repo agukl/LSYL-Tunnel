@@ -15,6 +15,30 @@ class ProfileFilesTest {
     val temporaryFolder = TemporaryFolder()
 
     @Test
+    fun loadingOldLoopbackAliasesFailsWithoutRewritingStoredProfile() {
+        listOf("server_addr", "listen_addr", "server_target").forEach { field ->
+            val dir = temporaryFolder.newFolder()
+            val json = validProfile()
+            if (field == "server_addr") {
+                json.put(field, "localhost:3443")
+            } else {
+                json.getJSONArray("forwards").getJSONObject(0).put(field, "[::1]:13306")
+            }
+            val file = dir.resolve("profile.json")
+            file.writeText(json.toString(2), Charsets.UTF_8)
+            dir.resolve("server.crt").writeBytes(byteArrayOf(1, 2, 3))
+            val before = file.readBytes()
+            try {
+                ProfileFiles(dir).load()
+                fail("expected $field alias rejection")
+            } catch (err: ProfileImportException) {
+                assertTrue(err.message?.contains("127.0.0.1") == true)
+            }
+            assertArrayEquals(before, file.readBytes())
+        }
+    }
+
+    @Test
     fun updatingForwardsPreservesProtectedProfileDataAndCertificate() {
         val dir = temporaryFolder.newFolder("active-profile")
         val profileFile = dir.resolve("profile.json")

@@ -55,7 +55,7 @@ func TestAccountTunnelForwarding(t *testing.T) {
 		Username:   "alice",
 		Password:   "secret",
 		ClientID:   "test-client",
-		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost", MinVersion: "1.2"},
+		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "127.0.0.1", MinVersion: "1.2"},
 		Connection: tunnel.ConnectionConfig{DialTimeoutSec: 3},
 		Forwards: []tunnel.ForwardConfig{{
 			Name:         "echo",
@@ -262,7 +262,7 @@ func TestAccountTunnelReverseForwarding(t *testing.T) {
 		Username:   "alice",
 		Password:   "secret",
 		ClientID:   "reverse-client",
-		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost", MinVersion: "1.2"},
+		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "127.0.0.1", MinVersion: "1.2"},
 		Connection: tunnel.ConnectionConfig{DialTimeoutSec: 3},
 		Forwards: []tunnel.ForwardConfig{{
 			Name:         "client-local-echo",
@@ -542,7 +542,7 @@ func TestAccountTunnelReportsTemporaryBlockOnThreshold(t *testing.T) {
 		Username:   "alice",
 		Password:   "wrong",
 		ClientID:   "blocked-login-client",
-		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost", MinVersion: "1.2"},
+		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "127.0.0.1", MinVersion: "1.2"},
 		Connection: tunnel.ConnectionConfig{DialTimeoutSec: 3},
 	}
 	resp, err := tunnel.CheckLoginResponse(ctx, clientCfg)
@@ -587,7 +587,7 @@ func TestAccountTunnelLoginProbeDoesNotDialTarget(t *testing.T) {
 		Username:   "alice",
 		Password:   "secret",
 		ClientID:   "probe-client",
-		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost", MinVersion: "1.2"},
+		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "127.0.0.1", MinVersion: "1.2"},
 		Connection: tunnel.ConnectionConfig{DialTimeoutSec: 3},
 	})
 	if err != nil {
@@ -621,7 +621,7 @@ func TestAccountTunnelHealthProbeDoesNotDialTargetOrCountAuthOK(t *testing.T) {
 		Username:   "alice",
 		Password:   "secret",
 		ClientID:   "health-client",
-		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost", MinVersion: "1.2"},
+		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "127.0.0.1", MinVersion: "1.2"},
 		Connection: tunnel.ConnectionConfig{DialTimeoutSec: 3},
 	})
 	if err != nil {
@@ -676,7 +676,7 @@ func TestAccountTunnelUsesSealedCredentialAcrossClientIDs(t *testing.T) {
 		Username:   "alice",
 		Password:   "secret",
 		ClientID:   "sealed-client",
-		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost", MinVersion: "1.2"},
+		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "127.0.0.1", MinVersion: "1.2"},
 		Connection: tunnel.ConnectionConfig{DialTimeoutSec: 3},
 	}
 	resp, err := tunnel.CheckLoginResponse(ctx, loginCfg)
@@ -695,7 +695,7 @@ func TestAccountTunnelUsesSealedCredentialAcrossClientIDs(t *testing.T) {
 		Username:        "alice",
 		SavedCredential: sealed,
 		ClientID:        "importing-client",
-		TLS:             tunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost", MinVersion: "1.2"},
+		TLS:             tunnel.TLSConfig{CACertFile: certFile, ServerName: "127.0.0.1", MinVersion: "1.2"},
 		Connection:      tunnel.ConnectionConfig{DialTimeoutSec: 3},
 		Forwards: []tunnel.ForwardConfig{{
 			Name:         "echo",
@@ -886,7 +886,7 @@ func TestClientStopsUnauthorizedLocalForwardAfterPermanentReject(t *testing.T) {
 		Username:   "alice",
 		Password:   "alice-secret",
 		ClientID:   "alice-client",
-		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost", MinVersion: "1.2"},
+		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "127.0.0.1", MinVersion: "1.2"},
 		Connection: tunnel.ConnectionConfig{DialTimeoutSec: 3},
 		Forwards: []tunnel.ForwardConfig{
 			{
@@ -963,7 +963,7 @@ func TestClientManualForwardCheckRejectsUnauthorizedLocalForward(t *testing.T) {
 		Username:   "alice",
 		Password:   "alice-secret",
 		ClientID:   "alice-client",
-		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost", MinVersion: "1.2"},
+		TLS:        tunnel.TLSConfig{CACertFile: certFile, ServerName: "127.0.0.1", MinVersion: "1.2"},
 		Connection: tunnel.ConnectionConfig{DialTimeoutSec: 3},
 		Forwards: []tunnel.ForwardConfig{
 			{
@@ -1244,7 +1244,7 @@ func dialTLSForTest(t *testing.T, addr, caFile string) *tls.Conn {
 	}
 	conn, err := transport.DialTLSWithCertificateGate(context.Background(), &net.Dialer{Timeout: 3 * time.Second}, "tcp", addr, &tls.Config{
 		RootCAs:    pool,
-		ServerName: "localhost",
+		ServerName: "127.0.0.1",
 		MinVersion: tls.VersionTLS12,
 	}, gateKey, 3*time.Second)
 	if err != nil {

@@ -53,7 +53,7 @@ Release binaries use Go's official low-risk slimming flags: `-trimpath -ldflags 
 
 ```powershell
 cmd /c deploy\windows\build.cmd all
-cmd /c deploy\windows\cert\init-server.cmd "localhost,127.0.0.1"
+cmd /c deploy\windows\cert\init-server.cmd "127.0.0.1"
 cmd /c deploy\windows\run.cmd server-gui
 cmd /c deploy\windows\run.cmd client-gui
 cmd /c deploy\windows\run.cmd client-lite

@@ -120,7 +120,7 @@ func TestRequestAndBusinessLogsWritten(t *testing.T) {
 		ServerAddr: server.Addr(),
 		Username:   "alice",
 		Password:   "secret",
-		TLS:        clienttunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost"},
+		TLS:        clienttunnel.TLSConfig{CACertFile: certFile, ServerName: "127.0.0.1"},
 		Connection: clienttunnel.ConnectionConfig{DialTimeoutSec: 3},
 	})
 	if err != nil {
@@ -169,7 +169,7 @@ func TestHealthLogDoesNotWriteBusinessEvent(t *testing.T) {
 		ServerAddr: server.Addr(),
 		Username:   "alice",
 		Password:   "secret",
-		TLS:        clienttunnel.TLSConfig{CACertFile: certFile, ServerName: "localhost"},
+		TLS:        clienttunnel.TLSConfig{CACertFile: certFile, ServerName: "127.0.0.1"},
 		Connection: clienttunnel.ConnectionConfig{DialTimeoutSec: 3},
 	}); err != nil {
 		t.Fatal(err)

@@ -22,7 +22,10 @@ internal class ProfileFiles(private val dir: File) {
         if (!profileFile.isFile || !certFile.isFile) return null
         val json = JSONObject(profileFile.readText(Charsets.UTF_8))
         val certBytes = certFile.readBytes()
-        return LoadedProfile(MobileProfile.fromJson(json), certBytes)
+        val profile = MobileProfile.fromJson(json)
+        profile.serverEndpoint()
+        MobileForwardValidator.validate(profile.forwards)
+        return LoadedProfile(profile, certBytes)
     }
 
     fun updateForwards(forwards: List<ForwardConfig>) {

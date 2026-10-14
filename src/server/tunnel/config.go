@@ -170,6 +170,9 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func SaveConfig(path string, cfg Config) error {
+	if err := validateLoopbackAddresses(cfg); err != nil {
+		return err
+	}
 	ApplyDefaults(&cfg)
 	data, err := yaml.Marshal(configForSave(cfg))
 	if err != nil {
@@ -310,13 +313,13 @@ func normalizeReverseListenPort(forward *ForwardConfig) {
 	}
 	if forward.ListenPort <= 0 && strings.TrimSpace(forward.ListenAddr) != "" {
 		host, port, err := splitHostPort(forward.ListenAddr)
-		if err == nil && isLoopbackName(host) {
+		if err == nil && host == "127.0.0.1" {
 			forward.ListenPort = port
 		}
 	}
 	if forward.ListenPort > 0 && strings.TrimSpace(forward.ListenAddr) != "" {
 		host, _, err := splitHostPort(forward.ListenAddr)
-		if err != nil || !isLoopbackName(host) {
+		if err != nil || host != "127.0.0.1" {
 			return
 		}
 	}
@@ -329,13 +332,16 @@ func ValidateConfig(cfg Config) error {
 	if err := ValidateConfigVersion(cfg); err != nil {
 		return err
 	}
+	if err := validateLoopbackAddresses(cfg); err != nil {
+		return err
+	}
 	if strings.TrimSpace(cfg.TLS.CertFile) == "" || strings.TrimSpace(cfg.TLS.KeyFile) == "" {
 		return fmt.Errorf("server TLS identity cert_file and key_file are required")
 	}
 	if monitorAddr := strings.TrimSpace(cfg.MonitorAddr); monitorAddr != "" {
 		host, _, err := splitHostPort(monitorAddr)
-		if err != nil || !isLoopbackName(host) {
-			return fmt.Errorf("monitor_addr must use a loopback address")
+		if err != nil || host != "127.0.0.1" {
+			return fmt.Errorf("monitor_addr must use a loopback address (127.0.0.1)")
 		}
 	}
 	knownUsers := map[string]bool{}
@@ -365,15 +371,15 @@ func ValidateConfig(cfg Config) error {
 			if err != nil {
 				return fmt.Errorf("forward %q server_target is invalid", forward.Name)
 			}
-			if !isLoopbackName(host) && !isPrivateTargetIP(host) {
-				return fmt.Errorf("forward %q server_target must be a loopback or private IP", forward.Name)
+			if host != "127.0.0.1" && !isPrivateTargetIP(host) {
+				return fmt.Errorf("forward %q server_target must be a loopback or private IP (127.0.0.1 or private IP)", forward.Name)
 			}
 		case DirectionServerToClient:
 			port := forward.ListenPort
 			if port <= 0 {
 				host, legacyPort, err := splitHostPort(forward.ListenAddr)
-				if err != nil || !isLoopbackName(host) {
-					return fmt.Errorf("forward %q listen_port is required and legacy listen_addr must be a loopback address", forward.Name)
+				if err != nil || host != "127.0.0.1" {
+					return fmt.Errorf("forward %q listen_port is required and legacy listen_addr must be a loopback address (127.0.0.1)", forward.Name)
 				}
 				port = legacyPort
 			}
@@ -383,8 +389,8 @@ func ValidateConfig(cfg Config) error {
 			reversePort = port
 			if strings.TrimSpace(forward.ListenAddr) != "" {
 				host, _, err := splitHostPort(forward.ListenAddr)
-				if err != nil || !isLoopbackName(host) {
-					return fmt.Errorf("forward %q listen_addr must be a loopback address", forward.Name)
+				if err != nil || host != "127.0.0.1" {
+					return fmt.Errorf("forward %q listen_addr must be a loopback address (127.0.0.1)", forward.Name)
 				}
 			}
 		default:

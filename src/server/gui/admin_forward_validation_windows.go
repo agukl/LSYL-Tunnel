@@ -103,7 +103,7 @@ func validateAdminForwardsForSaveWithOptions(form adminConfig, opts adminForward
 			listenAddr := adminForwardListenAddrForValidation(item)
 			host, err := adminForwardAddressHost(listenAddr)
 			if err != nil || !isAdminLoopbackHost(host) {
-				issues.addError(fieldPrefix+".listen_addr", "passive listen address must be a loopback address with port")
+				issues.addError(fieldPrefix+".listen_addr", "反向监听地址必须填写为 127.0.0.1:端口")
 				continue
 			}
 			if len(allowedUsers) != 1 {
@@ -131,7 +131,7 @@ func validateAdminForwardsForSaveWithOptions(form adminConfig, opts adminForward
 			continue
 		}
 		if !isAdminLoopbackHost(host) && !isAdminPrivateIP(host) {
-			issues.addError(fieldPrefix+".server_target", "target must be a loopback or private IP address")
+			issues.addError(fieldPrefix+".server_target", "目标地址必须使用 127.0.0.1 或私有 IP")
 			continue
 		}
 		if direction == tunnel.DirectionClientToServer && opts.CheckForwardTargetReachability {
@@ -183,12 +183,7 @@ func adminForwardAddressHost(addr string) (string, error) {
 }
 
 func isAdminLoopbackHost(host string) bool {
-	host = strings.ToLower(strings.Trim(host, "[]"))
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	return host == "127.0.0.1"
 }
 
 func isAdminPrivateIP(host string) bool {

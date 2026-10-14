@@ -121,6 +121,7 @@ internal object MobileForwardValidator {
             } catch (_: IllegalArgumentException) {
                 throw ProfileImportException("规则 $label 的 server_target 格式无效")
             }
+            requireCanonicalLoopbackHost(target.host, "规则 $label 的 server_target")
             if (!validTargetHost(target.host)) {
                 throw ProfileImportException("规则 $label 的 server_target 主机无效")
             }

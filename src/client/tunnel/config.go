@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"lsyltunnel/src/internal/netaddr"
 	"lsyltunnel/src/internal/protocol"
 	appversion "lsyltunnel/src/internal/version"
 
@@ -125,10 +126,13 @@ func LoadConfigRaw(path string) (Config, error) {
 		return cfg, err
 	}
 	ApplyDefaults(&cfg)
-	return cfg, nil
+	return cfg, validateLoopbackAddresses(cfg)
 }
 
 func SaveConfig(path string, cfg Config) error {
+	if err := validateLoopbackAddresses(cfg); err != nil {
+		return err
+	}
 	ApplyDefaults(&cfg)
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -170,6 +174,9 @@ func ValidateConfig(cfg Config) error {
 	if err := ValidateConfigVersion(cfg); err != nil {
 		return err
 	}
+	if err := validateLoopbackAddresses(cfg); err != nil {
+		return err
+	}
 	if strings.TrimSpace(cfg.ServerAddr) == "" {
 		return fmt.Errorf("server_addr is required")
 	}
@@ -207,8 +214,8 @@ func ValidateConfig(cfg Config) error {
 			return fmt.Errorf("forward %q server_target port must be between 1 and 65535", fwd.Name)
 		}
 		if direction == DirectionServerToClient {
-			if !isLoopbackName(targetHost) {
-				return fmt.Errorf("forward %q reverse server_target must use a loopback address", fwd.Name)
+			if targetHost != netaddr.LoopbackIPv4 {
+				return fmt.Errorf("forward %q reverse server_target must use a loopback address (127.0.0.1)", fwd.Name)
 			}
 			continue
 		}
@@ -265,13 +272,13 @@ func validateReverseForwardFields(forwards []ForwardConfig) error {
 		}
 		host, portText, err := net.SplitHostPort(listenAddr)
 		if err != nil || strings.Trim(strings.TrimSpace(host), "[]") == "" {
-			return fmt.Errorf("forward %q reverse listen_addr must include a loopback host and port", fwd.Name)
+			return fmt.Errorf("forward %q reverse listen_addr must include a loopback host and port (127.0.0.1:port)", fwd.Name)
 		}
 		if port, err := strconv.Atoi(portText); err != nil || port < 1 || port > 65535 {
 			return fmt.Errorf("forward %q reverse listen_addr port must be between 1 and 65535", fwd.Name)
 		}
-		if !isLoopbackName(host) {
-			return fmt.Errorf("forward %q reverse listen_addr must use a loopback address", fwd.Name)
+		if host != netaddr.LoopbackIPv4 {
+			return fmt.Errorf("forward %q reverse listen_addr must use a loopback address (127.0.0.1)", fwd.Name)
 		}
 	}
 	return nil
@@ -324,13 +331,24 @@ func normalizeVirtualIPv4(value string) (net.IP, error) {
 	return virtualIP, nil
 }
 
-func isLoopbackName(host string) bool {
-	host = strings.ToLower(strings.Trim(host, "[]"))
-	if host == "localhost" {
-		return true
+func validateLoopbackAddresses(cfg Config) error {
+	if err := netaddr.CheckLoopbackEndpoint(cfg.ServerAddr); err != nil {
+		return fmt.Errorf("server_addr: %w", err)
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	if err := netaddr.CheckLoopbackHost(cfg.TLS.ServerName); err != nil {
+		return fmt.Errorf("tls.server_name: %w", err)
+	}
+	for _, fwd := range cfg.Forwards {
+		if strings.TrimSpace(fwd.Direction) != DirectionVirtual {
+			if err := netaddr.CheckLoopbackEndpoint(fwd.ListenAddr); err != nil {
+				return fmt.Errorf("forward %q listen_addr: %w", fwd.Name, err)
+			}
+		}
+		if err := netaddr.CheckLoopbackEndpoint(fwd.ServerTarget); err != nil {
+			return fmt.Errorf("forward %q server_target: %w", fwd.Name, err)
+		}
+	}
+	return nil
 }
 
 func ValidateConfigVersion(cfg Config) error {

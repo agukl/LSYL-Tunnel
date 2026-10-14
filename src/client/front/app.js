@@ -319,8 +319,8 @@ function healthText(health){
 }
 function compactAddr(addr){
   addr = addr || '';
-  var m = /^(\[?)(127\.0\.0\.1|localhost|::1|0\.0\.0\.0)(\]?):(\d+)$/.exec(addr);
-  if(m) return m[4];
+  var m = /^(?:127\.0\.0\.1|0\.0\.0\.0|\[::\]):(\d+)$/.exec(addr);
+  if(m) return m[1];
   return addr || '-';
 }
 function shortTime(value){

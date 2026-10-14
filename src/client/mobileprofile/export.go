@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"lsyltunnel/src/client/tunnel"
+	"lsyltunnel/src/internal/netaddr"
 	"lsyltunnel/src/internal/protocol"
 )
 
@@ -112,6 +113,9 @@ func FileNameFromConfig(cfg tunnel.Config) (string, error) {
 
 func ProfileFromConfig(cfg tunnel.Config) (profileFile, time.Time, error) {
 	tunnel.ApplyDefaults(&cfg)
+	if err := netaddr.CheckLoopbackHost(cfg.TLS.ServerName); err != nil {
+		return profileFile{}, time.Time{}, fmt.Errorf("tls.server_name: %w", err)
+	}
 	if _, _, err := splitHostPort(cfg.ServerAddr); err != nil {
 		return profileFile{}, time.Time{}, fmt.Errorf("server_addr is invalid: %w", err)
 	}
@@ -206,7 +210,7 @@ func forwardFromConfig(fwd tunnel.ForwardConfig) (forwardConfig, error) {
 	if err != nil {
 		return forwardConfig{}, fmt.Errorf("forward %q listen_addr is invalid: %w", forwardNameForError(fwd), err)
 	}
-	if !isLoopback(host) {
+	if host != netaddr.LoopbackIPv4 {
 		return forwardConfig{}, fmt.Errorf("forward %q listen_addr must use 127.0.0.1 for mobile", forwardNameForError(fwd))
 	}
 	if port < 1024 {
@@ -308,20 +312,14 @@ func splitHostPort(value string) (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
+	if err := netaddr.CheckLoopbackHost(host); err != nil {
+		return "", 0, err
+	}
 	port, err := strconv.Atoi(portText)
 	if err != nil || port <= 0 || port > 65535 {
 		return "", 0, fmt.Errorf("invalid port")
 	}
 	return strings.Trim(host, "[]"), port, nil
-}
-
-func isLoopback(host string) bool {
-	host = strings.ToLower(strings.Trim(strings.TrimSpace(host), "[]"))
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 func tls13(version string) bool {

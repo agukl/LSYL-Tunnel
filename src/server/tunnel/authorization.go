@@ -81,7 +81,7 @@ func (s *Server) authorizeTarget(user UserConfig, target string) error {
 	if forward == nil {
 		return fmt.Errorf("user is not allowed to access this target")
 	}
-	if isLoopbackName(host) {
+	if host == "127.0.0.1" {
 		return nil
 	}
 	if isPrivateTargetIP(host) {

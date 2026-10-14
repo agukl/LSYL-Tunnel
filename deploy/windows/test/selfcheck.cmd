@@ -17,7 +17,7 @@ call deploy\windows\build.cmd all || exit /b 1
 echo [3/6] verify admin tools
 build\bin\server\lsyl-tunnel-passwd.exe -password selfcheck-password >nul || exit /b 1
 if exist %SELF_TMP%\selfcheck-certs rmdir /s /q %SELF_TMP%\selfcheck-certs
-build\bin\server\lsyl-tunnel-cert.exe -out %SELF_TMP%\selfcheck-certs -hosts "localhost,127.0.0.1" || exit /b 1
+build\bin\server\lsyl-tunnel-cert.exe -out %SELF_TMP%\selfcheck-certs -hosts "127.0.0.1" || exit /b 1
 if not exist %SELF_TMP%\selfcheck-certs\server.crt (echo [ERROR] Missing: %SELF_TMP%\selfcheck-certs\server.crt & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-certs\server.key (echo [ERROR] Missing: %SELF_TMP%\selfcheck-certs\server.key & exit /b 1)
 rmdir /s /q %SELF_TMP%\selfcheck-certs

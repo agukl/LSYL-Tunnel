@@ -18,7 +18,9 @@ data class MobileProfile(
     val connection: ConnectionConfig,
     val forwards: List<ForwardConfig>
 ) {
-    fun serverEndpoint(): HostPort = HostPort.parse(serverAddr)
+    fun serverEndpoint(): HostPort = HostPort.parse(serverAddr).also {
+        requireCanonicalLoopbackHost(it.host, "server_addr")
+    }
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("version", version)
@@ -102,7 +104,7 @@ data class TlsConfig(
             serverName = json.optString("server_name", "").trim(),
             minVersion = json.optString("min_version", "1.3").trim(),
             insecureSkipVerify = json.optBoolean("insecure_skip_verify", false)
-        )
+        ).also { requireCanonicalLoopbackHost(it.serverName, "tls.server_name") }
     }
 }
 

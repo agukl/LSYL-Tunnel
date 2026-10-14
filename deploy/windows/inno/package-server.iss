@@ -89,7 +89,7 @@ begin
     '生成自签 TLS 服务端身份',
     '请输入客户端连接服务端时使用的域名或 IP，多个值用英文逗号分隔。安装时会生成 certs\server.crt 和 certs\server.key；只把 server.crt 发给客户端。');
   CertPage.Add('证书主机名/IP：', False);
-  CertPage.Values[0] := 'localhost,127.0.0.1';
+  CertPage.Values[0] := '127.0.0.1';
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -107,7 +107,7 @@ function GetCertHosts(Param: String): String;
 begin
   Result := Trim(CertPage.Values[0]);
   if Result = '' then
-    Result := 'localhost,127.0.0.1';
+    Result := '127.0.0.1';
 end;
 
 function CheckServerConfigCompatibility: String;

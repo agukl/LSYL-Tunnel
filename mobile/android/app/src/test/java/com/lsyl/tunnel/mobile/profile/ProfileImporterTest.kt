@@ -10,6 +10,31 @@ import java.util.zip.ZipOutputStream
 
 class ProfileImporterTest {
     @Test
+    fun rejectsLoopbackAliasesWithFieldAndCanonicalAddress() {
+        listOf("localhost", "LOCALHOST.", "::1", "127.0.0.2", "::ffff:127.0.0.1").forEach { host ->
+            val endpoint = if (':' in host) "[$host]:3443" else "$host:3443"
+            assertImportRejected(validProfile().put("server_addr", endpoint), "server_addr 不再支持回环地址")
+            val tlsProfile = validProfile().apply { getJSONObject("tls").put("server_name", host) }
+            assertImportRejected(tlsProfile, "tls.server_name 不再支持回环地址")
+            val targetProfile = validProfile().apply {
+                getJSONArray("forwards").getJSONObject(0).put("server_target", endpoint)
+            }
+            assertImportRejected(targetProfile, "server_target 不再支持回环地址")
+            val listenProfile = validProfile().apply {
+                getJSONArray("forwards").getJSONObject(0).put("listen_addr", endpoint)
+            }
+            assertImportRejected(listenProfile, "本地监听只能使用 127.0.0.1")
+        }
+    }
+
+    @Test
+    fun allowsCanonicalLoopbackAndOrdinaryDomainsWithoutResolution() {
+        listOf("127.0.0.1", "vpn.example.test", "192.168.1.7", "2001:db8::1").forEach {
+            requireCanonicalLoopbackHost(it, "server_addr")
+        }
+    }
+
+    @Test
     fun rejectsProfilesContainingPlaintextPasswordFields() {
         val profile = validProfile().put("password", "secret")
 

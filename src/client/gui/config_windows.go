@@ -142,12 +142,11 @@ func isCompactLocalHost(host string) bool {
 	if host == "" {
 		return true
 	}
-	switch strings.ToLower(host) {
-	case "localhost", "0.0.0.0", "::", "::1":
+	switch host {
+	case "127.0.0.1", "0.0.0.0", "::":
 		return true
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	return false
 }
 
 func readClientConfigRaw(path string) (tunnel.Config, error) {

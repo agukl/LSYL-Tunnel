@@ -211,6 +211,12 @@
         nodes[i].title = '';
       }
     }
+    if (enabled) {
+      var rows = document.querySelectorAll('#forwardsTable tbody tr');
+      for (var r = 0; r < rows.length; r++) {
+        updateForwardRowForDirection(rows[r]);
+      }
+    }
     var customControls = document.querySelectorAll('#forwardsTable input[type="hidden"][data-name]');
     for (var k = 0; k < customControls.length; k++) {
       renderCustomSelect(customControls[k]);
@@ -866,7 +872,7 @@
 
   function forwardHostValue(fwd) {
     var direction = fwd && fwd.direction === 'server_to_client' ? 'server_to_client' : 'client_to_server';
-    return direction === 'server_to_client' ? '本机回环' : hostPortHost(fwd && fwd.server_target);
+    return direction === 'server_to_client' ? '127.0.0.1' : hostPortHost(fwd && fwd.server_target);
   }
 
   function hostPortPort(value) {
@@ -896,13 +902,12 @@
     var port = field(row, 'port');
     if (!direction || !host || !port) { return; }
     if (direction.value === 'server_to_client') {
-      host.value = '本机回环';
+      host.value = '127.0.0.1';
       host.disabled = true;
       host.placeholder = '';
       port.placeholder = '18080';
       return;
     }
-    if (host.value === '本机回环') { host.value = '127.0.0.1'; }
     host.disabled = false;
     host.placeholder = '127.0.0.1 或 192.168.1.10';
     port.placeholder = '3389';

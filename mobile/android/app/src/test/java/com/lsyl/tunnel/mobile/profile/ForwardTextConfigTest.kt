@@ -82,7 +82,8 @@ class ForwardTextConfigTest {
             InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "missing-port"), "规则 rdp 的 server_target 格式无效"),
             InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "https://host:443"), "规则 rdp 的 server_target 主机无效"),
             InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "bad host:443"), "规则 rdp 的 server_target 主机无效"),
-            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "\"[::1]:443\""), "规则 rdp 的 server_target 主机无效"),
+            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "\"[::1]:443\""), "规则 rdp 的 server_target 不再支持回环地址 ::1，请使用 127.0.0.1"),
+            InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "localhost:3389"), "规则 rdp 的 server_target 不再支持回环地址 localhost，请使用 127.0.0.1"),
             InvalidCase(ruleYaml("rdp", "127.0.0.1:13389", "999.1.1.1:443"), "规则 rdp 的 server_target 主机无效"),
             InvalidCase(
                 """

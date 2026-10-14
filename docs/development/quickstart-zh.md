@@ -26,7 +26,7 @@ build\bin\client\lsyl-tunnel-client-lite.exe
 本机测试：
 
 ```powershell
-cmd /c deploy\windows\cert\init-server.cmd "localhost,127.0.0.1"
+cmd /c deploy\windows\cert\init-server.cmd "127.0.0.1"
 ```
 
 生成文件：
