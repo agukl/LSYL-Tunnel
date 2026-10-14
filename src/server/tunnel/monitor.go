@@ -74,19 +74,24 @@ func (s *Server) startMonitor(ctx context.Context) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "message": "permanent block deleted", "removed": removed})
 	})
-	s.httpSrv = &http.Server{Addr: s.cfg.MonitorAddr, Handler: mux}
-	go func() {
-		<-ctx.Done()
-		if s.httpSrv != nil {
-			_ = s.httpSrv.Close()
-		}
-	}()
-	go func() {
+	s.httpSrv = &http.Server{
+		Addr:        s.cfg.MonitorAddr,
+		BaseContext: func(net.Listener) context.Context { return ctx },
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !s.beginWorker() {
+				http.Error(w, "server is shutting down", http.StatusServiceUnavailable)
+				return
+			}
+			defer s.lifecycle.workers.Done()
+			mux.ServeHTTP(w, r)
+		}),
+	}
+	s.startWorker(func() {
 		err := s.httpSrv.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.log("monitor failed: %v", err)
 		}
-	}()
+	})
 }
 
 func (s *Server) status() map[string]any {

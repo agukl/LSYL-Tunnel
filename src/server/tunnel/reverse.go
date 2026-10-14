@@ -21,8 +21,13 @@ type reverseListener struct {
 
 	mu       sync.Mutex
 	controls map[*reverseControl]struct{}
-	pending  map[string]net.Conn
+	pending  map[string]*reversePendingConn
 	closed   bool
+}
+
+type reversePendingConn struct {
+	net.Conn
+	done chan struct{}
 }
 
 type reverseControl struct {
@@ -86,7 +91,11 @@ func (s *Server) registerReverseControl(conn net.Conn, req protocol.OpenRequest,
 		rl.removeControl(control)
 		return err
 	}
-	go s.runReverseControl(rl, control)
+	if !s.startWorker(func() { s.runReverseControl(rl, control) }) {
+		control.close()
+		rl.removeControl(control)
+		return net.ErrClosed
+	}
 	s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_listen", Result: "activated", Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: listenAddr, Code: "ok"})
 	return nil
 }
@@ -127,7 +136,7 @@ func (s *Server) registerReverseStream(conn net.Conn, req protocol.OpenRequest, 
 		_ = inbound.Close()
 		return err
 	}
-	go func() {
+	if !s.startWorker(func() {
 		defer releaseUserStream()
 		defer inbound.Close()
 		defer conn.Close()
@@ -146,7 +155,11 @@ func (s *Server) registerReverseStream(conn net.Conn, req protocol.OpenRequest, 
 		flowLog.BytesDown = clientToInbound
 		s.recordFlowTrafficLog(flowLog)
 		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_stream", Result: "closed", Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: listenAddr, Code: "closed", DurationMS: durationMS, BytesUp: inboundToClient, BytesDown: clientToInbound})
-	}()
+	}) {
+		releaseUserStream()
+		_ = inbound.Close()
+		return net.ErrClosed
+	}
 	return nil
 }
 
@@ -230,10 +243,14 @@ func (s *Server) ensureReverseListener(addr string) (*reverseListener, error) {
 		addr:     addr,
 		ln:       ln,
 		controls: map[*reverseControl]struct{}{},
-		pending:  map[string]net.Conn{},
+		pending:  map[string]*reversePendingConn{},
 	}
 	s.reverseListeners[key] = rl
-	go s.acceptReverseLoop(rl)
+	if !s.startWorker(func() { s.acceptReverseLoop(rl) }) {
+		delete(s.reverseListeners, key)
+		rl.close()
+		return nil, net.ErrClosed
+	}
 	s.log("reverse passive listener %s ready", ln.Addr())
 	return rl, nil
 }
@@ -251,7 +268,10 @@ func (s *Server) acceptReverseLoop(rl *reverseListener) {
 		if err != nil {
 			return
 		}
-		go s.handleReverseInbound(rl, conn)
+		if !s.startWorker(func() { s.handleReverseInbound(rl, conn) }) {
+			_ = conn.Close()
+			return
+		}
 	}
 }
 
@@ -279,43 +299,61 @@ func (s *Server) handleReverseInbound(rl *reverseListener, inbound net.Conn) {
 		_ = inbound.Close()
 		return
 	}
-	rl.addPending(streamID, inbound)
+	pendingDone, ok := rl.addPending(streamID, inbound)
+	if !ok {
+		_ = inbound.Close()
+		return
+	}
+	defer func() {
+		if pending := rl.takePending(streamID); pending != nil {
+			_ = pending.Close()
+		}
+		s.closeReverseListenerIfIdle(rl)
+	}()
 	timeout := time.Duration(s.cfg.Security.DialTimeoutSec) * time.Second
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	timer := time.AfterFunc(timeout, func() {
-		if pending := rl.takePending(streamID); pending != nil {
-			s.dialFailed.Add(1)
-			s.recordFlowTrafficLog(FlowTrafficLogEntry{
-				Event:      "reverse_inbound_failed",
-				Kind:       "reverse_inbound",
-				Result:     "failed",
-				RemoteIP:   remoteHost(pending.RemoteAddr()),
-				ListenAddr: rl.addr,
-				Code:       "client_stream_timeout",
-				Message:    "timed out waiting for client stream",
-				Abnormal:   true,
-			})
-			s.recordEvent(RuntimeEvent{Kind: "reverse_inbound", Result: "failed", ListenAddr: rl.addr, Code: "client_stream_timeout", Message: "timed out waiting for client stream"})
-			_ = pending.Close()
-			s.closeReverseListenerIfIdle(rl)
-		}
-	})
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
 	case control.requests <- reverseConnectRequest{streamID: streamID}:
 	case <-control.done:
-		timer.Stop()
-		if pending := rl.takePending(streamID); pending != nil {
-			_ = pending.Close()
+		return
+	case <-s.runContext().Done():
+		return
+	case <-timer.C:
+		s.expireReversePending(rl, streamID)
+		return
+	}
+	// Keep the timeout under this worker's ownership until handoff or cancellation.
+	select {
+	case <-pendingDone:
+	case <-control.done:
+	case <-s.runContext().Done():
+	case <-timer.C:
+		s.expireReversePending(rl, streamID)
+	}
+}
+
+func (s *Server) expireReversePending(rl *reverseListener, streamID string) {
+	if pending := rl.takePending(streamID); pending != nil {
+		defer pending.Close()
+		if s.runContext().Err() != nil {
+			return
 		}
-		s.closeReverseListenerIfIdle(rl)
-	case <-time.After(timeout):
-		timer.Stop()
-		if pending := rl.takePending(streamID); pending != nil {
-			_ = pending.Close()
-		}
-		s.closeReverseListenerIfIdle(rl)
+		s.dialFailed.Add(1)
+		s.recordFlowTrafficLog(FlowTrafficLogEntry{
+			Event:      "reverse_inbound_failed",
+			Kind:       "reverse_inbound",
+			Result:     "failed",
+			RemoteIP:   remoteHost(pending.RemoteAddr()),
+			ListenAddr: rl.addr,
+			Code:       "client_stream_timeout",
+			Message:    "timed out waiting for client stream",
+			Abnormal:   true,
+		})
+		s.recordEvent(RuntimeEvent{Kind: "reverse_inbound", Result: "failed", ListenAddr: rl.addr, Code: "client_stream_timeout", Message: "timed out waiting for client stream"})
 	}
 }
 
@@ -376,18 +414,27 @@ func (rl *reverseListener) pickControl() *reverseControl {
 	return nil
 }
 
-func (rl *reverseListener) addPending(streamID string, conn net.Conn) {
+func (rl *reverseListener) addPending(streamID string, conn net.Conn) (<-chan struct{}, bool) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
-	rl.pending[streamID] = conn
+	if rl.closed {
+		return nil, false
+	}
+	pending := &reversePendingConn{Conn: conn, done: make(chan struct{})}
+	rl.pending[streamID] = pending
+	return pending.done, true
 }
 
 func (rl *reverseListener) takePending(streamID string) net.Conn {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
-	conn := rl.pending[streamID]
+	pending := rl.pending[streamID]
+	if pending == nil {
+		return nil
+	}
 	delete(rl.pending, streamID)
-	return conn
+	close(pending.done)
+	return pending.Conn
 }
 
 func (rl *reverseListener) closePending() {
@@ -395,6 +442,7 @@ func (rl *reverseListener) closePending() {
 	defer rl.mu.Unlock()
 	for streamID, conn := range rl.pending {
 		_ = conn.Close()
+		close(conn.done)
 		delete(rl.pending, streamID)
 	}
 }
@@ -415,6 +463,7 @@ func (rl *reverseListener) close() {
 		}
 		for streamID, conn := range rl.pending {
 			_ = conn.Close()
+			close(conn.done)
 			delete(rl.pending, streamID)
 		}
 		rl.mu.Unlock()

@@ -20,6 +20,7 @@ import (
 )
 
 type Server struct {
+	lifecycle           serverLifecycle
 	cfg                 Config
 	listener            net.Listener
 	tlsConfig           *tls.Config
@@ -120,7 +121,9 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 	if err := reconcileSuccessfulIPHistory(fails, cfg.Runtime.RequestLogFile, time.Now()); err != nil && logf != nil {
 		logf("reconcile successful IP history failed: %v", err)
 	}
+	runCtx, cancel := context.WithCancel(ctx)
 	srv := &Server{
+		lifecycle:          serverLifecycle{ctx: runCtx, cancel: cancel},
 		cfg:                cfg,
 		listener:           ln,
 		tlsConfig:          tlsCfg,
@@ -152,16 +155,21 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 		_ = srv.Close()
 		return nil, err
 	}
-	go srv.acceptLoop(ctx)
-	go srv.credentialSealRotationLoop(ctx.Done())
-	go srv.permanentBlockHitLogLoop(ctx.Done())
-	go srv.failureTrackerCleanupLoop(ctx.Done())
-	go srv.connectionLimiterCleanupLoop(ctx.Done())
+	srv.startWorker(func() { srv.acceptLoop(runCtx) })
+	srv.startWorker(func() { srv.credentialSealRotationLoop(runCtx.Done()) })
+	srv.startWorker(func() { srv.permanentBlockHitLogLoop(runCtx.Done()) })
+	srv.startWorker(func() { srv.failureTrackerCleanupLoop(runCtx.Done()) })
+	srv.startWorker(func() { srv.connectionLimiterCleanupLoop(runCtx.Done()) })
 	if strings.TrimSpace(cfg.MonitorAddr) != "" {
-		srv.startMonitor(ctx)
+		srv.startMonitor(runCtx)
 	}
 	srv.log("server listening on %s", srv.Addr())
-	go srv.auditConfiguredForwardAvailability(ctx)
+	srv.startWorker(func() { srv.auditConfiguredForwardAvailability(runCtx) })
+	// This coordinator must not join the worker group that Close waits for.
+	go func() {
+		<-runCtx.Done()
+		_ = srv.Close()
+	}()
 	return srv, nil
 }
 
@@ -172,44 +180,7 @@ func (s *Server) Addr() string {
 	return s.listener.Addr().String()
 }
 
-func (s *Server) Close() error {
-	if s == nil {
-		return nil
-	}
-	var err error
-	if s.listener != nil {
-		err = s.listener.Close()
-	}
-	if s.httpSrv != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = s.httpSrv.Shutdown(ctx)
-	}
-	s.closeReverseListeners()
-	s.flushPermanentBlockHitLogs()
-	if s.entryTrafficWriter != nil {
-		s.entryTrafficWriter.Close()
-	}
-	if s.requestLog != nil {
-		_ = s.requestLog.Close()
-	}
-	if s.businessLog != nil {
-		_ = s.businessLog.Close()
-	}
-	if s.entryTrafficLog != nil {
-		_ = s.entryTrafficLog.Close()
-	}
-	if s.flowTrafficLog != nil {
-		_ = s.flowTrafficLog.Close()
-	}
-	return err
-}
-
 func (s *Server) acceptLoop(ctx context.Context) {
-	go func() {
-		<-ctx.Done()
-		_ = s.Close()
-	}()
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
@@ -245,10 +216,14 @@ func (s *Server) acceptLoop(ctx context.Context) {
 			continue
 		}
 		acceptedAt := time.Now()
-		go func() {
-			defer release()
-			s.handleAcceptedConn(conn, acceptedAt)
-		}()
+		tracked := s.trackEntryConn(conn, release)
+		if tracked == nil {
+			return
+		}
+		if !s.startWorker(func() { s.handleAcceptedConn(tracked, acceptedAt) }) {
+			_ = tracked.Close()
+			return
+		}
 	}
 }
 
@@ -256,6 +231,10 @@ func (s *Server) handleAcceptedConn(conn net.Conn, acceptedAt time.Time) {
 	peekConn := &entryPeekConn{Conn: conn}
 	_ = peekConn.SetDeadline(time.Now().Add(time.Duration(s.cfg.Security.HandshakeTimeoutSec) * time.Second))
 	if err := transport.ServerCertificateGate(peekConn, s.certificateGateKey); err != nil {
+		if s.runContext().Err() != nil {
+			_ = peekConn.Close()
+			return
+		}
 		s.rejectEntryProtocol(peekConn, remoteHost(peekConn.RemoteAddr()), "", classifyEntryCertificateGateError(err, peekConn.Prefix()), "", true, time.Since(acceptedAt).Milliseconds())
 		_ = peekConn.Close()
 		return
@@ -263,6 +242,10 @@ func (s *Server) handleAcceptedConn(conn net.Conn, acceptedAt time.Time) {
 	peekConn.ResetPrefix()
 	tlsConn := tls.Server(peekConn, s.tlsConfig)
 	if err := tlsConn.Handshake(); err != nil {
+		if s.runContext().Err() != nil {
+			_ = tlsConn.Close()
+			return
+		}
 		s.rejectEntryProtocol(tlsConn, remoteHost(tlsConn.RemoteAddr()), "", classifyEntryHandshakeError(err, peekConn.Prefix()), "", true, time.Since(acceptedAt).Milliseconds())
 		_ = tlsConn.Close()
 		return
@@ -323,6 +306,9 @@ func (s *Server) handleConn(conn net.Conn) {
 	_ = conn.SetDeadline(time.Now().Add(time.Duration(s.cfg.Security.HandshakeTimeoutSec) * time.Second))
 	var req protocol.OpenRequest
 	if err := protocol.ReadJSON(conn, &req, s.cfg.Security.MaxHandshakeBytes); err != nil {
+		if s.runContext().Err() != nil {
+			return
+		}
 		s.rejectEntryProtocol(conn, remoteIP, requestID, classifyEntryReadError(err), "invalid tunnel request", true, time.Since(requestStarted).Milliseconds())
 		return
 	}
@@ -444,8 +430,12 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 	defer releaseUserStream()
-	targetConn, err := net.DialTimeout("tcp", req.Target, time.Duration(s.cfg.Security.DialTimeoutSec)*time.Second)
+	dialer := net.Dialer{Timeout: time.Duration(s.cfg.Security.DialTimeoutSec) * time.Second}
+	targetConn, err := dialer.DialContext(s.runContext(), "tcp", req.Target)
 	if err != nil {
+		if s.runContext().Err() != nil {
+			return
+		}
 		s.dialFailed.Add(1)
 		resp := protocol.OpenResponse{OK: false, Code: "target_unreachable", Message: "target service is unreachable"}
 		flowLog := s.flowTrafficEntry(requestID, "stream_failed", "open", "failed", remoteIP, req)
