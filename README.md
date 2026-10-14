@@ -15,11 +15,12 @@ Release process (Chinese): [docs/release/release-process-zh.md](docs/release/rel
 ```text
 src/client/             Client CLI, GUI, Win7 Lite UI, config, bundled trust cert, tunnel logic
 src/server/             Server CLI, Web admin console, service wrapper, config, tunnel logic
-src/internal/           Shared protocol, transport, password, credential sealing, WebView2 and service helpers
+src/internal/           Shared protocol, transport, address policy, password, credential sealing and platform helpers
 src/cmd/                Admin and development helper tools
 mobile/android/         Android client source
 build/bin/              Local build outputs, split by client, server, and auxiliary tools
 build/tmp/              Local test, GUI, and packaging scratch files
+dist/                   Generated installers and optional on-site client repackaging kit
 runtime/data/           Local development runtime state
 runtime/logs/           Local development runtime logs, grouped by log type
 deploy/windows/         Windows scripts grouped by build/run/cert/service/app/inno/test
@@ -60,12 +61,7 @@ cmd /c deploy\windows\run.cmd client-lite
 cmd /c deploy\windows\test\selfcheck.cmd
 ```
 
-Package and installer entry points:
-
-```powershell
-cmd /c release.cmd
-cmd /c release.cmd /no-client-kit
-```
+### Distribution Output
 
 `release.cmd` builds temporary packages under `build\tmp\dist-work`, writes the Windows client, Windows server, and Android installers under `dist.stage\installers`, then replaces final `dist` only after staging succeeds. The default final `dist` contains installers, release manifests, and `dist\LSYL Tunnel Client` for implementation staff to adjust client config/cert files and rebuild a one-off client installer. Use `/no-client-kit` only when a compact installer-only `dist` is required.
 Android APK output is built during the release flow with Gradle. The script checks `GRADLE_EXE`, then PATH, then `tool\gradle-8.9` or `tool\gradle`; alternatively set `MOBILE_APK` to an existing APK. Stale APK files under `mobile\android\app\build` are not reused by default.
@@ -84,8 +80,6 @@ dist\LSYL Tunnel Client\make-installer.cmd
 ```
 
 Detailed Windows deployment notes: [docs/deployment/windows-deployment-zh.md](docs/deployment/windows-deployment-zh.md)
-
-Release process: [docs/release/release-process-zh.md](docs/release/release-process-zh.md)
 
 Server service entry:
 
@@ -108,13 +102,16 @@ The server GUI is a local Web operations console. Frontend assets live in `src/s
 
 Both standard Windows GUIs keep HTML, CSS, and JavaScript in their respective `src/client/front` and `src/server/front` directories. Go embeds these assets into each executable; there is no Node build step or external web directory to deploy. Native window integration and local HTTP APIs stay in `gui`, while `src/internal/webviewhost` owns the shared WebView2 host. Win7 Lite and Android do not depend on this host.
 
-The server installer generates a self-signed server TLS identity during install when `certs/server.crt` or `certs/server.key` is missing. During upgrades, it preserves the installed `conf/server.yaml` and blocks installation if the installed config version requires a newer server. Administrators distribute only `server.crt` to clients; `server.key` stays on the server. Server uninstall keeps `conf`, `certs`, `data`, and `logs` by default.
+The server installer generates a self-signed server TLS identity during install when `certs/server.crt` or `certs/server.key` is missing. During upgrades, it preserves the installed `conf/server.yaml` and checks its declared version, YAML structure and semantic constraints before allowing installation. Administrators distribute only `server.crt` to clients; `server.key` stays on the server. Server uninstall keeps `conf`, `certs`, `data`, and `logs` by default.
 
 Forward entries support three modes:
 
 - `client_to_server`: the client listens locally, and the server connects to a server-side target.
-- `virtual`: the standard 64-bit Windows client intercepts one certificate-authorized `IP:port` endpoint and maps it through a random loopback-only session listener; each rule is isolated and other ports keep their normal network path.
+- `virtual`: the standard 64-bit Windows client intercepts certificate-authorized `IPv4:port` endpoints and maps each through a random loopback-only listener. Ready rules share one elevated helper per connection; cancelling authorization or losing that helper affects the whole batch, while unmatched ports retain their normal network path.
 - `server_to_client`: the server creates a passive local listening port, and an authenticated client activates it; the server never dials the client.
+
+Configuration field ownership and address restrictions: [configuration reference](docs/system/config-reference-zh.md).
+Process boundaries and module dependencies: [architecture](docs/development/architecture-zh.md).
 
 ## Security Model
 

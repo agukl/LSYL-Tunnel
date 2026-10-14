@@ -360,7 +360,7 @@ func TestHandleAdminConfigRejectsOccupiedPassivePort(t *testing.T) {
 	ln, port := listenLocalTCP(t)
 	defer ln.Close()
 
-	app := NewApp()
+	app := newAdminTestApp(t)
 	app.configPath = configPath
 	app.serviceName = "LSYL Tunnel Test Missing Service"
 	form := adminConfig{
@@ -401,7 +401,7 @@ func TestHandleAdminConfigSavesUnreachableForwardTarget(t *testing.T) {
 	}
 	_, port := closedLocalTCPPort(t)
 
-	app := NewApp()
+	app := newAdminTestApp(t)
 	app.configPath = configPath
 	app.serviceName = "LSYL Tunnel Test Missing Service"
 	form := adminConfig{
@@ -429,7 +429,7 @@ func TestHandleAdminConfigSavesUnreachableForwardTarget(t *testing.T) {
 }
 
 func TestHandleAdminPasswordHashReturnsVerifiableHash(t *testing.T) {
-	app := NewApp()
+	app := newAdminTestApp(t)
 	body, err := json.Marshal(passwordHashRequest{Password: "new-secret"})
 	if err != nil {
 		t.Fatal(err)
@@ -476,7 +476,7 @@ func TestHandleAdminUnblockIPRemovesPersistedBlockedIP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	app := NewApp()
+	app := newAdminTestApp(t)
 	app.configPath = configPath
 	app.serviceName = "LSYL Tunnel Test Missing Service"
 	body, err := json.Marshal(unblockIPRequest{IP: "203.0.113.10"})
@@ -523,7 +523,7 @@ func TestHandleAdminDeletePermanentBlockRemovesPersistedIP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	app := NewApp()
+	app := newAdminTestApp(t)
 	app.configPath = configPath
 	app.serviceName = "LSYL Tunnel Test Missing Service"
 	body, err := json.Marshal(unblockIPRequest{IP: "203.0.113.10"})
@@ -590,6 +590,12 @@ func TestBuildAdminStateIncludesPermanentBlockedIPs(t *testing.T) {
 	if state.PermanentBlocks[0].Source != permanentFile {
 		t.Fatalf("PermanentBlocks source = %q, want %q", state.PermanentBlocks[0].Source, permanentFile)
 	}
+}
+
+func newAdminTestApp(t *testing.T) *App {
+	t.Helper()
+	t.Setenv("LSYL_TUNNEL_WORKSPACE", t.TempDir())
+	return NewApp()
 }
 
 func listenLocalTCP(t *testing.T) (net.Listener, string) {

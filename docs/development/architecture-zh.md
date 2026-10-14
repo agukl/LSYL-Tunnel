@@ -7,7 +7,7 @@ LSYL Tunnel 按客户端、服务端、共享层和部署脚本拆分。公网�
 ```text
 src/
   client/
-    cmd/                客户端 CLI / GUI 入口
+    cmd/                客户端 CLI / 标准 GUI / Win7 Lite 入口
     cert/               客户端打包用的服务端 TLS 信任文件，只放公开证书
     conf/               客户端默认配置
     front/              HTML / CSS / JavaScript，构建时嵌入标准客户端 GUI
@@ -24,7 +24,9 @@ src/
     tunnel/             服务端认证、授权、正反向转发、监控、运行事件
   internal/
     protocol/           客户端和服务端共享的握手协议
-    transport/          TLS 配置和双向流量复制
+    transport/          证书持有前置门、TLS 配置、双向复制和每流速率限制
+    netaddr/            Go 各入口共用的回环写法及业务目标 IP 范围规则
+    version/            产品、协议、配置版本及版本比较
     passutil/           密码哈希与校验
     credseal/           客户端本地保存密码的服务端密封凭据
     winservice/         Windows 服务运行封装和按天日志
@@ -52,11 +54,38 @@ third_party/            随产品分发的第三方组件及许可
 tool/                   本机开发工具和依赖安装器缓存，不作为源码提交
 ```
 
+## 进程与依赖
+
+项目是模块化的客户端 / 服务端系统，不是微服务，也不是完整 VPN。三个客户端共享协议契约，但运行边界不同：
+
+```text
+标准 Windows 客户端
+  WebView2 页面 -> 本地 GUI API -> client/tunnel（同一进程）
+                                -> WinDivert helper（提权子进程，仅虚拟规则）
+
+Win7 Lite -> client/tunnel（同一进程，Go 1.20 / windows/386）
+          -> mobileprofile（配置导入）
+
+Android Activity -> ForegroundService -> RuntimeController -> TunnelManager
+                                                     -> Kotlin 协议 / TLS / SocketPipe
+
+服务端管理台
+  WebView2 页面 -> 本地 GUI API -> 配置文件 / 日志文件 / 服务控制
+                              -> monitor_addr -> 独立 Windows 服务中的 server/tunnel
+```
+
+服务端 GUI 不承载转发，关闭管理台不应停止 Windows 服务。标准客户端 GUI 则内嵌隧道核心，隐藏窗口进入托盘与退出进程是两种不同操作。Android 转发由前台服务持有，不由 Activity 的页面生命周期持有。
+
+Go 源码依赖方向是 `cmd -> gui/lite -> tunnel -> internal`；`mobileprofile` 复用客户端配置类型，`front` 只提供嵌入资源。核心 `tunnel` 不反向依赖 GUI、WebView2 或页面资源，客户端核心与服务端核心也不直接依赖彼此。`internal` 是共享基础能力集合，其中 `winservice` / `webviewhost` 属于平台适配，不应被网络核心引用。
+
+Android 不复用 Go 二进制，必须独立维护协议、前置门、Profile 和错误码实现。跨端修改要同时验证 Go 与 Kotlin，不能只保证同一语言内的单元测试通过。
+
 ## 核心源码职责
 
 服务端隧道核心位于 `src/server/tunnel`：
 
-- `server.go`：启动、关闭、连接接收、握手和转发主链路。
+- `server.go`：启动、连接接收、握手和转发主链路。
+- `lifecycle.go`：连接持有的入口并发名额、活动连接登记、后台任务管理和统一关闭。
 - `authorization.go`：正向目标和反向监听授权。
 - `connection_limiter.go`、`fail_tracker.go`：入口连接限制和失败来源跟踪。
 - `monitor.go`、`maintenance.go`：本地监控接口、状态快照和后台清扫。
@@ -66,11 +95,34 @@ tool/                   本机开发工具和依赖安装器缓存，不作为�
 
 Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令分发，`commands.go` 处理命令参数，`profiles.go` 管理档案和目录切换，`inspect.go` 负责配置、证书和文件检查，`interactive.go` 提供交互菜单。
 
+## 四层业务流
+
+| 层次 | 主要工作 | 状态与记录 |
+| --- | --- | --- |
+| 入口连接 | TCP 接收、封禁命中、来源连接限制、证书持有前置门、TLS 握手 | 内存计数及有界 IP 表；异常记录走有界异步入口日志，永久封禁命中聚合 |
+| 请求认证 | 有界 JSON 请求解析、协议版本检查、密码或密封凭据校验 | 请求流水；成功来源保护与失败追踪 |
+| 业务控制 | 正向目标授权、反向端口激活、待回连流 ID 管理 | 业务流水、内存事件及按账号并发准入 |
+| 数据流 | 连接目标、双向复制、单流双向合计速率限制、关闭回收 | 内存流量统计及流量日志；不逐包写业务日志 |
+
+正向和反向的每条业务流目前各自建立隧道连接并完成认证，不是登录后复用一条多路复用连接。`saved_credential` 用于密封保存密码，不是跳过密码 KDF 的会话令牌。TLS 配置缓存、一次登录探测和共享虚拟 helper 不改变这个认证边界。
+
+四类 JSONL 业务日志分别由 `event_logs.go` 写入 request、business、entry-traffic、flow-traffic 目录；服务日志还包含相同事件的文本归纳和服务运行信息，不能视为第五种业务模型。只有入口异常日志采用有界异步队列，其余日志仍同步写入。内存事件环用于运行展示，不代替持久日志。
+
+入口并发名额随 TCP 连接持有，正向流、反向控制和反向数据流均在实际关闭时释放，不随请求处理函数返回提前释放。服务端拥有独立取消上下文；`Close()` 停止接收和任务登记、取消拨号与维护任务、关闭活动连接及反向监听，然后等待工作任务退出，最后排空入口日志队列并关闭四类日志文件。反向待回连的超时由工作任务持有，交接或退出后不保留游离定时回调。
+
+## 配置契约
+
+- Go 地址范围与回环写法由 `internal/netaddr` 统一，客户端预检不替代服务端最终授权。
+- YAML 字段与版本结构、配置语义、运行时授权是不同检查阶段，不应在 GUI 中隐式修正规则来代替校验。
+- 服务端安装前使用严格 YAML 结构校验；普通运行读取仍与安装检查分开，转发条目通过自定义解码拒绝未知字段。不能把安装检查当作整个运行配置解析器的替代品。
+- `forwards[].name` 是客户端内唯一的运行标识和日志标签，不是服务端授权依据；两端可以不同。
+- 配置归属、旧字段兼容和三种方向的地址矩阵集中维护在[配置参考](../system/config-reference-zh.md)，本页不再复制完整字段规则。
+
 ## 客户端边界
 
 客户端负责：
 
-- 读取 `src/client/conf/client.yaml`。
+- 读取指定的客户端配置；开发默认位于 `src/client/conf/client.yaml`，安装后位于应用目录的 `conf/client.yaml`。
 - 校验服务端 TLS 身份。
 - 使用用户名密码或短期密封凭据登录服务端。
 - 按配置打开固定本地监听或 Windows 虚拟 IP 入口，或激活服务端反向被动端口。
@@ -90,7 +142,7 @@ Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令�
 
 服务端负责：
 
-- 读取 `src/server/conf/server.yaml`。
+- 读取指定的服务端配置；开发默认位于 `src/server/conf/server.yaml`，安装后位于应用目录的 `conf/server.yaml`。
 - 监听隧道入口。
 - 在 TLS 之前校验客户端是否持有与服务端私钥匹配的公开证书。
 - 校验用户密码或密封凭据。
@@ -111,11 +163,11 @@ Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令�
 
 `client_to_server`：客户端通过固定本地端口接收连接，服务端连接服务端侧目标。
 
-`virtual`：标准 64 位 Windows 客户端按 `listen_addr` 接管虚拟入口。`:端口` 从服务端信任证书自动选择唯一 IPv4，`IPv4:端口` 用于多 SAN 场景显式选择；最终 IP 必须来自证书 IPv4 SAN，业务端口不能等于 `server_addr` 端口。登录成功后，同一次连接的多条规则合并到一次提权 helper 会话，通过 WinDivert 将匹配端点分别反射到随机 `127.0.0.1` 监听，流映射使用有界内存表；未匹配端口保持原网络路径，不创建网卡别名或持久路由。用户取消管理员授权、规则停止或 helper 异常时只将受影响规则标记为不可用，不终止客户端连接；重新连接时再次申请授权。发往服务端时仍映射为 `client_to_server`，不改变服务端授权规则。
+`virtual`：仅在标准 Windows 客户端增加按证书授权 `IPv4:端口` 拦截和随机回环桥接。多条规则共享一次提权 helper，会话结束后撤销接管；服务端仍按 `client_to_server` 授权，不知道也不下发虚拟入口。证书选择、端口冲突及取消授权规则见[配置参考](../system/config-reference-zh.md)。
 
 `server_to_client`：服务端配置被动入口，客户端通过规则中的 `listen_addr` 选择并主动激活对应入口，同时上报本地 `server_target` 供运行记录。服务端按监听地址和登录账号校验归属；收到访问后只发送不透明流 ID，客户端再回建数据流并连接本地目标。服务端不会主动拨入客户端网络，不用客户端目标选择端口，也不会把保留端口下发或写回客户端配置。
 
-反向代理的服务端入口只能是 `127.0.0.1:端口`，例如 `127.0.0.1:18080`。同一个反向端口必须全局唯一并且只能归属一个已存在账号，同一账号可以绑定多个反向端口；账号停用时不能认证和激活。规则名仅用于显示和日志，任何方向都不参与服务端授权。
+反向入口固定为服务端 `127.0.0.1:端口`，端口全局唯一且只归属一个已存在账号；同一账号可以拥有多个端口。客户端目标不用于选择服务端保留端口，规则名也不参与授权。
 
 ## GUI 边界
 
@@ -174,9 +226,20 @@ runtime/logs/
 runtime/data/
 ```
 
-`build/` 存放可重建产物，`dist.stage/` 和 `dist.previous/` 仅用于发布暂存和替换恢复，不是源码。保留失败发布目录可用于排查，不要直接在其中维护代码。
+`build/` 存放可重建产物，`dist.stage/` 和 `dist.previous/` 仅用于发布暂存和替换恢复，不是源码。保留失败发布目录可用于排查，不要直接在其中维护代码。新的开发临时文件统一放 `build/tmp/`，运行日志与持久数据统一放根目录 `runtime/`，不再在 `src/server/` 下创建同名产物目录。
+
+发布由根目录 `release.cmd` 组织：源码与本地交付配置 -> `build/bin` -> `build/tmp/dist-work` -> `dist.stage` -> `dist`。安装产物验证成功后才替换最终目录；正式发布清单在替换后写入。最终 `dist` 的客户端 kit 只是现场重新生成带配置安装器的输入，不是另一套源码。脚本职责与详细参数只维护在[命令地图](../../deploy/windows/README.md)。
 
 `src/client/conf/`、`src/server/conf/`、`src/client/cert/` 和根目录 `certs/` 是本地配置及交付身份输入；`runtime/` 是开发运行数据。这些内容即使被 Git 忽略也不能视为可随意删除的缓存。现场调整只在 `dist/LSYL Tunnel Client` 中进行，程序和脚本修改必须回到 `src`、`deploy`，再重新打包。
+
+## 维护优先级
+
+后续重构按职责和资源所有权推进，不为缩短文件而拆包：
+
+1. 固定跨端契约：Go 与 Kotlin 共享协议 / Profile 测试向量，覆盖字段、错误码、地址范围、前置门和关闭语义。当前两套实现的测试各自存在，但没有统一测试向量。
+2. 收窄大文件职责：优先分离服务端请求分发与认证编排、客户端连接与转发生命周期、Windows helper IPC 与数据包重定向，以及服务端页面的状态 / 表格 / 表单逻辑。保持现有包边界和无 Node 构建链。
+
+上述内容是当前代码审查发现的维护方向，不代表已经完成运行逻辑重构。不要把增加目录或框架本身当作优化目标。
 
 ## 维护约束
 
