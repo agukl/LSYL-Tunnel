@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"io"
 	"math/big"
 	"net"
@@ -549,9 +550,16 @@ func TestAccountTunnelReportsTemporaryBlockOnThreshold(t *testing.T) {
 	if err == nil || resp.Code != "auth_failed" {
 		t.Fatalf("first failed login = %+v, %v, want auth_failed", resp, err)
 	}
+	var responseErr *protocol.ResponseError
+	if !errors.As(err, &responseErr) || responseErr.Code != "auth_failed" {
+		t.Fatalf("login did not preserve the response code: %v", err)
+	}
 	resp, err = tunnel.CheckLoginResponse(ctx, clientCfg)
 	if err == nil || resp.Code != "auth_blocked" {
 		t.Fatalf("threshold login = %+v, %v, want auth_blocked", resp, err)
+	}
+	if !errors.As(err, &responseErr) || responseErr.Code != "auth_blocked" {
+		t.Fatalf("blocked login did not preserve the response code: %v", err)
 	}
 	if !strings.Contains(resp.Message, "temporarily blocked") {
 		t.Fatalf("threshold login message = %q, want temporary block", resp.Message)

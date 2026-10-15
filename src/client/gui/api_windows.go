@@ -75,7 +75,7 @@ func (a *App) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	status := client.CheckHealthNow(r.Context())
 	if status.Terminal {
-		a.detachClient(client, terminalDisconnectMessage(tunnel.ClientStats{Health: status}), true)
+		a.detachClient(client, status)
 		a.writeJSON(w, apiResult{OK: false, Message: status.Message, State: ptrAPIState(a.currentAPIState())})
 		return
 	}

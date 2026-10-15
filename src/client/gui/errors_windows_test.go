@@ -4,6 +4,7 @@ package gui
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -343,6 +344,41 @@ func TestShouldClearSavedPasswordState(t *testing.T) {
 				t.Fatalf("shouldClearSavedPasswordState() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestResponseCodeControlsGUIErrorAndCredentialCleanup(t *testing.T) {
+	tests := []struct {
+		code, message, want string
+		clear               bool
+	}{
+		{"auth_failed", "network timeout", "用户名或密码不正确。", true},
+		{"credential_expired", "certificate invalid", "保存的登录凭据已过期，请重新输入密码。", true},
+		{"auth_blocked", "auth_failed: username or password", "登录失败次数过多，当前来源 IP 已被临时封禁，请稍后再试。", false},
+		{"user_stream_limit", "credential_expired", "当前账号并发连接数已达到上限，请关闭部分连接后重试。", false},
+		{"target_unreachable", "auth_failed", "服务端无法访问目标服务，请联系管理员检查目标服务或防火墙。", false},
+		{"target_denied", "reverse listen address is not configured on server", "反向 listen_addr 未在服务端配置，请联系管理员检查服务端保留端口。", false},
+		{"target_denied", "not allowed to activate this reverse listen address", "当前账号无权使用该反向端口，请联系管理员检查端口授权。", false},
+		{"bad_request", "username or password", "客户端和服务端协议不匹配，请确认版本一致。", false},
+		{"client_version_unsupported", "timeout", "客户端版本不在服务端允许范围内，请联系管理员确认两端版本。", false},
+		{"protocol_version_unsupported", "timeout", "客户端与服务端协议版本不一致，请联系管理员升级对应一端。", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.code+tt.message, func(t *testing.T) {
+			err := fmt.Errorf("login: %w", &protocol.ResponseError{Code: tt.code, Message: tt.message})
+			if got := friendlyError(err); got != tt.want {
+				t.Fatalf("message = %q, want %q", got, tt.want)
+			}
+			if got := shouldClearSavedPasswordState(err); got != tt.clear {
+				t.Fatalf("clear = %v, want %v", got, tt.clear)
+			}
+		})
+	}
+	if shouldClearSavedPasswordState(&protocol.ResponseError{Code: "future_code", Message: "auth_failed"}) {
+		t.Fatal("unknown response code must not discard saved credentials")
+	}
+	if !shouldClearSavedPasswordState(&protocol.ResponseError{Message: "auth_failed"}) {
+		t.Fatal("response without a code must retain legacy handling")
 	}
 }
 
