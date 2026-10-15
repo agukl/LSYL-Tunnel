@@ -20,6 +20,8 @@ release.cmd /verify-only
 
 | 命令 | 用途 | 是否改 `dist` |
 | --- | --- | --- |
+| `check.cmd` | 源码快速检查：Go 测试、vet，不打包 | 否 |
+| `check.cmd -Full [-Offline]` | 全端源码检查：另含页面纯函数、Win7 Go 1.20、Android JVM 测试；参数和工具配置见快速开始 | 否 |
 | `release.cmd` | 完整发布：测试、构建临时包、生成三端安装产物、保留客户端 kit、签名、校验、写清单 | 是 |
 | `release.cmd /hosts "..."` | 发布前重建服务端 TLS 证书，并同步 `src\client\cert\server.crt` | 是 |
 | `release.cmd /local-sign` | 创建或复用本机自签证书后完整发布 | 是 |

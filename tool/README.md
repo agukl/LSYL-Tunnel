@@ -17,6 +17,9 @@ tool/
   go1.20.14/go/bin/go.exe
   gradle-8.9/bin/gradle.bat
   gradle/bin/gradle.bat
+  node/node.exe
+  jdk17/bin/java.exe
+  android-sdk/
   inno/ISCC.exe
   Inno Setup 6/ISCC.exe
   signtool/signtool.exe
@@ -26,5 +29,7 @@ tool/
 `tool/signtool` must include the Windows SDK signing dependency DLLs and manifests, not only `signtool.exe`.
 
 The actual tool binaries are intentionally ignored by git.
+
+The source-only `check.cmd -Full` entry also uses Node.js (`NODE_EXE`), JDK (`JAVA_HOME`), and Android SDK. Existing Android `local.properties` and SDK environment variables remain authoritative; `tool/android-sdk` is a fallback. This check entry does not download toolchains or create distribution packages.
 
 `tool/webview2` caches the Microsoft Evergreen bootstrapper downloaded during GUI packaging. It is a deployment prerequisite, not a build tool. Packaging verifies its Microsoft signature. To build installers for offline targets, set `WEBVIEW2_RUNTIME_INSTALLER` to the official x64 Evergreen Standalone Installer, or place it at `tool/webview2/MicrosoftEdgeWebView2RuntimeInstallerX64.exe`. The offline installer takes precedence over the cached bootstrapper.

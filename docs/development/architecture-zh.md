@@ -48,6 +48,7 @@ deploy/windows/
   sign/                 代码签名初始化和签名脚本
   test/                 自检脚本
 
+check.cmd               源码检查入口：快速 Go 检查 / 完整跨端检查，不打包
 release.cmd             发布主入口：测试、打包、安装器、签名和验证
 mobile/android/         Android 应用与 JVM 测试
 third_party/            随产品分发的第三方组件及许可
@@ -84,14 +85,30 @@ Android 不复用 Go 二进制，必须独立维护协议、前置门、Profile 
 
 服务端隧道核心位于 `src/server/tunnel`：
 
-- `server.go`：启动、连接接收、握手和转发主链路。
+- `server.go`：构造服务、启动后台任务；`entry.go`：入口准入、前置门和 TLS 握手。
+- `request.go`：请求上下文、协议读取和分发；`authentication.go`：凭据校验与失败计数；`compatibility.go`：协议与客户端版本检查。
+- `forward.go`：正向业务流；`request_reverse.go`：反向请求响应与连接移交；`reverse.go`：反向监听和待回连流。
 - `lifecycle.go`：连接持有的入口并发名额、活动连接登记、后台任务管理和统一关闭。
 - `authorization.go`：正向目标和反向监听授权。
 - `connection_limiter.go`、`fail_tracker.go`：入口连接限制和失败来源跟踪。
-- `monitor.go`、`maintenance.go`：本地监控接口、状态快照和后台清扫。
+- `monitor.go`：本地监控 HTTP 接口；`monitor_status.go`：类型化状态契约与快照；`maintenance.go`：后台清扫。
 - `event_logs.go`、`runtime_events.go`：四类业务日志和内存事件。
 
+客户端隧道核心位于 `src/client/tunnel`，仍使用同一 Go 包，按职责定位：
+
+- `client.go`：构造、启动和关闭；`request.go` / `tls.go`：登录探测、请求封装和 TLS 材料。
+- `forward.go` / `reverse.go`：正向监听和反向连接；`virtual_session.go`：多条虚拟规则共享会话。
+- `status.go`：状态快照；`health.go`：健康检查；`forward_check.go`：规则预检与恢复。
+- `response_policy.go`：已知服务端错误码的提示与重试策略；`error_messages.go`：网络、证书和旧格式文本错误；`retry.go`：退避时间。
+- Windows 虚拟接管分别由 `virtual_redirect_windows.go` 管理会话，`virtual_helper_windows.go` 处理 helper 命令，`virtual_control_windows.go` 负责 IPC，`virtual_elevation_windows.go` 负责提权，`windivert_windows.go` 负责驱动调用与收发。均保持 `windows && !386` 构建边界。
+
+服务端拒绝响应转换为 `protocol.ResponseError`，保留 `Code`、`Message` 和原日志文本格式，可通过 `errors.As` 穿透包装读取。已知错误码优先决定重试策略，不受诊断文案中的 timeout 等词干扰；`reverse_failed` 尚未细分原因，未知码和无结构错误仍使用兼容分类。这不新增协议字段，也不改变四类业务日志。
+
 服务端管理台后端位于 `src/server/gui`：`http_windows.go` 负责本地 HTTP 服务和路由，`admin_api_windows.go` 负责请求处理和状态组装，`admin_config_mapping_windows.go` 负责 GUI 与核心配置互转，`admin_forward_mapping_windows.go` 负责转发字段转换，`admin_monitor_client_windows.go` 负责访问服务端本地监控接口。
+
+标准客户端 GUI 的提示分类集中在 `error_messages_windows.go`，已知协议错误码优先，网络、配置和旧文本错误保留兼容分类。健康状态在进程内保留原始错误，JSON 仍只包含原有展示字段；清除保存凭据仅认 `auth_failed` / `credential_expired`，无错误码时才使用兼容文本判断，临时封禁等其他错误码不会误删凭据。
+
+监控 JSON 的服务端定义为 `tunnel.MonitorStatus`，GUI 从该类型解码后投影到页面视图；嵌套计数结构复用共享类型，不再用 `map[string]any`。页面视图保留已有的空集合省略及字段裁剪，两种 JSON 形态都有合同测试。
 
 Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令分发，`commands.go` 处理命令参数，`profiles.go` 管理档案和目录切换，`inspect.go` 负责配置、证书和文件检查，`interactive.go` 提供交互菜单。
 
@@ -176,6 +193,7 @@ Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令�
 | 修改内容 | 所在位置 |
 | --- | --- |
 | 页面结构、样式、交互 | 各端 `front/index.html`、`styles.css`、`app.js` |
+| 服务端页面组件与展示逻辑 | `server/front/modules/`：`dom`、`select`、`table`、`format`、`api`、`logs`、`analysis` |
 | 静态资源嵌入 | 各端 `front/front.go`，新增文件时同步 `go:embed` |
 | 应用启动与退出组织 | 各端 `gui/gui_windows.go` |
 | 本地 HTTP 服务、路由与静态资源 | 各端 `gui/http_windows.go` |
@@ -185,6 +203,8 @@ Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令�
 | WebView2 初始化与运行时检查 | `src/internal/webviewhost`，不包含隧道业务 |
 
 页面资源通过 `go:embed` 编入 exe，并由回环 HTTP 服务提供；更改页面后需要重新构建 GUI。发布机器不需要 Node，也不需要单独复制前端文件。`tunnel` 不依赖 `gui`、`front` 或 WebView2，Win7 Lite 和 Android 保持独立界面实现。
+
+服务端 `app.js` 是原生 ES module 入口，持有配置编辑状态并组织页面操作；组件显式导入依赖，不反向导入入口，也不依赖窗口全局函数。`analysis.js` 自行持有分析加载状态。纯格式化函数不读 DOM，控件模块不调用服务控制 API。新增页面模块必须由入口可达，并通过嵌入资源及模块依赖测试。
 
 客户端 GUI：
 
@@ -236,14 +256,15 @@ runtime/data/
 
 后续重构按职责和资源所有权推进，不为缩短文件而拆包：
 
-1. 固定跨端契约：Go 与 Kotlin 共享协议 / Profile 测试向量，覆盖字段、错误码、地址范围、前置门和关闭语义。当前两套实现的测试各自存在，但没有统一测试向量。
-2. 收窄大文件职责：优先分离服务端请求分发与认证编排、客户端连接与转发生命周期、Windows helper IPC 与数据包重定向，以及服务端页面的状态 / 表格 / 表单逻辑。保持现有包边界和无 Node 构建链。
+1. 固定跨端契约：Go 与 Kotlin 已有一致的前置门测试向量，但分别写在两端测试中；后续可集中维护协议 / Profile 测试数据，扩展字段、错误码、地址范围和关闭语义覆盖。
+2. 后续只按实际修改频率继续提取服务端页面的配置表单、Android Activity 的视图组织。核心连接、认证、helper 和页面公共控件已有独立文件，不再为统一目录外观搬动入口或打包路径。
 
-上述内容是当前代码审查发现的维护方向，不代表已经完成运行逻辑重构。不要把增加目录或框架本身当作优化目标。
+不要把增加目录或框架本身当作优化目标；完整源码检查已经统一入口，但独立测试和一致的内嵌向量不等于共用一份跨端测试数据。
 
 ## 维护约束
 
 - 窗口生命周期、HTTP 接口与隧道生命周期分别维护；仅在确有共享职责时提取公共模块。
-- 测试与实现相邻。纯页面资源测试放在 `front`，Windows 集成测试使用 `_windows_test.go`；重构后执行 `go test ./src/...` 和 Windows 自检。
+- 编辑器基础格式由根目录 `.editorconfig` 约束；Go 使用 `gofmt`。先按职责拆同包文件，只有独立依赖或复用边界确立后才拆包。
+- 测试与实现相邻。纯页面资源测试放在 `front`，Windows 集成测试使用 `_windows_test.go`；日常执行 `check.cmd`，跨端重构执行 `check.cmd -Full`，涉及发布链时再执行 Windows 自检。
 - 运行时性能边界保持不变：客户端缓存只读 TLS 配置并复用虚拟转发 helper；服务端事件使用固定环形缓冲，日志复用序列化结果，IP 表只在定时或容量触顶时清扫。
 - 长期文档按功能维护，历史方案和执行计划由 Git 历史保留；不要为每轮改动另建一套平行说明。

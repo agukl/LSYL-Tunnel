@@ -74,6 +74,26 @@ cmd /c deploy\windows\run.cmd client-gui
 
 ## 5. 自检
 
+仅验证源码、不重新生成分发包，统一使用根目录入口：
+
+```powershell
+cmd /c check.cmd
+cmd /c check.cmd -Full
+cmd /c check.cmd -Full -Offline
+```
+
+默认执行 `go test -count=1 -timeout=90s ./src/...` 和 `go vet ./src/...`。`-Full` 额外执行页面纯函数测试、Go 1.20 / windows/386 的协议、客户端核心、Profile、Lite 测试，以及 Android `:app:testDebugUnitTest --rerun`（重新运行 JVM 测试，允许复用编译缓存）。`-Offline` 只限制 Gradle 离线解析依赖，首次运行需提前准备缓存；Go 依赖解析不受此参数控制。
+
+工具选择沿用显式环境变量、系统 PATH、项目 `tool/` 的顺序；可设置 `GOEXE`、`GO120EXE`、`NODE_EXE`、`GRADLE_EXE`、`JAVA_HOME`。完整模式需要 Node.js（已验证 22.22 和 24）、Go 1.20、Gradle、JDK 17+ 和 Android SDK；SDK 使用现有 `local.properties` / Android 环境变量，也支持 `tool/android-sdk`。缺少必需工具或任何检查失败会返回非零退出码，不会自动下载工具，也不生成安装包、不修改配置或证书、不替换 `dist`；测试和构建缓存仍会正常产生。
+
+不要使用仓库根目录的 `go test ./...`，它可能遍历 `tool/` 中的独立工具链。Go 测试包含服务端页面模块的嵌入、引用和 JavaScript MIME 检查。单独执行页面纯函数测试：
+
+```powershell
+node --test src/server/front/tests/format.test.mjs
+```
+
+Node 只用于开发检查，发布和运行不依赖 Node。完整源码检查不代替真机后台保活、WinDivert 提权或 WebView2 交互验证。控件或页面编排变更还应在 WebView2 / Edge 中检查页面切换、下拉框、鼠标及键盘列宽调整、日志滚动和配置保存。需要同时验证构建及分发结构时，另行运行 Windows 自检：
+
 ```powershell
 cmd /c deploy\windows\test\selfcheck.cmd
 ```
