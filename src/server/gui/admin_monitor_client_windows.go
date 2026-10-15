@@ -13,29 +13,30 @@ import (
 	"lsyltunnel/src/server/tunnel"
 )
 
+// monitorStatus is the GUI projection; collection omission differs from /status.
 type monitorStatus struct {
-	Service                 string                  `json:"service"`
-	ListenAddr              string                  `json:"listen_addr"`
-	UptimeSec               int64                   `json:"uptime_sec"`
-	ActiveConnections       int                     `json:"active_connections"`
-	ConnectionsRejected     int64                   `json:"connections_rejected"`
-	ConnectionLimits        map[string]any          `json:"connection_limits,omitempty"`
-	ConnectionRejections    map[string]any          `json:"connection_rejections,omitempty"`
-	ActiveStreams           int64                   `json:"active_streams"`
-	TotalStreams            int64                   `json:"total_streams"`
-	UserStreamLimits        map[string]any          `json:"user_stream_limits,omitempty"`
-	UserStreamLimitRejected int64                   `json:"user_stream_limit_rejected"`
-	AuthOK                  int64                   `json:"auth_ok"`
-	AuthFailed              int64                   `json:"auth_failed"`
-	PolicyRejected          int64                   `json:"policy_rejected"`
-	DialFailed              int64                   `json:"dial_failed"`
-	BytesUp                 int64                   `json:"bytes_up"`
-	BytesDown               int64                   `json:"bytes_down"`
-	EntrySecurity           map[string]any          `json:"entry_security,omitempty"`
-	FailureTracker          map[string]any          `json:"failure_tracker,omitempty"`
-	EntryTrafficLog         map[string]any          `json:"entry_traffic_log,omitempty"`
-	BlockedIPs              []tunnel.BlockedIPState `json:"blocked_ips,omitempty"`
-	RecentEvents            []tunnel.RuntimeEvent   `json:"recent_events,omitempty"`
+	Service                 string                             `json:"service"`
+	ListenAddr              string                             `json:"listen_addr"`
+	UptimeSec               int64                              `json:"uptime_sec"`
+	ActiveConnections       int                                `json:"active_connections"`
+	ConnectionsRejected     int64                              `json:"connections_rejected"`
+	ConnectionLimits        *tunnel.ConnectionLimitsStatus     `json:"connection_limits,omitempty"`
+	ConnectionRejections    *tunnel.ConnectionRejectionsStatus `json:"connection_rejections,omitempty"`
+	ActiveStreams           int64                              `json:"active_streams"`
+	TotalStreams            int64                              `json:"total_streams"`
+	UserStreamLimits        *tunnel.UserStreamLimitsStatus     `json:"user_stream_limits,omitempty"`
+	UserStreamLimitRejected int64                              `json:"user_stream_limit_rejected"`
+	AuthOK                  int64                              `json:"auth_ok"`
+	AuthFailed              int64                              `json:"auth_failed"`
+	PolicyRejected          int64                              `json:"policy_rejected"`
+	DialFailed              int64                              `json:"dial_failed"`
+	BytesUp                 int64                              `json:"bytes_up"`
+	BytesDown               int64                              `json:"bytes_down"`
+	EntrySecurity           *tunnel.EntrySecurityStatus        `json:"entry_security,omitempty"`
+	FailureTracker          *tunnel.FailureTrackerStatus       `json:"failure_tracker,omitempty"`
+	EntryTrafficLog         *tunnel.EntryTrafficLogStatus      `json:"entry_traffic_log,omitempty"`
+	BlockedIPs              []tunnel.BlockedIPState            `json:"blocked_ips,omitempty"`
+	RecentEvents            []tunnel.RuntimeEvent              `json:"recent_events,omitempty"`
 }
 
 type unblockIPRequest struct {
@@ -56,11 +57,34 @@ func loadMonitorStatus(addr string) (*monitorStatus, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("monitor returned %s", resp.Status)
 	}
-	var status monitorStatus
+	var status tunnel.MonitorStatus
 	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
 		return nil, err
 	}
-	return &status, nil
+	return &monitorStatus{
+		Service:                 status.Service,
+		ListenAddr:              status.ListenAddr,
+		UptimeSec:               status.UptimeSec,
+		ActiveConnections:       status.ActiveConnections,
+		ConnectionsRejected:     status.ConnectionsRejected,
+		ConnectionLimits:        status.ConnectionLimits,
+		ConnectionRejections:    status.ConnectionRejections,
+		EntrySecurity:           status.EntrySecurity,
+		FailureTracker:          status.FailureTracker,
+		EntryTrafficLog:         status.EntryTrafficLog,
+		UserStreamLimits:        status.UserStreamLimits,
+		UserStreamLimitRejected: status.UserStreamLimitRejected,
+		ActiveStreams:           status.ActiveStreams,
+		TotalStreams:            status.TotalStreams,
+		AuthOK:                  status.AuthOK,
+		AuthFailed:              status.AuthFailed,
+		PolicyRejected:          status.PolicyRejected,
+		DialFailed:              status.DialFailed,
+		BytesUp:                 status.BytesUp,
+		BytesDown:               status.BytesDown,
+		BlockedIPs:              status.BlockedIPs,
+		RecentEvents:            status.RecentEvents,
+	}, nil
 }
 
 func unblockIPViaMonitor(addr, ip string) (bool, error) {
