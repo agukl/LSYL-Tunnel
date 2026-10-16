@@ -3,7 +3,7 @@
 package gui
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/lxn/walk"
 	"github.com/lxn/win"
@@ -11,6 +11,8 @@ import (
 )
 
 const clientSingleInstanceMutexName = `Local\LSYLTunnelGuiSingleInstance`
+
+var errClientAlreadyRunning = errors.New("LSYL Tunnel Client 已在运行，请从托盘图标打开")
 
 func (a *App) setupTray() error {
 	if a.ni != nil {
@@ -129,9 +131,12 @@ func (a *App) ensureTrayVisibleNow() bool {
 		}
 	}
 	if a.ni != nil && !a.ni.Visible() {
-		_ = a.ni.SetVisible(true)
+		if err := a.ni.SetVisible(true); err != nil {
+			a.appendLog("托盘图标不可用: " + err.Error())
+			return false
+		}
 	}
-	return a.ni != nil
+	return a.ni != nil && a.ni.Visible()
 }
 
 func (a *App) updateTrayToolTipNow() {
@@ -152,6 +157,7 @@ func (a *App) updateTrayToolTipNow() {
 
 func (a *App) exitApp() {
 	a.exiting = true
+	a.cancelPendingLogin()
 	if a.isRunning() {
 		_ = a.stopClient()
 	}
@@ -180,7 +186,7 @@ func (a *App) acquireSingleInstance() error {
 		if h != 0 {
 			_ = windows.CloseHandle(h)
 		}
-		return fmt.Errorf("LSYL Tunnel Client 已在运行，请从托盘图标打开")
+		return errClientAlreadyRunning
 	}
 	a.instanceMutex = h
 	return nil

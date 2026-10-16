@@ -51,7 +51,7 @@ func TestClientAPIRoutesTakePrecedenceOverAssets(t *testing.T) {
 	app := &App{}
 	app.registerAdminRoutes(mux)
 	for _, path := range []string{
-		"/api/state", "/api/health/check", "/api/start", "/api/stop",
+		"/api/state", "/api/autostart", "/api/health/check", "/api/start", "/api/stop",
 		"/api/profile/switch", "/api/mobile/export", "/api/hide", "/api/quit",
 		"/api/window/minimize", "/api/window/close", "/api/window/drag",
 	} {

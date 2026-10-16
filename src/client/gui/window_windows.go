@@ -96,6 +96,9 @@ func (a *App) showInitialWindow() {
 	a.initialShown = true
 	a.mw.Show()
 	a.resizeBrowser()
+	if a.autostartLaunch {
+		go a.autoConnect()
+	}
 }
 
 func (a *App) resizeBrowser() {

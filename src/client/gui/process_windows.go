@@ -16,6 +16,10 @@ func (a *App) startClient(cfg tunnel.Config, serverVersion string) error {
 
 func (a *App) startClientEmbedded(cfg tunnel.Config, serverVersion string) error {
 	a.mu.Lock()
+	if a.closing.Load() {
+		a.mu.Unlock()
+		return context.Canceled
+	}
 	if a.tun != nil {
 		a.mu.Unlock()
 		return fmt.Errorf("客户端已经在后台值守")
@@ -31,7 +35,7 @@ func (a *App) startClientEmbedded(cfg tunnel.Config, serverVersion string) error
 		return err
 	}
 	a.mu.Lock()
-	if a.tun != nil {
+	if a.tun != nil || a.closing.Load() {
 		a.mu.Unlock()
 		cancel()
 		_ = client.Close()

@@ -4,6 +4,7 @@ package gui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -55,7 +56,14 @@ type App struct {
 	profileCache      []clientProfile
 	profileCacheUntil time.Time
 
-	initialShown bool
+	initialShown    bool
+	autostartLaunch bool
+	autostart       *clientAutostart
+	connecting      atomic.Bool
+	autoLoginDone   atomic.Bool
+	closing         atomic.Bool
+	loginCancel     context.CancelFunc
+	loginMu         sync.Mutex
 }
 
 func Run() error {
@@ -83,7 +91,8 @@ func RunFromArgs(args []string) error {
 	if IsQuitCommand(args) {
 		return requestQuitRunningInstance()
 	}
-	return Run()
+	app := newApp(isAutostartLaunch(args))
+	return app.Run()
 }
 
 func IsQuitCommand(args []string) bool {
@@ -105,11 +114,22 @@ func isClientQuitArg(arg string) bool {
 }
 
 func NewApp() *App {
+	return newApp(false)
+}
+
+func newApp(autostartLaunch bool) *App {
 	workspace := detectWorkspaceRoot()
+	executable, _ := os.Executable()
+	// A Run entry has no working directory; resolve the installation from the executable.
+	if autostartLaunch && executable != "" {
+		workspace = autostartWorkspace(executable)
+	}
 	app := &App{
-		workspace:  workspace,
-		configPath: detectClientConfigPath(workspace),
-		crashLog:   filepath.Join(appTmpDir(workspace), "gui", "client-gui.crash.log"),
+		workspace:       workspace,
+		configPath:      detectClientConfigPath(workspace),
+		crashLog:        filepath.Join(appTmpDir(workspace), "gui", "client-gui.crash.log"),
+		autostart:       newClientAutostart(executable),
+		autostartLaunch: autostartLaunch,
 	}
 	_ = os.MkdirAll(filepath.Dir(app.crashLog), 0o755)
 	return app
@@ -124,9 +144,13 @@ func (a *App) Run() (err error) {
 		}
 	}()
 	if err := a.acquireSingleInstance(); err != nil {
+		if a.autostartLaunch && errors.Is(err, errClientAlreadyRunning) {
+			return nil
+		}
 		return err
 	}
 	defer a.releaseSingleInstance()
+	defer a.cancelPendingLogin()
 	return a.run()
 }
 
@@ -189,12 +213,14 @@ func (a *App) run() error {
 				return
 			}
 			a.exiting = true
+			a.cancelPendingLogin()
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			_ = srv.Shutdown(ctx)
 			return
 		}
 		a.exiting = true
+		a.cancelPendingLogin()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(ctx)

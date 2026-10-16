@@ -545,6 +545,32 @@ begin
   CleanupClientInstallTemps();
 end;
 
+procedure RemoveClientAutostartValue(RootKey: Integer; Subkey: String);
+var
+  Command, Expected: String;
+begin
+  Expected := '"' + ExpandConstant('{app}\bin\lsyl-tunnel-client-gui.exe') + '" --autostart';
+  if RegQueryStringValue(RootKey, Subkey, 'LSYLTunnelClient', Command) and
+     (CompareText(Command, Expected) = 0) then begin
+    if not RegDeleteValue(RootKey, Subkey, 'LSYLTunnelClient') then
+      Log('Could not remove client autostart value: ' + Subkey);
+  end;
+end;
+
+procedure RemoveClientAutostart;
+var
+  Users: TArrayOfString;
+  I: Integer;
+  RunKey: String;
+begin
+  RunKey := 'Software\Microsoft\Windows\CurrentVersion\Run';
+  RemoveClientAutostartValue(HKCU64, RunKey);
+  { Also clean loaded user hives when uninstall is elevated under another account. }
+  if RegGetSubkeyNames(HKU64, '', Users) then
+    for I := 0 to GetArrayLength(Users) - 1 do
+      RemoveClientAutostartValue(HKU64, Users[I] + '\' + RunKey);
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   QuitMessage: String;
@@ -558,6 +584,7 @@ begin
       CleanupClientInstallTemps();
       Abort;
     end;
+    RemoveClientAutostart();
   end;
 end;
 

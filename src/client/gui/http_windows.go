@@ -14,6 +14,7 @@ import (
 
 func (a *App) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/state", a.handleState)
+	mux.HandleFunc("/api/autostart", a.handleAutostart)
 	mux.HandleFunc("/api/health/check", a.handleHealthCheck)
 	mux.HandleFunc("/api/start", a.handleStart)
 	mux.HandleFunc("/api/stop", a.handleStop)

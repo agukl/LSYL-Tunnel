@@ -108,6 +108,8 @@ Android 不复用 Go 二进制，必须独立维护协议、前置门、Profile 
 
 标准客户端 GUI 的提示分类集中在 `error_messages_windows.go`，已知协议错误码优先，网络、配置和旧文本错误保留兼容分类。健康状态在进程内保留原始错误，JSON 仍只包含原有展示字段；清除保存凭据仅认 `auth_failed` / `credential_expired`，无错误码时才使用兼容文本判断，临时封禁等其他错误码不会误删凭据。
 
+标准客户端 `login_windows.go` 负责手动与自动连接共用的登录流程、互斥及退出取消；`autostart_windows.go` 管理当前用户 Run 启动项和 `--autostart` 启动参数。自启是 GUI 本地偏好，不进入核心配置或协议。自启时按可执行文件位置定位配置，普通启动保留开发目录覆盖规则；Lite 和 Android 不引用这些实现。
+
 监控 JSON 的服务端定义为 `tunnel.MonitorStatus`，GUI 从该类型解码后投影到页面视图；嵌套计数结构复用共享类型，不再用 `map[string]any`。页面视图保留已有的空集合省略及字段裁剪，两种 JSON 形态都有合同测试。
 
 Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令分发，`commands.go` 处理命令参数，`profiles.go` 管理档案和目录切换，`inspect.go` 负责配置、证书和文件检查，`interactive.go` 提供交互菜单。

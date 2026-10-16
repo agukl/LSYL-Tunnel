@@ -24,6 +24,8 @@
     </div>
     <button id="mobileExportMenuBtn" class="secondary menu-action" onclick="return exportMobileProfile(event)">导出移动端配置</button>
     <div id="logoMenuEmpty" class="logo-menu-empty">暂无可切换配置</div>
+    <label class="autostart-setting" for="autostartCheck"><input id="autostartCheck" type="checkbox" onchange="setAutostart(this.checked)"><span>开机自启并连接</span></label>
+    <div id="autostartMsg" class="autostart-message" role="alert"></div>
   </div>
 
   <div class="content">

@@ -104,6 +104,31 @@ button, input { font-family:"Microsoft YaHei UI", "Segoe UI", sans-serif; }
   box-shadow:0 14px 30px rgba(19,72,82,.22);
 }
 .logo-menu.open { display:block; }
+.autostart-setting {
+  display:flex;
+  align-items:center;
+  gap:9px;
+  margin:10px 0 0;
+  padding:11px 4px 1px;
+  border-top:1px solid #e4edef;
+  min-height:32px;
+  font-size:13px;
+  font-weight:600;
+  line-height:20px;
+  cursor:pointer;
+}
+.autostart-setting input {
+  flex:0 0 16px;
+  width:16px;
+  height:16px;
+  margin:0;
+  padding:0;
+  accent-color:#0b8d82;
+  box-shadow:none;
+}
+.autostart-setting input:focus-visible { outline:2px solid #0b8d82; outline-offset:3px; }
+.autostart-message { color:#9a3929; font-size:12px; line-height:18px; overflow-wrap:anywhere; }
+.autostart-message:not(:empty) { margin:8px 4px 0; }
 .logo-menu-title {
   margin:0 0 8px;
   color:#57717b;

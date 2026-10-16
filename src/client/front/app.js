@@ -1,4 +1,5 @@
 var busy = false;
+var autostartBusy = false;
 var lastRunning = null;
 var lastState = null;
 var forceNextForm = false;
@@ -145,6 +146,24 @@ function syncLogoMenu(state, running){
   if(exportBtn) exportBtn.style.display = running ? 'block' : 'none';
   if(empty) empty.style.display = (!running && !canSwitch) ? 'block' : 'none';
 }
+function setAutostart(enabled){
+  if(autostartBusy) return;
+  autostartBusy = true;
+  el('autostartCheck').disabled = true;
+  el('autostartMsg').innerText = '';
+  api('/api/autostart', { enabled: enabled }, function(r){
+    autostartBusy = false;
+    el('autostartCheck').disabled = false;
+    if(r.state) renderState(r.state, true);
+    else el('autostartCheck').checked = !!(lastState && lastState.autostart);
+    if(!r.ok) el('autostartMsg').innerText = r.message || '修改开机自启失败，请重试。';
+  }, function(){
+    autostartBusy = false;
+    el('autostartCheck').disabled = false;
+    el('autostartCheck').checked = !!(lastState && lastState.autostart);
+    el('autostartMsg').innerText = '修改开机自启失败，请重试。';
+  });
+}
 function showLogoMenu(evt){
   stopEvent(evt);
   var state = lastState || {};
@@ -154,7 +173,7 @@ function showLogoMenu(evt){
   var menu = el('logoMenu');
   if(menu) menu.className = 'logo-menu open';
   el('logoMenuBtn').setAttribute('aria-expanded', 'true');
-  var items = menu.querySelectorAll('button:not(:disabled)');
+  var items = menu.querySelectorAll('button:not(:disabled), input:not(:disabled)');
   for(var i=0;i<items.length;i++){
     if(items[i].offsetParent !== null){ items[i].focus(); break; }
   }
@@ -185,7 +204,7 @@ function installLogoMenuDismiss(){
       el('logoMenuBtn').focus();
       stopEvent(evt);
     } else if(code === 38 || code === 40){
-      var nodes = el('logoMenu').querySelectorAll('button:not(:disabled)');
+      var nodes = el('logoMenu').querySelectorAll('button:not(:disabled), input:not(:disabled)');
       var items = [];
       var index = -1;
       for(var i=0;i<nodes.length;i++){
@@ -210,6 +229,7 @@ function showMessage(message, bad){
 function setStatus(running, state){
   var text = running ? (state.run_status || '后台值守中') : '未连接';
   var cls = statusClass(running, state.stats || {});
+  if(!running && state.connecting){ text = '正在连接'; cls = 'warn'; }
   el('topStatus').className = 'top-status ' + cls;
   el('topStatusText').innerText = text;
   el('topStatus').title = text;
@@ -343,7 +363,12 @@ function renderState(state, force){
   setVersion(state);
   if(changed) clearMessages();
   lastRunning = running;
-  el('loginBtn').disabled = running || busy;
+  el('loginBtn').disabled = running || busy || !!state.connecting;
+  el('loginBtn').innerText = state.connecting ? '正在连接...' : '连接';
+  if(!autostartBusy) el('autostartCheck').checked = !!state.autostart;
+  el('server_addr').disabled = running || !!state.connecting;
+  el('username').disabled = running || !!state.connecting;
+  el('password').disabled = running || !!state.connecting;
   el('route').innerHTML = routeHTML(state);
   el('reconnectInfo').innerText = reconnectText(state);
   setForm(state.config, forceNextForm);
@@ -412,7 +437,7 @@ function renderProfiles(state, running){
     var buttons = list.getElementsByTagName('button');
     for(var j=0;j<buttons.length;j++){
       var b = buttons[j];
-      b.disabled = running || busy || b.getAttribute('data-profile-current') === '1' || b.getAttribute('data-profile-available') !== '1';
+      b.disabled = running || busy || !!state.connecting || b.getAttribute('data-profile-current') === '1' || b.getAttribute('data-profile-available') !== '1';
     }
   }
 }
@@ -453,6 +478,7 @@ function switchProfile(profileID){
   return false;
 }
 function refreshDelay(state){
+  if(state && state.connecting) return 1000;
   if(state && state.window_hidden) return 30000;
   if(state && state.running && isReconnecting(state.stats || {})) return 2500;
   if(state && state.running) return 5000;
@@ -485,6 +511,7 @@ function refreshHealth(quiet){
   });
 }
 function login(){
+  if(busy || (lastState && lastState.connecting)) return;
   busy = true;
   el('loginBtn').disabled = true;
   showMessage('正在登录，请稍候。', false);
@@ -496,7 +523,7 @@ function login(){
       showMessage(r.message || '连接失败，请检查服务端地址、证书或账号密码。', true);
     }
     refresh();
-  });
+  }, function(){ busy = false; el('loginBtn').disabled = false; });
 }
 function stopClient(){
   showMessage('正在断开连接。', false);

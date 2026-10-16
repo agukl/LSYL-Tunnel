@@ -3,7 +3,6 @@
 package gui
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -13,6 +12,8 @@ import (
 )
 
 type apiState struct {
+	Autostart     bool               `json:"autostart"`
+	Connecting    bool               `json:"connecting"`
 	Running       bool               `json:"running"`
 	Version       string             `json:"version"`
 	ServerVersion string             `json:"server_version,omitempty"`
@@ -52,6 +53,8 @@ func (a *App) currentAPIState() apiState {
 	stats := a.clientStats()
 	notice, noticeBad := a.noticeSnapshot()
 	return apiState{
+		Autostart:     a.autostartEnabled(),
+		Connecting:    a.connecting.Load() || (a.autostartLaunch && !a.autoLoginDone.Load()),
 		Running:       a.isRunning(),
 		Version:       appversion.AppVersion,
 		ServerVersion: stats.ServerVersion,
@@ -98,66 +101,7 @@ func (a *App) handleStart(w http.ResponseWriter, r *http.Request) {
 		a.writeJSON(w, apiResult{OK: false, Message: "请求格式不正确"})
 		return
 	}
-	rawCfg, err := a.prepareLoginConfig(form)
-	a.setNotice("", false)
-	if err != nil {
-		a.appendLog("配置准备失败: " + err.Error())
-		a.writeJSON(w, apiResult{OK: false, Message: friendlyError(err)})
-		return
-	}
-	if a.isRunning() {
-		a.writeJSON(w, apiResult{OK: true, Message: "已经连接，正在后台值守"})
-		return
-	}
-	cfg, err := runtimeClientConfigFromRaw(a.configPath, rawCfg)
-	if err != nil {
-		a.appendLog("配置校验失败: " + err.Error())
-		a.writeJSON(w, apiResult{OK: false, Message: friendlyError(err)})
-		return
-	}
-	loginTimeout := time.Duration(cfg.Connection.DialTimeoutSec+3) * time.Second
-	if loginTimeout < 5*time.Second {
-		loginTimeout = 5 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), loginTimeout)
-	defer cancel()
-	resp, err := tunnel.CheckLoginResponse(ctx, cfg)
-	if err != nil {
-		a.appendLog("登录探测失败: " + err.Error())
-		if shouldClearSavedPasswordState(err) {
-			a.clearSavedPasswordStateAfterAuthFailure()
-		}
-		a.writeJSON(w, apiResult{OK: false, Message: friendlyError(err)})
-		return
-	}
-	if rawCfg.Password != "" {
-		if resp.CredentialKey != nil {
-			sealed, err := tunnel.SealSavedCredential(*resp.CredentialKey, cfg, rawCfg.Password)
-			if err != nil {
-				a.appendLog("保存本地登录凭据失败: " + err.Error())
-				a.writeJSON(w, apiResult{OK: false, Message: friendlyError(err)})
-				return
-			}
-			rawCfg.SavedCredential = sealed
-			cfg.SavedCredential = sealed
-			cfg.Password = ""
-		} else {
-			a.appendLog("服务端未提供本地凭据密封公钥，本次不会保存密码")
-		}
-		rawCfg.Password = ""
-	}
-	if err := a.saveClientConfig(rawCfg); err != nil {
-		a.appendLog("保存配置失败: " + err.Error())
-		a.writeJSON(w, apiResult{OK: false, Message: friendlyError(err)})
-		return
-	}
-	if err := a.startClient(cfg, resp.ServerVersion); err != nil {
-		a.appendLog("启动连接失败: " + err.Error())
-		a.writeJSON(w, apiResult{OK: false, Message: friendlyError(err)})
-		return
-	}
-	a.appendLog("登录成功，隧道已启动并进入后台值守")
-	a.writeJSON(w, apiResult{OK: true, Message: "登录成功，已在后台值守"})
+	a.writeJSON(w, a.login(r.Context(), &form))
 }
 
 func (a *App) handleStop(w http.ResponseWriter, r *http.Request) {
@@ -179,6 +123,11 @@ func (a *App) handleProfileSwitch(w http.ResponseWriter, r *http.Request) {
 		a.writeJSON(w, apiResult{OK: false, Message: "请求格式不正确", State: ptrAPIState(a.currentAPIState())})
 		return
 	}
+	if !a.loginMu.TryLock() {
+		a.writeJSON(w, apiResult{Message: "正在连接，请稍候再切换配置。"})
+		return
+	}
+	defer a.loginMu.Unlock()
 	if a.isRunning() {
 		a.writeJSON(w, apiResult{OK: false, Message: "请先断开当前连接，再切换客户端配置。", State: ptrAPIState(a.currentAPIState())})
 		return
