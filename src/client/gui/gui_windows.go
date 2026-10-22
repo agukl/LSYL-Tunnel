@@ -39,7 +39,6 @@ type App struct {
 
 	instanceMutex        windows.Handle
 	exiting              bool
-	regionFallback       bool
 	windowHidden         atomic.Bool
 	currentIconKnown     bool
 	currentIconConnected bool
@@ -173,22 +172,16 @@ func (a *App) run() error {
 	}
 	defer srv.Close()
 
-	var browserPanel *walk.Composite
+	// GDI black provides zero-alpha backing; the page paints the visible surface.
 	ui := MainWindow{
 		AssignTo:   &a.mw,
 		Title:      windowTitle,
 		Icon:       a.iconForState(),
 		Size:       Size{Width: 520, Height: 640},
 		MinSize:    Size{Width: 520, Height: 640},
-		Background: SolidColorBrush{Color: walk.RGB(238, 248, 247)},
+		Visible:    false,
 		Layout:     VBox{MarginsZero: true, SpacingZero: true},
-		Children: []Widget{
-			Composite{
-				AssignTo:      &browserPanel,
-				Layout:        VBox{MarginsZero: true, SpacingZero: true},
-				StretchFactor: 1,
-			},
-		},
+		Background: SolidColorBrush{Color: walk.RGB(0, 0, 0)},
 	}
 	if err := ui.Create(); err != nil {
 		_ = srv.Close()
@@ -196,13 +189,16 @@ func (a *App) run() error {
 	}
 	a.mw.ToolBar().SetVisible(false)
 	a.mw.StatusBar().SetVisible(false)
-	a.applyFramelessWindow()
-	a.web, err = webviewhost.New(uintptr(browserPanel.Handle()), a.panelURL, "Client", a.showInitialWindow)
+	if err := a.applyFramelessWindow(); err != nil {
+		a.mw.Dispose()
+		return err
+	}
+	a.web, err = webviewhost.NewWithOptions(uintptr(a.mw.Handle()), a.panelURL, "Client", a.showInitialWindow, webviewhost.Options{Transparent: true})
 	if err != nil {
 		a.mw.Dispose()
 		return err
 	}
-	a.bindBrowserResize(browserPanel)
+	a.bindBrowserResize()
 	defer a.disposeTray()
 
 	a.mw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {

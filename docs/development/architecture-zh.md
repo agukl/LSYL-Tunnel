@@ -206,6 +206,8 @@ Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令�
 
 页面资源通过 `go:embed` 编入 exe，并由回环 HTTP 服务提供；更改页面后需要重新构建 GUI。发布机器不需要 Node，也不需要单独复制前端文件。`tunnel` 不依赖 `gui`、`front` 或 WebView2，Win7 Lite 和 Android 保持独立界面实现。
 
+标准客户端使用透明原生宿主，WebView2 直接挂到主窗口；页面根背景透明，由 `.app` 绘制背景和圆角，避免 Win10 的窗口区域硬裁剪锯齿。透明合成与 WebView2 背景初始化集中在 `internal/webviewhost`，窗口消息和 COM 调用保持在 UI 线程，不增加逐帧截图或定时重绘。服务端仍使用默认不透明宿主；Win7 Lite 和 Android 不采用这一窗口方案。
+
 服务端 `app.js` 是原生 ES module 入口，持有配置编辑状态并组织页面操作；组件显式导入依赖，不反向导入入口，也不依赖窗口全局函数。`analysis.js` 自行持有分析加载状态。纯格式化函数不读 DOM，控件模块不调用服务控制 API。新增页面模块必须由入口可达，并通过嵌入资源及模块依赖测试。
 
 客户端 GUI：

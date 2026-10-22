@@ -113,3 +113,26 @@ func TestClientAssetsTextAndScriptAreIntact(t *testing.T) {
 		}
 	}
 }
+
+func TestClientRoundedSurface(t *testing.T) {
+	data, err := FS.ReadFile("styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(data)
+	for selector, properties := range map[string][]string{
+		"html, body": {"background:transparent;", "overflow:hidden;"},
+		".app":       {"border-radius:24px;", "overflow:hidden;", "background:linear-gradient("},
+	} {
+		_, block, found := strings.Cut(css, selector+" {")
+		if !found {
+			t.Fatalf("missing %s rule", selector)
+		}
+		block, _, _ = strings.Cut(block, "}")
+		for _, property := range properties {
+			if !strings.Contains(block, property) {
+				t.Errorf("%s must contain %s", selector, property)
+			}
+		}
+	}
+}

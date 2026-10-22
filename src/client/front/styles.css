@@ -6,11 +6,11 @@ html, body {
   padding:0;
   overflow:hidden;
   -ms-overflow-style:none;
+  background:transparent;
 }
 body {
   font-family:"Microsoft YaHei UI", "Segoe UI", sans-serif;
   color:#122b36;
-  background:linear-gradient(180deg, #348f95 0, #56b9b4 60px, #eef8f7 60px, #dff1f2 100%);
   user-select:none;
 }
 input { user-select:text; }
@@ -19,7 +19,8 @@ button, input { font-family:"Microsoft YaHei UI", "Segoe UI", sans-serif; }
   width:100%;
   height:100%;
   overflow:hidden;
-  background:transparent;
+  background:linear-gradient(180deg, #348f95 0, #56b9b4 60px, #eef8f7 60px, #dff1f2 100%);
+  border-radius:24px;
   position:relative;
 }
 .app:after {

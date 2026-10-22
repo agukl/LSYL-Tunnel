@@ -18,6 +18,11 @@ type Host struct {
 	url  string
 }
 
+type Options struct {
+	// Transparent requires an alpha-composited native host window.
+	Transparent bool
+}
+
 func CheckRuntime() error {
 	version, err := webviewloader.GetInstalledVersion()
 	if err != nil {
@@ -30,6 +35,10 @@ func CheckRuntime() error {
 }
 
 func New(parent uintptr, url, profile string, onNavigationCompleted func()) (*Host, error) {
+	return NewWithOptions(parent, url, profile, onNavigationCompleted, Options{})
+}
+
+func NewWithOptions(parent uintptr, url, profile string, onNavigationCompleted func(), options Options) (*Host, error) {
 	if parent == 0 {
 		return nil, fmt.Errorf("WebView2 父窗口尚未创建")
 	}
@@ -49,11 +58,25 @@ func New(parent uintptr, url, profile string, onNavigationCompleted func()) (*Ho
 			onNavigationCompleted()
 		}
 	}
-	if !view.Embed(parent) {
+	var embedded bool
+	if options.Transparent {
+		embedded, err = embedTransparentView(view, parent)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		embedded = view.Embed(parent)
+	}
+	if !embedded {
 		return nil, fmt.Errorf("WebView2 初始化失败，请检查运行时及用户数据目录: %s", dataDir)
 	}
 	if view.GetController() == nil {
 		return nil, fmt.Errorf("WebView2 控制器未能创建")
+	}
+	if options.Transparent {
+		if err := setTransparentBackground(view.GetController()); err != nil {
+			return nil, err
+		}
 	}
 	settings, err := view.GetSettings()
 	if err != nil {
