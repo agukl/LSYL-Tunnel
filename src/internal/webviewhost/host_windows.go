@@ -102,6 +102,13 @@ func (h *Host) Resize() {
 	}
 }
 
+func (h *Host) SetVisible(visible bool) error {
+	if h == nil || h.view == nil {
+		return nil
+	}
+	return setControllerVisible(h.view.GetController(), visible)
+}
+
 func (h *Host) Reload() {
 	if h != nil {
 		h.view.Navigate(h.url)

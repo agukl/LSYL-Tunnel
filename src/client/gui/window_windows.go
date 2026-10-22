@@ -3,6 +3,7 @@
 package gui
 
 import (
+	"log"
 	"net/http"
 	"time"
 	"unsafe"
@@ -21,6 +22,9 @@ func (a *App) applyFramelessWindow() error {
 	if a.mw == nil {
 		return nil
 	}
+	// WebView2 is attached to the root HWND. Walk's unused client composite
+	// would cover it when the form layout expands that sibling to the full window.
+	a.mw.AsContainerBase().SetVisible(false)
 	hwnd := a.mw.Handle()
 	style := win.GetWindowLong(hwnd, win.GWL_STYLE)
 	style &^= win.WS_CAPTION | win.WS_THICKFRAME
@@ -58,6 +62,7 @@ func (a *App) bindBrowserResize() {
 		return
 	}
 	a.mw.SizeChanged().Attach(a.resizeBrowser)
+	a.mw.VisibleChanged().Attach(a.resizeBrowser)
 	a.mw.BoundsChanged().Attach(func() {
 		if !a.exiting {
 			a.web.NotifyPositionChanged()
@@ -92,7 +97,11 @@ func (a *App) resizeBrowser() {
 	if a.exiting || a.mw == nil || a.web == nil || a.mw.Handle() == 0 {
 		return
 	}
-	if !win.IsWindowVisible(a.mw.Handle()) || win.IsIconic(a.mw.Handle()) {
+	visible := win.IsWindowVisible(a.mw.Handle()) && !win.IsIconic(a.mw.Handle())
+	if err := a.web.SetVisible(visible); err != nil {
+		log.Print(err)
+	}
+	if !visible {
 		return
 	}
 	bounds := a.mw.ClientBoundsPixels()
