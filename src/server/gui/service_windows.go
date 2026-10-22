@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -148,7 +149,7 @@ func (a *App) restartServerService() error {
 		return err
 	}
 	if stateErr != nil && shouldElevateServiceError(stateErr) {
-		a.appendLog("需要管理员权限重启服务端服务")
+		log.Print("需要管理员权限重启服务端服务")
 		if err := a.runElevatedServiceAction("restart"); err != nil {
 			return err
 		}
@@ -162,7 +163,7 @@ func (a *App) restartServerService() error {
 			if !shouldElevateServiceError(err) {
 				return err
 			}
-			a.appendLog("需要管理员权限重启服务端服务")
+			log.Print("需要管理员权限重启服务端服务")
 			if err := a.runElevatedServiceAction("restart"); err != nil {
 				return err
 			}
@@ -193,7 +194,7 @@ func (a *App) startServerService() error {
 		if !shouldElevateServiceError(stateErr) {
 			return stateErr
 		}
-		a.appendLog("需要管理员权限注册并启动服务端服务")
+		log.Print("需要管理员权限注册并启动服务端服务")
 		if err := a.runElevatedServiceAction("start"); err != nil {
 			return err
 		}
@@ -210,7 +211,7 @@ func (a *App) startServerService() error {
 		} else if !shouldElevateServiceError(err) {
 			return err
 		}
-		a.appendLog("需要管理员权限启动服务端服务")
+		log.Print("需要管理员权限启动服务端服务")
 		if err := a.runElevatedServiceAction("start"); err != nil {
 			return err
 		}
@@ -224,7 +225,7 @@ func (a *App) startServerService() error {
 		if !shouldElevateServiceError(err) {
 			return err
 		}
-		a.appendLog("需要管理员权限注册并启动服务端服务")
+		log.Print("需要管理员权限注册并启动服务端服务")
 		if err := a.runElevatedServiceAction("start"); err != nil {
 			return err
 		}
@@ -238,7 +239,7 @@ func (a *App) startServerService() error {
 		if !shouldElevateServiceError(err) {
 			return err
 		}
-		a.appendLog("需要管理员权限启动服务端服务")
+		log.Print("需要管理员权限启动服务端服务")
 		if err := a.runElevatedServiceAction("start"); err != nil {
 			return err
 		}
@@ -259,33 +260,6 @@ func (a *App) checkServerStartConfig() error {
 func checkServerStartConfig(configPath string) error {
 	_, err := tunnel.LoadConfig(configPath)
 	return err
-}
-
-func (a *App) stopServerService() error {
-	_, installed, err := serverServiceState(a.serviceName)
-	if err != nil {
-		return err
-	}
-	if !installed {
-		return nil
-	}
-	if err := stopServerServiceByName(a.serviceName); err != nil {
-		if !shouldElevateServiceError(err) {
-			return err
-		}
-		a.appendLog("需要管理员权限停止服务端服务")
-		if err := a.runElevatedServiceAction("stop"); err != nil {
-			return err
-		}
-		if !a.waitForServerServiceStopped(45 * time.Second) {
-			return fmt.Errorf("已请求管理员权限停止服务，请授权后稍后查看状态")
-		}
-		return nil
-	}
-	if !a.waitForServerServiceStopped(12 * time.Second) {
-		return fmt.Errorf("服务端服务正在停止，请稍后查看状态")
-	}
-	return nil
 }
 
 func (a *App) serverServiceStartError() error {
@@ -482,11 +456,6 @@ func openServerService(name string, access uint32) (*mgr.Service, func(), error)
 func (a *App) isServerServiceRunning() bool {
 	state, installed, err := serverServiceState(a.serviceName)
 	return err == nil && installed && isServiceActive(state)
-}
-
-func (a *App) isServerServiceInstalled() bool {
-	_, installed, err := serverServiceState(a.serviceName)
-	return err == nil && installed
 }
 
 func isServiceActive(state svc.State) bool {

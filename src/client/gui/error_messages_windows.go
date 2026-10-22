@@ -4,6 +4,7 @@ package gui
 
 import (
 	"errors"
+	"log"
 	"strings"
 
 	"lsyltunnel/src/client/tunnel"
@@ -235,10 +236,10 @@ func shouldClearSavedPasswordStateText(raw string) bool {
 
 func (a *App) clearSavedPasswordStateAfterAuthFailure() {
 	if err := a.clearSavedPasswordState(); err != nil {
-		a.appendLog("清理已保存登录凭据失败: " + err.Error())
+		log.Print("清理已保存登录凭据失败: " + err.Error())
 		return
 	}
-	a.appendLog("已清理本地保存的登录凭据，请重新输入密码")
+	log.Print("已清理本地保存的登录凭据，请重新输入密码")
 }
 
 func isMissingServerCertText(text string) bool {

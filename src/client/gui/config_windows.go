@@ -4,6 +4,7 @@ package gui
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -17,19 +18,10 @@ import (
 func (a *App) currentLoginForm() loginForm {
 	cfg, err := readClientConfigRaw(a.configPath)
 	if err != nil {
-		a.appendLog("读取配置失败: " + err.Error())
+		log.Print("读取配置失败: " + err.Error())
 		cfg = defaultClientConfig(a.configPath)
 	}
 	return loginForm{ServerAddr: cfg.ServerAddr, Username: cfg.Username, Password: ""}
-}
-
-func (a *App) saveLoginForm(form loginForm) error {
-	cfg, err := a.prepareLoginConfig(form)
-	if err != nil {
-		return err
-	}
-	cfg.Password = ""
-	return a.saveClientConfig(cfg)
 }
 
 func (a *App) prepareLoginConfig(form loginForm) (tunnel.Config, error) {

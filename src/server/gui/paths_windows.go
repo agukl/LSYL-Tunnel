@@ -8,10 +8,6 @@ import (
 	"strings"
 )
 
-func (a *App) frontDir() string {
-	return filepath.Join(a.workspace, "src", "server", "front")
-}
-
 func detectWorkspaceRoot() string {
 	if env := strings.TrimSpace(os.Getenv("LSYL_TUNNEL_WORKSPACE")); env != "" {
 		if info, err := os.Stat(env); err == nil && info.IsDir() {
@@ -41,11 +37,7 @@ func findWorkspaceFrom(start string) string {
 	for i := 0; i < 8; i++ {
 		if fileExists(filepath.Join(cur, "go.mod")) ||
 			fileExists(filepath.Join(cur, "src", "server", "conf", "server.yaml")) ||
-			fileExists(filepath.Join(cur, "src", "client", "conf", "client.yaml")) ||
-			fileExists(filepath.Join(cur, "server", "conf", "server.yaml")) ||
-			fileExists(filepath.Join(cur, "client", "conf", "client.yaml")) ||
-			fileExists(filepath.Join(cur, "conf", "server.yaml")) ||
-			fileExists(filepath.Join(cur, "conf", "client.yaml")) {
+			fileExists(filepath.Join(cur, "conf", "server.yaml")) {
 			return cur
 		}
 		next := filepath.Dir(cur)
@@ -70,17 +62,11 @@ func detectServerServiceExe(workspace string) string {
 	if candidate := filepath.Join(workspace, "build", "bin", "server", "lsyl-tunnel-server-svc.exe"); fileExists(candidate) {
 		return candidate
 	}
-	if candidate := filepath.Join(workspace, "server", "bin", "lsyl-tunnel-server-svc.exe"); fileExists(candidate) {
-		return candidate
-	}
 	return filepath.Join(workspace, "build", "bin", "server", "lsyl-tunnel-server-svc.exe")
 }
 
 func detectServerConfigPath(workspace string) string {
 	if candidate := filepath.Join(workspace, "src", "server", "conf", "server.yaml"); fileExists(candidate) {
-		return candidate
-	}
-	if candidate := filepath.Join(workspace, "server", "conf", "server.yaml"); fileExists(candidate) {
 		return candidate
 	}
 	if candidate := filepath.Join(workspace, "conf", "server.yaml"); fileExists(candidate) {
@@ -104,6 +90,6 @@ func appTmpDir(workspace string) string {
 }
 
 func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }

@@ -3,6 +3,7 @@
 package gui
 
 import (
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -47,7 +48,7 @@ func (a *App) startAdminServer() (*http.Server, error) {
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if serveErr := srv.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
-			a.appendLog("管理台服务异常: " + serveErr.Error())
+			log.Print("管理台服务异常: " + serveErr.Error())
 		}
 	}()
 	return srv, nil

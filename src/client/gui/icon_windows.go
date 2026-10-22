@@ -49,7 +49,7 @@ func (a *App) clientIconCandidates(name string) []string {
 	}
 	candidates = append(candidates,
 		filepath.Join(a.workspace, "assets", name),
-		filepath.Join(a.workspace, "client", "assets", name),
+		filepath.Join(a.workspace, "src", "client", "assets", name),
 	)
 	return candidates
 }
@@ -59,10 +59,6 @@ func (a *App) iconForState() *walk.Icon {
 		return a.iconConnected
 	}
 	return a.iconIdle
-}
-
-func (a *App) refreshClientIcon() {
-	a.runOnUI(func() { a.refreshClientIconNow() })
 }
 
 func (a *App) refreshClientIconNow() {

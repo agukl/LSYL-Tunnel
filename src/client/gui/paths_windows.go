@@ -37,7 +37,6 @@ func findWorkspaceFrom(start string) string {
 	for i := 0; i < 8; i++ {
 		if fileExists(filepath.Join(cur, "go.mod")) ||
 			fileExists(filepath.Join(cur, "src", "client", "conf", "client.yaml")) ||
-			fileExists(filepath.Join(cur, "client", "conf", "client.yaml")) ||
 			fileExists(filepath.Join(cur, "conf", "client.yaml")) {
 			return cur
 		}
@@ -54,9 +53,6 @@ func detectClientConfigPath(workspace string) string {
 	if candidate := filepath.Join(workspace, "src", "client", "conf", "client.yaml"); fileExists(candidate) {
 		return candidate
 	}
-	if candidate := filepath.Join(workspace, "client", "conf", "client.yaml"); fileExists(candidate) {
-		return candidate
-	}
 	if candidate := filepath.Join(workspace, "conf", "client.yaml"); fileExists(candidate) {
 		return candidate
 	}
@@ -64,8 +60,8 @@ func detectClientConfigPath(workspace string) string {
 }
 
 func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 func appTmpDir(workspace string) string {

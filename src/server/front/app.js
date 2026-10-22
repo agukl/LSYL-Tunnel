@@ -596,10 +596,6 @@ function userInForward(username, fwd) {
   return false;
 }
 
-function forwardAllowedUsersText(fwd) {
-  return allowedUsersForForward(fwd).join(', ');
-}
-
 function allowedUsersForForward(fwd) {
   if (!fwd) { return []; }
   var source = [];

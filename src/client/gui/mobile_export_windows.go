@@ -5,6 +5,7 @@ package gui
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,11 +21,11 @@ func (a *App) handleMobileExport(w http.ResponseWriter, r *http.Request) {
 	}
 	target, err := a.exportMobileProfileToDownloads()
 	if err != nil {
-		a.appendLog("导出移动端配置失败: " + err.Error())
+		log.Print("导出移动端配置失败: " + err.Error())
 		a.writeJSON(w, apiResult{OK: false, Message: mobileExportFriendlyError(err), State: ptrAPIState(a.currentAPIState())})
 		return
 	}
-	a.appendLog("已导出移动端配置: " + target)
+	log.Print("已导出移动端配置: " + target)
 	a.writeJSON(w, apiResult{OK: true, Message: "移动端配置已导出到系统下载目录：" + target, State: ptrAPIState(a.currentAPIState())})
 }
 

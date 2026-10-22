@@ -4,6 +4,7 @@ package gui
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -133,12 +134,12 @@ func (a *App) handleProfileSwitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.switchClientProfile(req.ID); err != nil {
-		a.appendLog("切换客户端配置失败: " + err.Error())
+		log.Print("切换客户端配置失败: " + err.Error())
 		a.writeJSON(w, apiResult{OK: false, Message: profileSwitchFriendlyError(err), State: ptrAPIState(a.currentAPIState())})
 		return
 	}
 	a.setNotice("已切换客户端配置，请确认账号密码后连接。", false)
-	a.appendLog("已切换客户端配置")
+	log.Print("已切换客户端配置")
 	a.writeJSON(w, apiResult{OK: true, Message: "已切换客户端配置", State: ptrAPIState(a.currentAPIState())})
 }
 

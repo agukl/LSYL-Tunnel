@@ -19,6 +19,21 @@ import (
 	"lsyltunnel/src/server/tunnel"
 )
 
+func TestAdminPathsOnlyReportRuntimeLocations(t *testing.T) {
+	data, err := json.Marshal(adminPaths{Workspace: "root", Config: "config", Service: "service"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"workspace": "root", "config": "config", "service": "service"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("paths = %v, want %v; frontend assets are embedded, not an installed directory", got, want)
+	}
+}
+
 func TestAdminConfigToTunnelWritesForwardAllowedUsers(t *testing.T) {
 	cfg, err := adminConfigToTunnel(adminConfig{
 		ListenAddr:  "127.0.0.1:9443",

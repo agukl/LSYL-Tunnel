@@ -5,10 +5,10 @@ package gui
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"sync"
 	"time"
 
 	"lsyltunnel/src/internal/webviewhost"
@@ -31,8 +31,6 @@ type App struct {
 	mw  *walk.MainWindow
 	web *webviewhost.Host
 
-	mu           sync.Mutex
-	logs         []string
 	closing      uint32
 	initialShown bool
 }
@@ -96,9 +94,9 @@ func (a *App) runUI() error {
 	if err := webviewhost.CheckRuntime(); err != nil {
 		return err
 	}
-	a.appendLog("工作目录: " + a.workspace)
-	a.appendLog("配置文件: " + a.configPath)
-	a.appendLog("服务程序: " + a.serviceExe)
+	log.Print("工作目录: " + a.workspace)
+	log.Print("配置文件: " + a.configPath)
+	log.Print("服务程序: " + a.serviceExe)
 
 	srv, err := a.startAdminServer()
 	if err != nil {

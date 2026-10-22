@@ -120,13 +120,6 @@ function setSavedPasswordMask(enabled){
   pwd.placeholder = '请输入密码';
   pwd.setAttribute('data-saved', '0');
 }
-function clearSavedPasswordMask(){
-  var pwd = el('password');
-  if(pwd.getAttribute('data-saved') === '1'){
-    pwd.value = '';
-    pwd.setAttribute('data-saved', '0');
-  }
-}
 function clearMessages(){
   el('loginMsg').className = 'inline-message';
   el('loginMsg').innerText = '';
@@ -330,23 +323,11 @@ function reconnectText(state){
   lines.push('如果服务端已恢复，可以点击“立即重试”。');
   return lines.join('\n');
 }
-function healthText(health){
-  if(!health || !health.state) return '等待检查';
-  if(health.state === 'ok') return '连接正常' + (health.last_ok ? '，最近成功 ' + shortTime(health.last_ok) : '');
-  if(health.state === 'auth_error') return health.message || '认证异常';
-  if(health.state === 'server_unavailable') return health.message || '服务端不可达';
-  return health.message || '检查中';
-}
 function compactAddr(addr){
   addr = addr || '';
   var m = /^(?:127\.0\.0\.1|0\.0\.0\.0|\[::\]):(\d+)$/.exec(addr);
   if(m) return m[1];
   return addr || '-';
-}
-function shortTime(value){
-  var d = new Date(value);
-  if(isNaN(d.getTime())) return value;
-  return d.toLocaleTimeString();
 }
 function renderState(state, force){
   state = state || {};

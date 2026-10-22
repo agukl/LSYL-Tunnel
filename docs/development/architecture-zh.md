@@ -201,12 +201,18 @@ Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令�
 | 本地 HTTP 服务、路由与静态资源 | 各端 `gui/http_windows.go` |
 | 原生窗口行为 | 各端 `gui/window_windows.go`；客户端托盘在 `tray_windows.go` |
 | 开发目录与安装目录定位 | 各端 `gui/paths_windows.go` |
-| 管理台内存日志与服务日志尾部读取 | 服务端 `gui/logging_windows.go`，不负责四类业务日志写入 |
+| 服务日志尾部读取 | 服务端 `gui/logging_windows.go`，复用有界尾读，不负责四类业务日志写入 |
 | WebView2 初始化与运行时检查 | `src/internal/webviewhost`，不包含隧道业务 |
 
 页面资源通过 `go:embed` 编入 exe，并由回环 HTTP 服务提供；更改页面后需要重新构建 GUI。发布机器不需要 Node，也不需要单独复制前端文件。`tunnel` 不依赖 `gui`、`front` 或 WebView2，Win7 Lite 和 Android 保持独立界面实现。
 
+GUI 自动定位只识别当前源码布局 `src/client/conf`、`src/server/conf` 和安装布局 `conf`，不再回读旧根目录的 `client/conf`、`server/conf` 或 `server/bin`。保留 `LSYL_TUNNEL_WORKSPACE` 显式覆盖及源码配置优先规则；不存在配置时仍返回源码默认路径，不自动迁移或改写旧目录中的文件。安装服务时使用显式 `-config` 参数。
+
+双端 GUI 的诊断使用 Go 标准 `log` 输出到 stderr，不再保留无人读取的内存日志副本，也不自动创建额外日志文件。界面提示、崩溃日志、服务日志和四类业务日志各自保持原有职责；需要调试诊断时由启动端显式重定向 stderr。
+
 标准客户端使用透明原生宿主，WebView2 直接挂到主窗口；页面根背景透明，由 `.app` 绘制背景和圆角，避免 Win10 的窗口区域硬裁剪锯齿。透明合成与 WebView2 背景初始化集中在 `internal/webviewhost`，窗口消息和 COM 调用保持在 UI 线程，不增加逐帧截图或定时重绘。服务端仍使用默认不透明宿主；Win7 Lite 和 Android 不采用这一窗口方案。
+
+直接挂载时必须隐藏 Walk 自动创建的空内容容器，避免布局后遮挡 WebView2；浏览器自身的可见状态需要随主窗口显示、隐藏及最小化恢复同步，不能仅依赖窗口尺寸更新。
 
 服务端 `app.js` 是原生 ES module 入口，持有配置编辑状态并组织页面操作；组件显式导入依赖，不反向导入入口，也不依赖窗口全局函数。`analysis.js` 自行持有分析加载状态。纯格式化函数不读 DOM，控件模块不调用服务控制 API。新增页面模块必须由入口可达，并通过嵌入资源及模块依赖测试。
 

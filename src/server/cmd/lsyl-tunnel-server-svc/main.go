@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	configPath := flag.String("config", filepath.Join("server", "conf", "server.yaml"), "server config file")
+	configPath := flag.String("config", filepath.Join("src", "server", "conf", "server.yaml"), "server config file")
 	logPath := flag.String("log", filepath.Join("runtime", "logs", "service", "server-service.log"), "service log file")
 	serviceName := flag.String("service-name", "LSYLTunnelServer", "Windows service name")
 	flag.Parse()

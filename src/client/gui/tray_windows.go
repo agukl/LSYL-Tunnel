@@ -4,6 +4,7 @@ package gui
 
 import (
 	"errors"
+	"log"
 
 	"github.com/lxn/walk"
 	"github.com/lxn/win"
@@ -126,13 +127,13 @@ func (a *App) updateTrayToolTip() {
 func (a *App) ensureTrayVisibleNow() bool {
 	if a.ni == nil {
 		if err := a.setupTray(); err != nil {
-			a.appendLog("托盘图标不可用: " + friendlyError(err))
+			log.Print("托盘图标不可用: " + friendlyError(err))
 			return false
 		}
 	}
 	if a.ni != nil && !a.ni.Visible() {
 		if err := a.ni.SetVisible(true); err != nil {
-			a.appendLog("托盘图标不可用: " + err.Error())
+			log.Print("托盘图标不可用: " + err.Error())
 			return false
 		}
 	}

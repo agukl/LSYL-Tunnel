@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -149,7 +150,7 @@ func (a *App) handleAutostart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.autostart.setEnabled(*req.Enabled); err != nil {
-		a.appendLog("设置开机自启失败: " + err.Error())
+		log.Print("设置开机自启失败: " + err.Error())
 		a.writeJSON(w, apiResult{Message: "无法修改开机自启设置，请检查当前用户权限或系统启动项限制。", State: ptrAPIState(a.currentAPIState())})
 		return
 	}

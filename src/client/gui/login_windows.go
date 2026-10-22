@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -78,7 +79,7 @@ func (a *App) login(parent context.Context, form *loginForm) apiResult {
 		rawCfg, err = a.prepareLoginConfig(*form)
 	}
 	if err != nil {
-		a.appendLog("配置准备失败: " + err.Error())
+		log.Print("配置准备失败: " + err.Error())
 		if errors.Is(err, errNoSavedLogin) {
 			return apiResult{Message: err.Error()}
 		}
@@ -86,7 +87,7 @@ func (a *App) login(parent context.Context, form *loginForm) apiResult {
 	}
 	cfg, err := runtimeClientConfigFromRaw(a.configPath, rawCfg)
 	if err != nil {
-		a.appendLog("配置校验失败: " + err.Error())
+		log.Print("配置校验失败: " + err.Error())
 		return apiResult{Message: friendlyError(err)}
 	}
 	loginTimeout := time.Duration(cfg.Connection.DialTimeoutSec+3) * time.Second
@@ -97,7 +98,7 @@ func (a *App) login(parent context.Context, form *loginForm) apiResult {
 	resp, err := tunnel.CheckLoginResponse(probeCtx, cfg)
 	cancel()
 	if err != nil {
-		a.appendLog("登录探测失败: " + err.Error())
+		log.Print("登录探测失败: " + err.Error())
 		if shouldClearSavedPasswordState(err) {
 			a.clearSavedPasswordStateAfterAuthFailure()
 		}
@@ -110,20 +111,20 @@ func (a *App) login(parent context.Context, form *loginForm) apiResult {
 		if resp.CredentialKey != nil {
 			sealed, err := tunnel.SealSavedCredential(*resp.CredentialKey, cfg, rawCfg.Password)
 			if err != nil {
-				a.appendLog("保存本地登录凭据失败: " + err.Error())
+				log.Print("保存本地登录凭据失败: " + err.Error())
 				return apiResult{Message: friendlyError(err)}
 			}
 			rawCfg.SavedCredential = sealed
 			cfg.SavedCredential = sealed
 			cfg.Password = ""
 		} else {
-			a.appendLog("服务端未提供本地凭据密封公钥，本次不会保存密码")
+			log.Print("服务端未提供本地凭据密封公钥，本次不会保存密码")
 		}
 		rawCfg.Password = ""
 	}
 	if form != nil {
 		if err := a.saveClientConfig(rawCfg); err != nil {
-			a.appendLog("保存配置失败: " + err.Error())
+			log.Print("保存配置失败: " + err.Error())
 			return apiResult{Message: friendlyError(err)}
 		}
 	}
@@ -131,10 +132,10 @@ func (a *App) login(parent context.Context, form *loginForm) apiResult {
 		return apiResult{Message: "连接已取消"}
 	}
 	if err := a.startClient(cfg, resp.ServerVersion); err != nil {
-		a.appendLog("启动连接失败: " + err.Error())
+		log.Print("启动连接失败: " + err.Error())
 		return apiResult{Message: friendlyError(err)}
 	}
-	a.appendLog("登录成功，隧道已启动并进入后台值守")
+	log.Print("登录成功，隧道已启动并进入后台值守")
 	return apiResult{OK: true, Message: "登录成功，已在后台值守"}
 }
 

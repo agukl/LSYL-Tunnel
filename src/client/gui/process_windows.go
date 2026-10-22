@@ -5,16 +5,12 @@ package gui
 import (
 	"context"
 	"fmt"
-	"time"
+	"log"
 
 	"lsyltunnel/src/client/tunnel"
 )
 
 func (a *App) startClient(cfg tunnel.Config, serverVersion string) error {
-	return a.startClientEmbedded(cfg, serverVersion)
-}
-
-func (a *App) startClientEmbedded(cfg tunnel.Config, serverVersion string) error {
 	a.mu.Lock()
 	if a.closing.Load() {
 		a.mu.Unlock()
@@ -27,9 +23,7 @@ func (a *App) startClientEmbedded(cfg tunnel.Config, serverVersion string) error
 	a.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	client, err := tunnel.StartVerified(ctx, cfg, serverVersion, func(format string, args ...any) {
-		a.appendLog(fmt.Sprintf(format, args...))
-	})
+	client, err := tunnel.StartVerified(ctx, cfg, serverVersion, log.Printf)
 	if err != nil {
 		cancel()
 		return err
@@ -46,7 +40,7 @@ func (a *App) startClientEmbedded(cfg tunnel.Config, serverVersion string) error
 	a.mu.Unlock()
 
 	go a.watchClientDone(client)
-	a.appendLog("客户端已在当前窗口内启动后台值守")
+	log.Print("客户端已在当前窗口内启动后台值守")
 	a.updateTrayToolTip()
 	return nil
 }
@@ -61,13 +55,6 @@ func (a *App) watchClientDone(client *tunnel.Client) {
 }
 
 func (a *App) stopClient() error {
-	if a.isEmbeddedRunning() {
-		return a.stopClientEmbedded()
-	}
-	return fmt.Errorf("客户端未运行")
-}
-
-func (a *App) stopClientEmbedded() error {
 	a.mu.Lock()
 	client := a.tun
 	cancel := a.stop
@@ -83,7 +70,7 @@ func (a *App) stopClientEmbedded() error {
 		cancel()
 	}
 	err := client.Close()
-	a.appendLog("连接已停止")
+	log.Print("连接已停止")
 	a.updateTrayToolTip()
 	return err
 }
@@ -106,7 +93,7 @@ func (a *App) detachClient(client *tunnel.Client, health tunnel.HealthStatus) {
 		cancel()
 	}
 	if message != "" {
-		a.appendLog("连接状态已取消: " + message)
+		log.Print("连接状态已取消: " + message)
 	}
 	a.updateTrayToolTip()
 	if shouldClearSavedPasswordState(health.Err()) {
@@ -129,10 +116,6 @@ func terminalDisconnectMessage(stats tunnel.ClientStats) string {
 }
 
 func (a *App) isRunning() bool {
-	return a.isEmbeddedRunning()
-}
-
-func (a *App) isEmbeddedRunning() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.tun != nil
@@ -150,16 +133,6 @@ func (a *App) clientStats() tunnel.ClientStats {
 		return tunnel.ClientStats{}
 	}
 	return client.Stats()
-}
-
-func (a *App) appendLog(msg string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	line := fmt.Sprintf("[%s] %s", time.Now().Format("2006-01-02 15:04:05"), msg)
-	a.logs = append(a.logs, line)
-	if len(a.logs) > 200 {
-		a.logs = append([]string(nil), a.logs[len(a.logs)-200:]...)
-	}
 }
 
 func (a *App) setNotice(message string, bad bool) {

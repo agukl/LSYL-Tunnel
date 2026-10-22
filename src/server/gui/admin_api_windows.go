@@ -5,6 +5,7 @@ package gui
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -38,7 +39,6 @@ type adminPaths struct {
 	Workspace string `json:"workspace"`
 	Config    string `json:"config"`
 	Service   string `json:"service"`
-	Front     string `json:"front"`
 }
 
 type adminService struct {
@@ -121,7 +121,7 @@ func (a *App) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, apiResult{OK: false, Message: friendlyError(err), State: a.buildAdminState("failed to save config")})
 		return
 	}
-	a.appendLog("配置已保存: " + a.configPath)
+	log.Print("配置已保存: " + a.configPath)
 	state := a.buildAdminState("配置已保存，重启服务后生效")
 	writeJSON(w, http.StatusOK, apiResult{OK: true, Message: "配置已保存，重启服务后生效", State: state})
 }
@@ -249,11 +249,11 @@ func (a *App) handleAdminServiceRestart(w http.ResponseWriter, r *http.Request) 
 	}
 	if err := a.restartServerService(); err != nil {
 		msg := friendlyError(err)
-		a.appendLog("服务重启失败: " + msg)
+		log.Print("服务重启失败: " + msg)
 		writeJSON(w, http.StatusOK, apiResult{OK: false, Message: msg, State: a.buildAdminState("service restart failed")})
 		return
 	}
-	a.appendLog("服务已重启")
+	log.Print("服务已重启")
 	writeJSON(w, http.StatusOK, apiResult{OK: true, Message: "服务已重启", State: a.buildAdminState("服务已重启")})
 }
 func (a *App) buildAdminState(message string) *adminState {
@@ -302,7 +302,6 @@ func (a *App) buildAdminState(message string) *adminState {
 			Workspace: a.workspace,
 			Config:    a.configPath,
 			Service:   a.serviceExe,
-			Front:     a.frontDir(),
 		},
 		Service:         service,
 		Monitor:         monitor,

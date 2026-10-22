@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -47,7 +48,6 @@ type App struct {
 	mu        sync.Mutex
 	tun       *tunnel.Client
 	stop      context.CancelFunc
-	logs      []string
 	notice    string
 	noticeBad bool
 
@@ -158,13 +158,13 @@ func (a *App) run() error {
 		return err
 	}
 	if err := a.loadClientIcons(); err != nil {
-		a.appendLog("图标初始化失败: " + friendlyError(err))
+		log.Print("图标初始化失败: " + friendlyError(err))
 	}
 	defer a.disposeClientIcons()
 
-	a.appendLog("工作目录: " + a.workspace)
-	a.appendLog("配置文件: " + a.configPath)
-	a.appendLog("隧道引擎: 内置后台值守")
+	log.Print("工作目录: " + a.workspace)
+	log.Print("配置文件: " + a.configPath)
+	log.Print("隧道引擎: 内置后台值守")
 
 	srv, err := a.startAdminServer()
 	if err != nil {
