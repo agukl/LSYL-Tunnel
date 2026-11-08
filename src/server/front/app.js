@@ -665,7 +665,7 @@ function actionCell(row) {
   var td = document.createElement('td');
   var btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'btn small delete-btn';
+  btn.className = 'btn small danger';
   btn.textContent = '删除';
   btn.onclick = function () {
     var port = field(row, 'port').value.replace(/^\s+|\s+$/g, '');
@@ -692,7 +692,7 @@ function userActionCell(row) {
   wrap.className = 'row-actions';
   var deleteBtn = document.createElement('button');
   deleteBtn.type = 'button';
-  deleteBtn.className = 'btn small delete-btn';
+  deleteBtn.className = 'btn small danger';
   deleteBtn.textContent = '删除';
   deleteBtn.onclick = function () {
     var username = field(row, 'username').value.replace(/^\s+|\s+$/g, '') || '未命名用户';
@@ -705,7 +705,8 @@ function userActionCell(row) {
   };
   var resetBtn = document.createElement('button');
   resetBtn.type = 'button';
-  resetBtn.className = 'btn small reset-btn';
+  resetBtn.className = 'btn small muted';
+  resetBtn.setAttribute('data-reset-password', '');
   resetBtn.textContent = '重置密码';
   resetBtn.onclick = function () { openResetPassword(row); };
   wrap.appendChild(deleteBtn);
@@ -871,7 +872,7 @@ function validateUsers() {
     }
     seen[username] = true;
     if (!disabled && !passwordHash) {
-      return markEditorRowError(rows[i], rows[i].querySelector('.reset-btn'), '\u7528\u6237 "' + username + '" \u8fd8\u6ca1\u6709\u5bc6\u7801\uff0c\u8bf7\u5148\u70b9\u51fb\u201c\u91cd\u7f6e\u5bc6\u7801\u201d\u3002');
+      return markEditorRowError(rows[i], rows[i].querySelector('[data-reset-password]'), '\u7528\u6237 "' + username + '" \u8fd8\u6ca1\u6709\u5bc6\u7801\uff0c\u8bf7\u5148\u70b9\u51fb\u201c\u91cd\u7f6e\u5bc6\u7801\u201d\u3002');
     }
   }
   return '';
@@ -899,8 +900,8 @@ function validateForwards() {
       return markEditorRowError(rows[i], portNode, '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u7684\u670d\u52a1\u7aef\u7aef\u53e3\u5fc5\u987b\u662f 1-65535 \u7684\u6570\u5b57\u3002');
     }
     if (direction === 'server_to_client') {
-      if (!allowedUsers.length) {
-        return markEditorRowError(rows[i], allowedNode, '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u9700\u8981\u586b\u5199\u653e\u901a\u7528\u6237\u3002');
+      if (allowedUsers.length !== 1) {
+        return markEditorRowError(rows[i], allowedNode, '反向转发只允许一个放通用户。');
       }
       continue;
     }
@@ -1107,7 +1108,7 @@ function permanentBlockSourceText(item) {
 
 function appendUnblockCell(row, ip) {
   var td = document.createElement('td');
-  td.className = 'row-actions';
+  td.className = 'action-cell';
   var btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn small danger';
@@ -1121,7 +1122,7 @@ function appendUnblockCell(row, ip) {
 
 function appendPermanentBlockDeleteCell(row, ip) {
   var td = document.createElement('td');
-  td.className = 'row-actions';
+  td.className = 'action-cell';
   var btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn small danger';

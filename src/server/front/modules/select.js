@@ -20,7 +20,7 @@ export function addCustomSelect(td, name, value, options, onChange) {
   label.className = 'custom-select-label';
   var arrow = document.createElement('span');
   arrow.className = 'custom-select-arrow';
-  arrow.innerHTML = '&#9662;';
+  arrow.textContent = '▾';
   button.appendChild(label);
   button.appendChild(arrow);
   var list = document.createElement('div');
