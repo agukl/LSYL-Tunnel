@@ -13,6 +13,15 @@ export function hiddenInput(value, name) {
   return input;
 }
 
+export function actionButton(text, style, onClick) {
+  var button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'btn small ' + style;
+  button.textContent = text;
+  button.onclick = onClick;
+  return button;
+}
+
 export function appendPlainCell(row, text, className) {
   var td = document.createElement('td');
   if (className) { td.className = className; }

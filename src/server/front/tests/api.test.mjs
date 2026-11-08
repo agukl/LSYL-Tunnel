@@ -5,13 +5,12 @@ import { api } from '../modules/api.js';
 
 test('admin API keeps request and error behavior', async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.__lsylPanelToken = 'test-panel-token';
   try {
     globalThis.fetch = async (path, options) => {
       assert.equal(path, '/api/state');
       assert.equal(options.method, 'GET');
       assert.equal(options.headers.Accept, 'application/json');
-      assert.equal(options.headers['X-LSYL-Panel-Token'], 'test-panel-token');
+      assert.equal(options.headers['X-LSYL-Panel-Token'], undefined);
       assert.equal(options.body, undefined);
       return { ok: true, text: async () => '{"ok":true,"config":{}}' };
     };
@@ -33,9 +32,8 @@ test('admin API keeps request and error behavior', async () => {
 
     globalThis.fetch = async () => { throw new Error('connection refused'); };
     await api('GET', '/api/state', null, (data) => { result = data; });
-    assert.deepEqual(result, { ok: false, message: '管理台连接失败，请重新打开服务端 GUI' });
+    assert.deepEqual(result, { ok: false, message: '管理台请求失败，请重新打开服务端 GUI' });
   } finally {
     globalThis.fetch = originalFetch;
-    delete globalThis.__lsylPanelToken;
   }
 });

@@ -2,7 +2,9 @@
 
 本文用于本机开发和功能验证。生产部署前请阅读 [Windows 部署与安装](../deployment/windows-deployment-zh.md)、[服务端管理员指南](../deployment/server-admin-zh.md)、[客户端用户指南](../deployment/client-user-zh.md) 和 [安全模型](../system/security-zh.md)。
 
-代码定位见 [目录结构与代码边界](architecture-zh.md)。标准 Windows 双端页面分别位于 `src/client/front` 和 `src/server/front`，用 `go:embed` 随 GUI 构建，不需要 npm。改完 HTML、CSS 或 JS 后重新构建对应 GUI；窗口和本地接口逻辑在各端 `gui`，隧道逻辑在 `tunnel`。
+代码定位见 [目录结构与代码边界](architecture-zh.md)。标准 Windows 双端页面分别位于 `src/client/front` 和 `src/server/front`，用 `go:embed` 随 GUI 构建，不需要 npm。服务端管理台使用 Wails v3，主客户端 GUI 暂仍使用 Walk + WebView2；改完 HTML、CSS 或 JS 后重新构建对应 GUI。隧道逻辑在 `tunnel`。
+
+主模块需要 Go 1.26.10 或更新的 1.26 补丁版（`go.mod` 指定 1.26.10 工具链）；独立的 Win7 Lite 继续使用 Go 1.20.14。若系统 Go 较旧，`GOTOOLCHAIN=auto` 会尝试下载所需工具链；离线构建应提前将 Go 1.26 安装到 PATH 或设置 `GOEXE`。
 
 ## 1. 构建程序
 
@@ -84,7 +86,7 @@ cmd /c check.cmd -Full -Offline
 
 默认执行 `go test -count=1 -timeout=90s ./src/...` 和 `go vet ./src/...`。`-Full` 额外执行页面纯函数测试、Go 1.20 / windows/386 的协议、客户端核心、Profile、Lite 测试，以及 Android `:app:testDebugUnitTest --rerun`（重新运行 JVM 测试，允许复用编译缓存）。`-Offline` 只限制 Gradle 离线解析依赖，首次运行需提前准备缓存；Go 依赖解析不受此参数控制。
 
-工具选择沿用显式环境变量、系统 PATH、项目 `tool/` 的顺序；可设置 `GOEXE`、`GO120EXE`、`NODE_EXE`、`GRADLE_EXE`、`JAVA_HOME`。完整模式需要 Node.js（已验证 22.22 和 24）、Go 1.20、Gradle、JDK 17+ 和 Android SDK；SDK 使用现有 `local.properties` / Android 环境变量，也支持 `tool/android-sdk`。缺少必需工具或任何检查失败会返回非零退出码，不会自动下载工具，也不生成安装包、不修改配置或证书、不替换 `dist`；测试和构建缓存仍会正常产生。
+工具选择沿用显式环境变量、系统 PATH、项目 `tool/` 的顺序；可设置 `GOEXE`、`GO120EXE`、`NODE_EXE`、`GRADLE_EXE`、`JAVA_HOME`。完整模式需要 Node.js（已验证 22.22 和 24）、Go 1.26、独立的 Go 1.20、Gradle、JDK 17+ 和 Android SDK；SDK 使用现有 `local.properties` / Android 环境变量，也支持 `tool/android-sdk`。缺少必需工具或任何检查失败会返回非零退出码；检查脚本不自行下载工具，但 Go 的 `GOTOOLCHAIN=auto` 可能下载主模块所需工具链。自检不生成安装包、不修改配置或证书、不替换 `dist`；测试和构建缓存仍会正常产生。
 
 不要使用仓库根目录的 `go test ./...`，它可能遍历 `tool/` 中的独立工具链。Go 测试包含服务端页面模块的嵌入、引用和 JavaScript MIME 检查。单独执行页面纯函数测试：
 

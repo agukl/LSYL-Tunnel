@@ -3,19 +3,15 @@
 package gui
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"time"
 
-	"lsyltunnel/src/internal/localapi"
 	"lsyltunnel/src/internal/webviewhost"
 
-	"github.com/lxn/walk"
-	. "github.com/lxn/walk/declarative"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const windowTitle = "LSYL Tunnel Server"
@@ -27,14 +23,6 @@ type App struct {
 	configPath  string
 	logService  string
 	crashLog    string
-	panelURL    string
-	panelGate   *localapi.Gate
-
-	mw  *walk.MainWindow
-	web *webviewhost.Host
-
-	closing      uint32
-	initialShown bool
 }
 
 func Run() error {
@@ -73,6 +61,7 @@ func NewApp() *App {
 	}
 	_ = os.MkdirAll(filepath.Dir(app.logService), 0o755)
 	_ = os.MkdirAll(filepath.Dir(app.crashLog), 0o755)
+	_ = os.Remove(filepath.Join(appTmpDir(workspace), "gui", "server-gui.url"))
 	return app
 }
 
@@ -80,10 +69,6 @@ func (a *App) Run() (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			stack := debug.Stack()
-			if a.isWalkShutdownPanic(r, stack) {
-				err = nil
-				return
-			}
 			msg := fmt.Sprintf("panic: %v\r\n%s", r, stack)
 			_ = os.WriteFile(a.crashLog, []byte(msg), 0o644)
 			err = fmt.Errorf("服务端管理台启动异常，详情见: %s", a.crashLog)
@@ -100,47 +85,22 @@ func (a *App) runUI() error {
 	log.Print("配置文件: " + a.configPath)
 	log.Print("服务程序: " + a.serviceExe)
 
-	srv, err := a.startAdminServer()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(ctx)
-	}()
-
-	var browserPanel *walk.Composite
-	ui := MainWindow{
-		AssignTo:   &a.mw,
-		Title:      windowTitle,
-		Size:       Size{Width: 1180, Height: 760},
-		MinSize:    Size{Width: 980, Height: 640},
-		Background: SolidColorBrush{Color: walk.RGB(255, 255, 255)},
-		Layout:     VBox{MarginsZero: true, SpacingZero: true},
-		Children: []Widget{
-			Composite{
-				AssignTo:      &browserPanel,
-				Layout:        VBox{MarginsZero: true, SpacingZero: true},
-				StretchFactor: 1,
-			},
+	ui := application.New(application.Options{
+		Name: windowTitle,
+		Assets: application.AssetOptions{
+			Handler: a.adminHandler(),
 		},
-	}
-	if err := ui.Create(); err != nil {
-		return err
-	}
-	a.mw.ToolBar().SetVisible(false)
-	a.mw.StatusBar().SetVisible(false)
-	a.web, err = webviewhost.NewWithOptions(uintptr(browserPanel.Handle()), a.panelURL, "Server", a.showInitialWindow, webviewhost.Options{InitScript: a.panelGate.Script()})
-	if err != nil {
-		a.mw.Dispose()
-		return err
-	}
-	a.mw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
-		a.beginShutdown()
 	})
-	a.bindBrowserResize(browserPanel)
-	a.scheduleInitialShow(900 * time.Millisecond)
-	a.mw.Run()
-	return nil
+	ui.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:     windowTitle,
+		Width:     1180,
+		Height:    760,
+		MinWidth:  980,
+		MinHeight: 640,
+		Frameless: true,
+		Windows: application.WindowsWindow{
+			NonClientRegionSupport: true,
+		},
+	})
+	return ui.Run()
 }

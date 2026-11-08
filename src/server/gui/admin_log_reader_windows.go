@@ -26,13 +26,7 @@ func (a *App) loadBusinessLogs(cfg tunnel.Config, max int) []tunnel.BusinessLogE
 
 func (a *App) readBusinessLogEntries(cfg tunnel.Config, max int) []tunnel.BusinessLogEntry {
 	path := a.runtimeLogPath(cfg.Runtime.BusinessLogFile, filepath.Join("business", "business.jsonl"))
-	return readJSONLRecent(path, max, func(line []byte) (tunnel.BusinessLogEntry, bool) {
-		var entry tunnel.BusinessLogEntry
-		if err := json.Unmarshal(line, &entry); err != nil {
-			return entry, false
-		}
-		return entry, true
-	})
+	return readJSONLRecent[tunnel.BusinessLogEntry](path, max)
 }
 
 func (a *App) loadRequestLogs(cfg tunnel.Config, max int) []tunnel.RequestLogEntry {
@@ -41,13 +35,7 @@ func (a *App) loadRequestLogs(cfg tunnel.Config, max int) []tunnel.RequestLogEnt
 
 func (a *App) readRequestLogEntries(cfg tunnel.Config, max int) []tunnel.RequestLogEntry {
 	path := a.runtimeLogPath(cfg.Runtime.RequestLogFile, filepath.Join("request", "request.jsonl"))
-	return readJSONLRecent(path, max, func(line []byte) (tunnel.RequestLogEntry, bool) {
-		var entry tunnel.RequestLogEntry
-		if err := json.Unmarshal(line, &entry); err != nil {
-			return entry, false
-		}
-		return entry, true
-	})
+	return readJSONLRecent[tunnel.RequestLogEntry](path, max)
 }
 
 func (a *App) runtimeLogPath(configured, defaultName string) string {
@@ -61,7 +49,7 @@ func (a *App) runtimeLogPath(configured, defaultName string) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(a.configPath), configured))
 }
 
-func readJSONLRecent[T any](basePath string, max int, decode func([]byte) (T, bool)) []T {
+func readJSONLRecent[T any](basePath string, max int) []T {
 	if max <= 0 {
 		max = 120
 	}
@@ -75,10 +63,11 @@ func readJSONLRecent[T any](basePath string, max int, decode func([]byte) (T, bo
 			continue
 		}
 		for i := len(lines) - 1; i >= 0 && len(out) < max; i-- {
-			entry, ok := decode([]byte(lines[i]))
-			if ok {
-				out = append(out, entry)
+			var entry T
+			if json.Unmarshal([]byte(lines[i]), &entry) != nil {
+				continue
 			}
+			out = append(out, entry)
 		}
 	}
 	return out

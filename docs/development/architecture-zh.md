@@ -20,12 +20,13 @@ src/
     cmd/                服务端 CLI / GUI / Windows 服务入口
     conf/               服务端默认配置
     front/              Web 运维平台页面资源，构建时嵌入服务端 GUI
-    gui/                WebView2 外壳、本地管理 API、配置读写、Windows 服务控制
+    gui/                Wails 窗口、进程内管理路由、配置读写、Windows 服务控制
     tunnel/             服务端认证、授权、正反向转发、监控、运行事件
   internal/
     protocol/           客户端和服务端共享的握手协议
     transport/          证书持有前置门、TLS 配置、双向复制和每流速率限制
     netaddr/            Go 各入口共用的回环写法及业务目标 IP 范围规则
+    configyaml/         双端配置共用的严格 YAML 解码与节点字段检查
     version/            产品、协议、配置版本及版本比较
     passutil/           密码哈希与校验
     credseal/           客户端本地保存密码的服务端密封凭据
@@ -84,11 +85,11 @@ Android Activity -> ForegroundService -> RuntimeController -> TunnelManager
                                                      -> Kotlin 协议 / TLS / SocketPipe
 
 服务端管理台
-  WebView2 页面 -> 本地 GUI API -> 配置文件 / 日志文件 / 服务控制
-                              -> monitor_addr -> 独立 Windows 服务中的 server/tunnel
+  Wails / WebView2 页面 -> 进程内资源与管理路由 -> 配置文件 / 日志文件 / 服务控制
+                                           -> monitor_addr -> 独立 Windows 服务中的 server/tunnel
 ```
 
-服务端 GUI 不承载转发，关闭管理台不应停止 Windows 服务。标准客户端 GUI 则内嵌隧道核心，隐藏窗口进入托盘与退出进程是两种不同操作。Android 转发由前台服务持有，不由 Activity 的页面生命周期持有。
+服务端 GUI 不承载转发，也不为管理页面开放本地 TCP 端口；关闭管理台不应停止 Windows 服务。标准客户端 GUI 仍使用 Walk + WebView2 且内嵌隧道核心，隐藏窗口进入托盘与退出进程是两种不同操作。Android 转发由前台服务持有，不由 Activity 的页面生命周期持有。
 
 Go 源码依赖方向是 `cmd -> gui/lite -> tunnel -> internal`；`mobileprofile` 复用客户端配置类型，`front` 只提供嵌入资源。核心 `tunnel` 不反向依赖 GUI、WebView2 或页面资源，客户端核心与服务端核心也不直接依赖彼此。`internal` 是共享基础能力集合，其中 `winservice` / `webviewhost` 属于平台适配，不应被网络核心引用。
 
@@ -156,7 +157,7 @@ Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令�
 
 - Go 地址范围与回环写法由 `internal/netaddr` 统一，客户端预检不替代服务端最终授权。
 - YAML 字段与版本结构、配置语义、运行时授权是不同检查阶段，不应在 GUI 中隐式修正规则来代替校验。
-- 服务端启动、安装检查及管理台读取共用按 `config_version` 选择的严格 YAML 解码；管理台使用不解析运行路径的原始读取入口，保存前仍以核心语义校验为最终门槛。
+- 服务端启动和管理台读取只接受当前 `config_version` 的严格 YAML 结构；安装迁移另行预检已安装 3.x 配置并补齐默认字段。管理台使用不解析运行路径的原始读取入口，保存前仍以核心语义校验为最终门槛。
 - `forwards[].name` 是客户端内唯一的运行标识和日志标签，不是服务端授权依据；两端可以不同。
 - 配置归属、旧字段兼容和三种方向的地址矩阵集中维护在[配置参考](../system/config-reference-zh.md)，本页不再复制完整字段规则。
 

@@ -147,8 +147,23 @@ func TestPrepareLoginConfigDoesNotReplaceInvalidExistingConfig(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	original := []byte(`server_addr: vpn.example.com:3443
+	original := []byte(`config_version: 2
+requires:
+  min_client_version: "2.1.0"
+server_addr: vpn.example.com:3443
 username: alice
+password: ""
+password_env: ""
+password_file: ""
+saved_credential: {}
+client_id: ""
+tls:
+  ca_cert_file: ../cert/server.crt
+  server_name: ""
+  min_version: "1.3"
+  insecure_skip_verify: false
+connection:
+  dial_timeout_sec: 5
 forwards:
   - name: mysql
     direction: server_to_client

@@ -3,14 +3,9 @@
 package gui
 
 import (
-	"log"
-	"net"
 	"net/http"
-	"os"
-	"path/filepath"
-	"time"
+	"strings"
 
-	"lsyltunnel/src/internal/localapi"
 	frontassets "lsyltunnel/src/server/front"
 )
 
@@ -34,28 +29,24 @@ func noStore(next http.Handler) http.Handler {
 	})
 }
 
-func (a *App) startAdminServer() (*http.Server, error) {
+func (a *App) adminHandler() http.Handler {
+	// Only hand this handler to Wails' in-process asset server, never net/http.Serve.
 	mux := http.NewServeMux()
 	a.registerAdminRoutes(mux)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, err
-	}
-	a.panelURL = "http://" + ln.Addr().String() + "/"
-	a.panelGate, err = localapi.New(a.panelURL)
-	if err != nil {
-		_ = ln.Close()
-		return nil, err
-	}
-	tmpDir := filepath.Join(appTmpDir(a.workspace), "gui")
-	_ = os.MkdirAll(tmpDir, 0o755)
-	_ = os.WriteFile(filepath.Join(tmpDir, "server-gui.url"), []byte(a.panelURL), 0o644)
-
-	srv := &http.Server{Handler: a.panelGate.Protect(mux), ReadHeaderTimeout: 5 * time.Second}
-	go func() {
-		if serveErr := srv.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
-			log.Print("管理台服务异常: " + serveErr.Error())
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			if r.Host != "wails.localhost" ||
+				(r.Header.Get("Origin") != "" && r.Header.Get("Origin") != "http://wails.localhost") ||
+				(r.Header.Get("Sec-Fetch-Site") != "" && r.Header.Get("Sec-Fetch-Site") != "same-origin") {
+				http.Error(w, "invalid panel origin", http.StatusForbidden)
+				return
+			}
+			if r.ContentLength > 1<<20 {
+				http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		}
-	}()
-	return srv, nil
+		mux.ServeHTTP(w, r)
+	})
 }

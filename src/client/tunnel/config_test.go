@@ -14,14 +14,26 @@ func TestLoadConfigPasswordFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfgFile := filepath.Join(dir, "client.yaml")
-	data := []byte(`server_addr: 127.0.0.1:9443
+	data := []byte(`config_version: 2
+requires:
+  min_client_version: "2.1.0"
+server_addr: 127.0.0.1:9443
 username: alice
+password: ""
+password_env: ""
 password_file: password.txt
+saved_credential: {}
+client_id: ""
 tls:
   ca_cert_file: server.crt
+  server_name: ""
+  min_version: "1.3"
   insecure_skip_verify: true
+connection:
+  dial_timeout_sec: 5
 forwards:
   - name: echo
+    direction: client_to_server
     listen_addr: 127.0.0.1:0
     server_target: 127.0.0.1:80
 `)
@@ -41,14 +53,26 @@ func TestLoadConfigPasswordEnv(t *testing.T) {
 	t.Setenv("LSYL_TUNNEL_TEST_PASSWORD", "from-env")
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "client.yaml")
-	data := []byte(`server_addr: 127.0.0.1:9443
+	data := []byte(`config_version: 2
+requires:
+  min_client_version: "2.1.0"
+server_addr: 127.0.0.1:9443
 username: alice
+password: ""
 password_env: LSYL_TUNNEL_TEST_PASSWORD
+password_file: ""
+saved_credential: {}
+client_id: ""
 tls:
   ca_cert_file: server.crt
+  server_name: ""
+  min_version: "1.3"
   insecure_skip_verify: true
+connection:
+  dial_timeout_sec: 5
 forwards:
   - name: echo
+    direction: client_to_server
     listen_addr: 127.0.0.1:0
     server_target: 127.0.0.1:80
 `)
@@ -94,9 +118,9 @@ func TestClientConfigOptionalRemarkRoundTrip(t *testing.T) {
 
 func TestCheckConfigUpgradeCompatibleAcceptsEmptyOptionalRemark(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.yaml")
-	data := []byte(`config_version: 1
+	data := []byte(`config_version: 2
 requires:
-  min_client_version: "1.1.0"
+  min_client_version: "2.1.0"
 server_addr: 127.0.0.1:9443
 remark:
 username: ""
@@ -129,9 +153,9 @@ forwards:
 
 func TestCheckConfigUpgradeCompatibleRejectsStructuredRemark(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.yaml")
-	data := []byte(`config_version: 1
+	data := []byte(`config_version: 2
 requires:
-  min_client_version: "1.1.0"
+  min_client_version: "2.1.0"
 server_addr: 127.0.0.1:9443
 remark:
   text: production
@@ -207,12 +231,28 @@ func TestValidateConfigRequiresCertificateForPossessionGate(t *testing.T) {
 
 func TestCheckConfigUpgradeCompatibleRejectsReverseListenerFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.yaml")
-	data := []byte(`config_version: 1
+	data := []byte(`config_version: 2
+requires:
+  min_client_version: "2.1.0"
 server_addr: 127.0.0.1:9443
+username: ""
+password: ""
+password_env: ""
+password_file: ""
+saved_credential: {}
+client_id: ""
+tls:
+  ca_cert_file: server.crt
+  server_name: ""
+  min_version: "1.3"
+  insecure_skip_verify: true
+connection:
+  dial_timeout_sec: 5
 forwards:
   - name: mysql
     direction: server_to_client
     listen_port: 3306
+    listen_addr: 127.0.0.1:3306
     server_target: 127.0.0.1:3307
 `)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
@@ -225,9 +265,9 @@ forwards:
 
 func TestCheckConfigUpgradeCompatibleAllowsMultipleReverseRules(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.yaml")
-	data := []byte(`config_version: 1
+	data := []byte(`config_version: 2
 requires:
-  min_client_version: "1.1.0"
+  min_client_version: "2.1.0"
 server_addr: 127.0.0.1:9443
 username: ""
 password: ""
@@ -303,13 +343,14 @@ forwards:
 	}
 }
 
-func TestCheckConfigUpgradeCompatibleAcceptsEmptySavedCredential(t *testing.T) {
+func TestCheckConfigUpgradeCompatibleAcceptsEmptySavedCredentialOnlyForCurrentVersion(t *testing.T) {
 	for _, tt := range []struct {
 		name             string
 		configVersion    int
 		minClientVersion string
+		rejected         bool
 	}{
-		{name: "v1", configVersion: 1, minClientVersion: "1.1.0"},
+		{name: "v1", configVersion: 1, minClientVersion: "1.1.0", rejected: true},
 		{name: "v2", configVersion: 2, minClientVersion: "2.1.0"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -341,8 +382,11 @@ forwards:
 			if err := os.WriteFile(path, data, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if err := CheckConfigUpgradeCompatible(path); err != nil {
-				t.Fatalf("CheckConfigUpgradeCompatible() rejected empty saved credential: %v", err)
+			if err := CheckConfigUpgradeCompatible(path); (err != nil) != tt.rejected {
+				t.Fatalf("CheckConfigUpgradeCompatible() = %v, rejected=%v", err, tt.rejected)
+			}
+			if tt.rejected {
+				return
 			}
 			withoutLogLevel := strings.ReplaceAll(string(data), "log_level: info\n", "")
 			if err := os.WriteFile(path, []byte(withoutLogLevel), 0o644); err != nil {
@@ -490,12 +534,23 @@ forwards:
 func TestLoadConfigRejectsLegacyReverseListenerFields(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "client.yaml")
-	data := []byte(`server_addr: 127.0.0.1:9443
+	data := []byte(`config_version: 2
+requires:
+  min_client_version: "2.1.0"
+server_addr: 127.0.0.1:9443
 username: alice
 password: secret
+password_env: ""
+password_file: ""
+saved_credential: {}
+client_id: ""
 tls:
   ca_cert_file: server.crt
+  server_name: ""
+  min_version: "1.3"
   insecure_skip_verify: true
+connection:
+  dial_timeout_sec: 5
 forwards:
   - name: reverse-web
     direction: server_to_client
@@ -521,12 +576,23 @@ forwards:
 
 func TestLoadConfigAcceptsReverseListenAddressWithoutRewriting(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.yaml")
-	data := []byte(`server_addr: 127.0.0.1:9443
+	data := []byte(`config_version: 2
+requires:
+  min_client_version: "2.1.0"
+server_addr: 127.0.0.1:9443
 username: alice
 password: secret
+password_env: ""
+password_file: ""
+saved_credential: {}
+client_id: ""
 tls:
   ca_cert_file: server.crt
+  server_name: ""
+  min_version: "1.3"
   insecure_skip_verify: true
+connection:
+  dial_timeout_sec: 5
 forwards:
   - name: mysql
     direction: server_to_client
@@ -554,11 +620,23 @@ forwards:
 
 func TestLoadConfigRejectsEmptyReverseListenerFieldWithoutRewriting(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.yaml")
-	data := []byte(`server_addr: 127.0.0.1:9443
+	data := []byte(`config_version: 2
+requires:
+  min_client_version: "2.1.0"
+server_addr: 127.0.0.1:9443
 username: alice
 password: secret
+password_env: ""
+password_file: ""
+saved_credential: {}
+client_id: ""
 tls:
+  ca_cert_file: server.crt
+  server_name: ""
+  min_version: "1.3"
   insecure_skip_verify: true
+connection:
+  dial_timeout_sec: 5
 forwards:
   - name: mysql
     direction: server_to_client
@@ -667,11 +745,23 @@ func TestLoadConfigAcceptsVirtualDirectionWithListenAddress(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "client.yaml")
 	certPath := filepath.ToSlash(writeTestServerCertificate(t, "192.0.2.22"))
-	data := []byte(fmt.Sprintf(`server_addr: 198.51.100.10:9443
+	data := []byte(fmt.Sprintf(`config_version: 2
+requires:
+  min_client_version: "2.1.0"
+server_addr: 198.51.100.10:9443
 username: alice
 password: secret
+password_env: ""
+password_file: ""
+saved_credential: {}
+client_id: ""
 tls:
   ca_cert_file: %q
+  server_name: ""
+  min_version: "1.3"
+  insecure_skip_verify: false
+connection:
+  dial_timeout_sec: 5
 forwards:
   - name: ssh
     direction: virtual
@@ -700,11 +790,23 @@ func TestLoadConfigAcceptsAutomaticVirtualAddress(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "client.yaml")
 	certPath := filepath.ToSlash(writeTestServerCertificate(t, "127.0.0.1", "192.0.2.22"))
-	data := []byte(fmt.Sprintf(`server_addr: vpn.example.test:9443
+	data := []byte(fmt.Sprintf(`config_version: 2
+requires:
+  min_client_version: "2.1.0"
+server_addr: vpn.example.test:9443
 username: alice
 password: secret
+password_env: ""
+password_file: ""
+saved_credential: {}
+client_id: ""
 tls:
   ca_cert_file: %q
+  server_name: ""
+  min_version: "1.3"
+  insecure_skip_verify: false
+connection:
+  dial_timeout_sec: 5
 forwards:
   - name: ssh
     direction: virtual
@@ -752,11 +854,23 @@ func TestSaveConfigPreservesVirtualDirectionAndListenAddress(t *testing.T) {
 
 func TestLoadConfigRejectsLegacyVirtualIPField(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.yaml")
-	data := []byte(`server_addr: 198.51.100.10:9443
+	data := []byte(`config_version: 2
+requires:
+  min_client_version: "2.1.0"
+server_addr: 198.51.100.10:9443
 username: alice
 password: secret
+password_env: ""
+password_file: ""
+saved_credential: {}
+client_id: ""
 tls:
+  ca_cert_file: server.crt
+  server_name: ""
+  min_version: "1.3"
   insecure_skip_verify: true
+connection:
+  dial_timeout_sec: 5
 forwards:
   - direction: virtual
     virtual_ip: 192.0.2.22

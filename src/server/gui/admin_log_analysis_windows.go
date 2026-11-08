@@ -94,9 +94,7 @@ func (a *App) handleAdminLogAnalysis(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lookupGeo := strings.TrimSpace(r.URL.Query().Get("geo")) != "0"
-	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
-	defer cancel()
-	result, err := a.buildLogAnalysis(ctx, cfg, start, end, lookupGeo)
+	result, err := a.buildLogAnalysis(r.Context(), cfg, start, end, lookupGeo)
 	if err != nil {
 		writeJSON(w, http.StatusOK, logAnalysisResult{OK: false, Message: friendlyError(err)})
 		return
@@ -177,7 +175,7 @@ func (a *App) buildLogAnalysis(ctx context.Context, cfg tunnel.Config, start, en
 	seenSuccess := map[string]bool{}
 	seenBlocked := map[string]bool{}
 
-	businessTotal, err := readBusinessLogsInRange(businessPath, start, end, func(entry tunnel.BusinessLogEntry, t time.Time) {
+	businessTotal, err := readLogsInRange(businessPath, start, end, func(entry tunnel.BusinessLogEntry, t time.Time) {
 		ip := strings.TrimSpace(entry.RemoteIP)
 		if net.ParseIP(ip) == nil {
 			return
@@ -204,7 +202,7 @@ func (a *App) buildLogAnalysis(ctx context.Context, cfg tunnel.Config, start, en
 	}
 	result.Summary.BusinessEvents = businessTotal
 
-	requestTotal, err := readRequestLogsInRange(requestPath, start, end, func(entry tunnel.RequestLogEntry, t time.Time) {
+	requestTotal, err := readLogsInRange(requestPath, start, end, func(entry tunnel.RequestLogEntry, t time.Time) {
 		ip := strings.TrimSpace(entry.RemoteIP)
 		if net.ParseIP(ip) == nil {
 			return
@@ -244,13 +242,15 @@ func (a *App) buildLogAnalysis(ctx context.Context, cfg tunnel.Config, start, en
 
 	if lookupGeo {
 		ips := append(analysisIPs(result.SuccessSources), analysisIPs(result.BlockedSources)...)
-		geo, geoErr := lookupIPAPIBatch(ctx, uniqueStrings(ips))
+		geoCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		geo, geoErr := lookupIPAPIBatch(geoCtx, uniqueStrings(ips))
+		cancel()
+		attachAnalysisGeo(result.SuccessSources, geo)
+		attachAnalysisGeo(result.BlockedSources, geo)
 		if geoErr != nil {
 			result.GeoLookupError = geoErr.Error()
 		} else {
 			result.GeoLookupOK = true
-			attachAnalysisGeo(result.SuccessSources, geo)
-			attachAnalysisGeo(result.BlockedSources, geo)
 		}
 	}
 	return result, nil

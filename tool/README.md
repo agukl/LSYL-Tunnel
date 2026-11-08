@@ -13,7 +13,7 @@ Expected optional layout:
 
 ```text
 tool/
-  go/bin/go.exe
+  go/bin/go.exe (Go 1.26.10 or newer 1.26 patch release)
   go1.20.14/go/bin/go.exe
   gradle-8.9/bin/gradle.bat
   gradle/bin/gradle.bat
@@ -29,6 +29,8 @@ tool/
 `tool/signtool` must include the Windows SDK signing dependency DLLs and manifests, not only `signtool.exe`.
 
 The actual tool binaries are intentionally ignored by git.
+
+The main module uses Go 1.26.10 via `go.mod`; a Go 1.25 launcher can select it with `GOTOOLCHAIN=auto` when online. The Win7 Lite build uses its separate Go 1.20 toolchain and `go.win7.mod`.
 
 The source-only `check.cmd -Full` entry also uses Node.js (`NODE_EXE`), JDK (`JAVA_HOME`), and Android SDK. Existing Android `local.properties` and SDK environment variables remain authoritative; `tool/android-sdk` is a fallback. This check entry does not download toolchains or create distribution packages.
 

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -280,6 +281,16 @@ func TestValidateAdminForwardsForSaveAcceptsPrivateTarget(t *testing.T) {
 	}
 }
 
+func TestValidateAdminForwardsForSaveRejectsOwnerWithoutAddress(t *testing.T) {
+	issues := validateAdminForwardsForSave(adminConfig{
+		Users:    []adminUser{{Username: "alice"}},
+		Forwards: []adminForward{{Owner: "alice"}},
+	})
+	if len(issues) == 0 || issues[0].Field != "forwards[0].server_target" {
+		t.Fatalf("missing forward address was accepted: %#v", issues)
+	}
+}
+
 func TestValidateAdminForwardsForSaveRejectsPublicTarget(t *testing.T) {
 	issues := validateAdminForwardsForSave(adminConfig{
 		Users: []adminUser{{Username: "alice"}},
@@ -444,6 +455,30 @@ func TestValidateAdminForwardsForSaveSkipsCurrentPassivePortWhenServiceRunning(t
 	})
 	if issues.hasErrors() {
 		t.Fatalf("validateAdminForwardsForSaveWithOptions returned issues: %#v", issues)
+	}
+}
+
+func TestValidateAdminForwardsForSaveSkipsCurrentListenPortWhenServiceRunning(t *testing.T) {
+	ln, port := listenLocalTCP(t)
+	defer ln.Close()
+	portNumber, err := strconv.Atoi(port)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	issues := validateAdminForwardsForSaveWithOptions(adminConfig{
+		Users:    []adminUser{{Username: "alice"}},
+		Forwards: []adminForward{{Direction: tunnel.DirectionServerToClient, Port: port, Owner: "alice"}},
+	}, adminForwardValidationOptions{
+		Existing: tunnel.Config{Forwards: []tunnel.ForwardConfig{{
+			Direction:  tunnel.DirectionServerToClient,
+			ListenPort: portNumber,
+		}}},
+		ServiceRunning:               true,
+		CheckPassivePortAvailability: true,
+	})
+	if issues.hasErrors() {
+		t.Fatalf("existing reverse listen_port was probed again: %#v", issues)
 	}
 }
 

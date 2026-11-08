@@ -11,15 +11,6 @@ set "PROJECT_TOOL_DIR="
 call :find_project_tool_dir
 set "OUT_FILE=%OUT_DIR%\LSYL-Tunnel-Client-Setup.exe"
 
-if exist "%OUT_FILE%" (
-  del /f /q "%OUT_FILE%" >nul 2>nul
-  if exist "%OUT_FILE%" (
-    echo [ERROR] Cannot remove old client installer:
-    echo   %OUT_FILE%
-    exit /b 1
-  )
-)
-
 if not exist "%SCRIPT_FILE%" (
   echo [ERROR] Missing installer script:
   echo   %SCRIPT_FILE%
@@ -52,6 +43,16 @@ if not exist "%PACKAGE_DIR%cert\server.crt" (
 )
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PACKAGE_DIR%clear-client-id.ps1" -ConfigFile "%PACKAGE_DIR%conf\client.yaml" || exit /b 1
+if not exist "%PACKAGE_DIR%tmp" mkdir "%PACKAGE_DIR%tmp" || exit /b 1
+set "CONFIG_CHECK_RESULT=%PACKAGE_DIR%tmp\installer-config-check.txt"
+if exist "%CONFIG_CHECK_RESULT%" del /f /q "%CONFIG_CHECK_RESULT%" >nul 2>nul
+start "" /wait "%PACKAGE_DIR%bin\lsyl-tunnel-client-gui.exe" -config-compat-check -config "%PACKAGE_DIR%conf\client.yaml" -result-file "%CONFIG_CHECK_RESULT%"
+if errorlevel 1 (
+  echo [ERROR] Client config is not valid for this installer:
+  if exist "%CONFIG_CHECK_RESULT%" type "%CONFIG_CHECK_RESULT%"
+  exit /b 1
+)
+if exist "%CONFIG_CHECK_RESULT%" del /f /q "%CONFIG_CHECK_RESULT%" >nul 2>nul
 call :resolve_iscc || exit /b 1
 goto found_iscc
 
@@ -107,6 +108,14 @@ if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" (
 goto missing_iscc
 
 :found_iscc
+if exist "%OUT_FILE%" (
+  del /f /q "%OUT_FILE%" >nul 2>nul
+  if exist "%OUT_FILE%" (
+    echo [ERROR] Cannot remove old client installer:
+    echo   %OUT_FILE%
+    exit /b 1
+  )
+)
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%" || exit /b 1
 echo [INFO] Building client installer from package:
 echo   %PACKAGE_DIR%

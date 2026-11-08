@@ -9,53 +9,18 @@ var lastStateSignature = '';
 var refreshTimer = null;
 var refreshInFlight = false;
 function el(id){ return document.getElementById(id); }
-function now(){ return new Date().getTime(); }
 function stopEvent(evt){
-  evt = evt || window.event;
-  if(evt){
-    if(evt.stopPropagation) evt.stopPropagation();
-    if(evt.preventDefault) evt.preventDefault();
-    evt.cancelBubble = true;
-    evt.returnValue = false;
-  }
-  return false;
-}
-function suppressContextMenu(){
-  var block = function(evt){ return stopEvent(evt); };
-  window.oncontextmenu = block;
-  document.oncontextmenu = block;
-  if(document.body) document.body.oncontextmenu = block;
-  if(document.documentElement) document.documentElement.oncontextmenu = block;
-  document.addEventListener('contextmenu', block, false);
-}
-function isWindowButton(target){
-  while(target){
-    if(target.className && (String(target.className).indexOf('win-btn') >= 0 || String(target.className).indexOf('top-refresh') >= 0)) return true;
-    target = target.parentNode;
-  }
-  return false;
-}
-function isLogoTarget(target){
-  while(target){
-    if(target.id === 'logoMenuBtn') return true;
-    target = target.parentNode;
-  }
+  evt.stopPropagation();
+  evt.preventDefault();
   return false;
 }
 function isLogoMenuTarget(target){
-  while(target){
-    if(target.id === 'logoMenu') return true;
-    if(target.id === 'logoMenuBtn') return true;
-    target = target.parentNode;
-  }
-  return false;
+  return !!(target && target.closest && target.closest('#logoMenu, #logoMenuBtn'));
 }
 function beginDrag(evt){
-  evt = evt || window.event;
-  var target = evt.target || evt.srcElement;
-  if(isWindowButton(target)) return true;
-  if(isLogoTarget(target)) return true;
-  if(evt && evt.preventDefault) evt.preventDefault();
+  var target = evt.target;
+  if(target && target.closest && target.closest('.win-btn, .top-refresh, #logoMenuBtn')) return true;
+  evt.preventDefault();
   api('/api/window/drag', {}, function(){});
   return false;
 }
@@ -70,20 +35,18 @@ function closeWindow(evt){
   return false;
 }
 function api(path, body, cb, onError){
-  var xhr = new XMLHttpRequest();
   var method = body ? 'POST' : 'GET';
-  xhr.open(method, path + (!body ? '?_=' + now() : ''), true);
-  xhr.setRequestHeader('Content-Type', 'application/json');
-  xhr.setRequestHeader('X-LSYL-Panel-Token', window.__lsylPanelToken || '');
-  xhr.onreadystatechange = function(){
-    if(xhr.readyState !== 4) return;
-    try { cb(JSON.parse(xhr.responseText)); }
-    catch(e) {
-      showMessage('界面请求失败，请重新打开客户端窗口后再试。', true);
-      if(onError) onError();
-    }
-  };
-  xhr.send(body ? JSON.stringify(body) : null);
+  fetch(path + (!body ? '?_=' + Date.now() : ''), {
+    method: method,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-LSYL-Panel-Token': window.__lsylPanelToken || ''
+    },
+    body: body ? JSON.stringify(body) : undefined
+  }).then(function(response){ return response.json(); }).then(cb, function(){
+    showMessage('界面请求失败，请重新打开客户端窗口后再试。', true);
+    if(onError) onError();
+  });
 }
 function formData(){
   var password = el('password').value;
@@ -174,16 +137,14 @@ function showLogoMenu(evt){
   return false;
 }
 function handleLogoMenuKeyDown(evt){
-  var code = evt.keyCode || evt.which;
-  if(code === 13 || code === 32 || code === 40 || code === 93 || (code === 121 && evt.shiftKey)){
+  var key = evt.key;
+  if(key === 'Enter' || key === ' ' || key === 'ArrowDown' || key === 'ContextMenu' || (key === 'F10' && evt.shiftKey)){
     return showLogoMenu(evt);
   }
   return true;
 }
 function handleLogoMenuMouseDown(evt){
-  evt = evt || window.event;
-  var target = evt.target || evt.srcElement;
-  if(!isLogoMenuTarget(target)) hideLogoMenu();
+  if(!isLogoMenuTarget(evt.target)) hideLogoMenu();
 }
 function installLogoMenuDismiss(){
   document.addEventListener('mousedown', handleLogoMenuMouseDown, true);
@@ -191,13 +152,13 @@ function installLogoMenuDismiss(){
     if(!isLogoMenuTarget(evt.target)) hideLogoMenu();
   }, false);
   document.addEventListener('keydown', function(evt){
-    if(el('logoMenu').className.indexOf('open') < 0) return;
-    var code = evt.keyCode || evt.which;
-    if(code === 27){
+    if(!el('logoMenu').classList.contains('open')) return;
+    var key = evt.key;
+    if(key === 'Escape'){
       hideLogoMenu();
       el('logoMenuBtn').focus();
       stopEvent(evt);
-    } else if(code === 38 || code === 40){
+    } else if(key === 'ArrowUp' || key === 'ArrowDown'){
       var nodes = el('logoMenu').querySelectorAll('button:not(:disabled), input:not(:disabled)');
       var items = [];
       var index = -1;
@@ -207,7 +168,7 @@ function installLogoMenuDismiss(){
         items.push(nodes[i]);
       }
       if(items.length){
-        index = index < 0 ? (code === 40 ? 0 : items.length - 1) : (index + (code === 40 ? 1 : -1) + items.length) % items.length;
+        index = index < 0 ? (key === 'ArrowDown' ? 0 : items.length - 1) : (index + (key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
         items[index].focus();
         stopEvent(evt);
       }
@@ -215,7 +176,7 @@ function installLogoMenuDismiss(){
   }, false);
 }
 function showMessage(message, bad){
-  var running = el('app').className.indexOf('running') >= 0;
+  var running = el('app').classList.contains('running');
   var target = running ? el('runMsg') : el('loginMsg');
   target.className = bad ? 'inline-message show bad' : 'inline-message show';
   target.innerText = message || '';
@@ -363,19 +324,17 @@ function renderState(state, force){
   }
 }
 function profileListSignature(profiles){
-  var parts = [];
-  for(var i=0;i<profiles.length;i++){
-    var p = profiles[i] || {};
-    parts.push([
+  return JSON.stringify(profiles.map(function(profile){
+    var p = profile || {};
+    return [
       p.id || '',
       p.label || '',
       p.server_addr || '',
       p.current ? '1' : '0',
       p.available ? '1' : '0',
       p.message || ''
-    ].join('|'));
-  }
-  return parts.join('||');
+    ];
+  }));
 }
 function renderProfiles(state, running){
   var box = el('profileSwitch');
@@ -433,8 +392,7 @@ function profileOptionMetaText(profile){
 }
 function switchProfileOption(evt){
   stopEvent(evt);
-  var target = evt ? (evt.target || evt.srcElement) : null;
-  while(target && !target.getAttribute('data-profile-id')) target = target.parentNode;
+  var target = evt.target.closest('[data-profile-id]');
   if(!target || target.disabled) return false;
   return switchProfile(target.getAttribute('data-profile-id'));
 }
@@ -540,6 +498,5 @@ function exportMobileProfile(evt){
   });
   return false;
 }
-suppressContextMenu();
 installLogoMenuDismiss();
 refresh();

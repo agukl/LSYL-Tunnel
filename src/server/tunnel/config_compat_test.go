@@ -10,7 +10,7 @@ import (
 	appversion "lsyltunnel/src/internal/version"
 )
 
-func TestCheckConfigUpgradeCompatibleAcceptsLegacyConfig(t *testing.T) {
+func TestCheckConfigUpgradeCompatibleRejectsUnversionedConfig(t *testing.T) {
 	dir := t.TempDir()
 	current := writeTestConfig(t, dir, "server.yaml", `
 tls:
@@ -20,8 +20,8 @@ auth:
   users: []
 `)
 
-	if err := CheckConfigUpgradeCompatible(current); err != nil {
-		t.Fatalf("expected legacy config to be upgrade-compatible, got %v", err)
+	if err := CheckConfigUpgradeCompatible(current); err == nil || !strings.Contains(err.Error(), "config_version 0 is no longer supported") {
+		t.Fatalf("expected unversioned config rejection, got %v", err)
 	}
 }
 
@@ -34,6 +34,68 @@ func TestCheckConfigUpgradeCompatibleAcceptsCompleteV1Config(t *testing.T) {
 	}
 }
 
+func TestPrepareServerConfigMigration(t *testing.T) {
+	path := writeTestConfig(t, t.TempDir(), "server.yaml", `
+config_version: 1
+tls:
+  cert_file: ../certs/server.crt
+  key_file: ../certs/server.key
+auth:
+  users: []
+security:
+  max_connections_per_ip_per_window: 27
+runtime:
+  flow_traffic_log_file: old-flow.jsonl
+log_level: info
+`)
+	file, err := PrepareConfigMigration(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(file.Data), "max_connections_per_ip_per_window:") ||
+		strings.Contains(string(file.Data), "flow_traffic_log_file:") ||
+		strings.Contains(string(file.Data), "log_level:") {
+		t.Fatalf("deprecated fields remain: %s", file.Data)
+	}
+	if !strings.Contains(string(file.Data), "max_new_connections_per_ip_window: 27") {
+		t.Fatalf("known alias was not migrated: %s", file.Data)
+	}
+	if err := validateServerConfigV1Structure(file.Data); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, file.Data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfigRaw(path); err != nil {
+		t.Fatalf("migrated server config cannot be loaded: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("config_version: 1\nsecurty: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareConfigMigration(path); err == nil {
+		t.Fatal("unknown field should prevent migration")
+	}
+	if err := os.WriteFile(path, []byte("config_version: 1\ntls: null\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareConfigMigration(path); err == nil {
+		t.Fatal("wrong mapping shape should prevent migration")
+	}
+}
+
+func TestSaveConfigProducesCurrentServerStructure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.yaml")
+	if err := SaveConfig(path, Config{TLS: TLSConfig{
+		CertFile: "server.crt",
+		KeyFile:  "server.key",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckConfigUpgradeCompatible(path); err != nil {
+		t.Fatalf("saved config does not satisfy the current schema: %v", err)
+	}
+}
+
 func TestServerConfigLoadAndUpgradeUseSameSchema(t *testing.T) {
 	v1 := validServerConfigV1YAML("")
 	tests := []struct {
@@ -41,9 +103,8 @@ func TestServerConfigLoadAndUpgradeUseSameSchema(t *testing.T) {
 		content string
 		wantErr string
 	}{
-		{name: "legacy", content: "tls:\n  cert_file: server.crt\n  key_file: server.key\nauth:\n  users: []\n"},
+		{name: "legacy", content: "tls:\n  cert_file: server.crt\n  key_file: server.key\nauth:\n  users: []\n", wantErr: "config_version 0 is no longer supported"},
 		{name: "current", content: v1},
-		{name: "unknown legacy field", content: "tls:\n  cert_file: server.crt\n  key_file: server.key\nunknown_setting: true\n", wantErr: "field unknown_setting not found"},
 		{name: "unknown current field", content: strings.Replace(v1, "  min_version: \"1.3\"", "  min_version: \"1.3\"\n  extra: true", 1), wantErr: "field extra not found"},
 		{name: "missing current structure", content: strings.Replace(v1, "auth:\n  users: []", "", 1), wantErr: "missing required field auth"},
 		{name: "wrong current layer", content: strings.Replace(v1, "auth:\n  users: []", "auth: []", 1), wantErr: "cannot unmarshal"},
@@ -145,23 +206,6 @@ compatibility:
 	err := CheckConfigUpgradeCompatible(current)
 	if err == nil || !strings.Contains(err.Error(), "min_client_version must be <= max_client_version") {
 		t.Fatalf("expected invalid client range error, got %v", err)
-	}
-}
-
-func TestCheckConfigUpgradeCompatibleRejectsUnknownLegacyField(t *testing.T) {
-	dir := t.TempDir()
-	path := writeTestConfig(t, dir, "server.yaml", `
-tls:
-  cert_file: ../certs/server.crt
-  key_file: ../certs/server.key
-auth:
-  users: []
-unknown_setting: true
-`)
-
-	err := CheckConfigUpgradeCompatible(path)
-	if err == nil || !strings.Contains(err.Error(), "field unknown_setting not found") {
-		t.Fatalf("expected unknown legacy field error, got %v", err)
 	}
 }
 

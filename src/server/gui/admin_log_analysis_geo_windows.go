@@ -6,12 +6,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 )
+
+const ipAPIBatchURL = "http://ip-api.com/batch?fields=status,message,query,country,regionName,city,isp,org,as,asname,hosting,proxy,mobile&lang=zh-CN"
+
+var ipAPIClient = &http.Client{Timeout: 30 * time.Second}
 
 type ipAPIEntry struct {
 	Status     string `json:"status"`
@@ -52,11 +58,14 @@ func uniqueStrings(items []string) []string {
 }
 
 func lookupIPAPIBatch(ctx context.Context, ips []string) (map[string]ipAPIEntry, error) {
+	return lookupIPAPIBatchWithClient(ctx, ips, ipAPIClient, ipAPIBatchURL)
+}
+
+func lookupIPAPIBatchWithClient(ctx context.Context, ips []string, client *http.Client, endpoint string) (map[string]ipAPIEntry, error) {
 	out := map[string]ipAPIEntry{}
 	if len(ips) == 0 {
 		return out, nil
 	}
-	client := &http.Client{Timeout: 5 * time.Second}
 	const batchSize = 100
 	for start := 0; start < len(ips); start += batchSize {
 		end := start + batchSize
@@ -67,32 +76,47 @@ func lookupIPAPIBatch(ctx context.Context, ips []string) (map[string]ipAPIEntry,
 		if err != nil {
 			return out, err
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://ip-api.com/batch?fields=status,message,query,country,regionName,city,isp,org,as,asname,hosting,proxy,mobile&lang=zh-CN", bytes.NewReader(body))
-		if err != nil {
-			return out, err
+		entries, err := fetchIPAPIBatch(ctx, client, endpoint, body)
+		if err != nil && ctx.Err() == nil && isGeoTimeout(err) {
+			entries, err = fetchIPAPIBatch(ctx, client, endpoint, body)
 		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(req)
 		if err != nil {
-			return out, err
+			return out, fmt.Errorf("归属地查询失败: %w", err)
 		}
-		func() {
-			defer resp.Body.Close()
-			var entries []ipAPIEntry
-			if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
-				out[""] = ipAPIEntry{Status: "fail", Message: err.Error()}
-				return
-			}
-			for _, entry := range entries {
-				out[entry.Query] = entry
-			}
-		}()
-		if failure, ok := out[""]; ok {
-			delete(out, "")
-			return out, fmt.Errorf("归属地查询失败: %s", failure.Message)
+		for _, entry := range entries {
+			out[entry.Query] = entry
 		}
 	}
 	return out, nil
+}
+
+func fetchIPAPIBatch(ctx context.Context, client *http.Client, endpoint string, body []byte) ([]ipAPIEntry, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, fmt.Errorf("服务请求已达到限额 (HTTP 429)，请稍后重试")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("服务返回 HTTP %d", resp.StatusCode)
+	}
+	var entries []ipAPIEntry
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&entries); err != nil {
+		return nil, fmt.Errorf("响应无法解析: %w", err)
+	}
+	return entries, nil
+}
+
+func isGeoTimeout(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func attachAnalysisGeo(items []logAnalysisIPSource, geo map[string]ipAPIEntry) {

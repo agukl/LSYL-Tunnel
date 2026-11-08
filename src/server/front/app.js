@@ -1,6 +1,6 @@
 import {
   $, setText, hiddenInput, appendPlainCell, appendBadgeCell, appendEmptyRow,
-  removeEmptyRows, hasDataRows,
+  removeEmptyRows, hasDataRows, actionButton,
 } from './modules/dom.js';
 import { api } from './modules/api.js';
 import { numberText, bytesText, rateText, timeText, remainText } from './modules/format.js';
@@ -10,6 +10,7 @@ import {
 import { renderBusinessLogs, renderRequestLogs } from './modules/logs.js';
 import { bindLogHorizontalScroll, updateLogScrollbars, initResizableTables } from './modules/table.js';
 import { initAnalysisDefaults, loadAnalysis, hasLoadedAnalysis } from './modules/analysis.js';
+import { bindWindowControls } from './modules/window.js';
 
 let state = null;
 let dirty = false;
@@ -86,15 +87,12 @@ function setBusy(next) {
 }
 
 function updateButtons() {
-  var svc = state && state.service ? state.service : {};
-  var running = !!svc.running;
   var blockedBySavedValidation = state && state.validation && !dirty;
   var blockedByPermission = state && state.config_writable === false;
   setActionDisabled('restart', busy || !!blockedBySavedValidation);
   setActionDisabled('save', busy || blockedByPermission);
   setActionDisabled('refresh', busy);
-  setUnblockButtonsDisabled(busy);
-  setPermanentBlockDeleteButtonsDisabled(busy);
+  setBlockActionButtonsDisabled(busy);
   setConfigEditingEnabled(!blockedByPermission);
 }
 
@@ -402,7 +400,7 @@ function addForwardRow(fwd) {
   tr.appendChild(directionCell(fwd.direction || '', tr));
   tr.appendChild(allowedUsersCell(allowedUsersForForward(fwd), tr));
   tr.appendChild(serverHostCell(forwardHostValue(fwd), tr));
-  tr.appendChild(portCell(forwardPortValue(fwd), tr));
+  tr.appendChild(portCell(forwardPortValue(fwd)));
   tr.appendChild(actionCell(tr));
   tbody.appendChild(tr);
   updateForwardRowForDirection(tr);
@@ -482,8 +480,6 @@ function selectedAllowedUsers(control) {
 function refreshAllowedUserSelect(control) {
   if (!control) { return; }
   var selected = firstUserOnly(splitUserList(control.getAttribute('data-selected-users') || ''));
-  var selectedMap = {};
-  for (var i = 0; i < selected.length; i++) { selectedMap[selected[i]] = true; }
   var names = currentUserNames();
   var known = {};
   for (var j = 0; j < names.length; j++) { known[names[j]] = true; }
@@ -531,38 +527,18 @@ function currentUserNames() {
 }
 
 function serverHostCell(value, row) {
-  var td = document.createElement('td');
-  td.className = 'target-cell';
-  var input = document.createElement('input');
-  input.type = 'text';
-  input.value = value || '';
-  input.setAttribute('data-name', 'server_host');
-  input.onchange = function () {
-    clearEditorRowError(row);
-    markDirty();
+  var td = textCell(value || '', 'server_host', function () {
     updateForwardRowForDirection(row);
     refreshUserBoundPorts();
-  };
-  input.onkeyup = input.onchange;
-  td.appendChild(input);
+  });
+  td.className = 'target-cell';
   return td;
 }
 
-function portCell(value, row) {
-  var td = document.createElement('td');
+function portCell(value) {
+  var td = textCell(value || '', 'port', function () { refreshUserBoundPorts(); });
   td.className = 'port-cell';
-  var input = document.createElement('input');
-  input.type = 'text';
-  input.value = value || '';
-  input.maxLength = 5;
-  input.setAttribute('data-name', 'port');
-  input.onchange = function () {
-    clearEditorRowError(row);
-    markDirty();
-    refreshUserBoundPorts();
-  };
-  input.onkeyup = input.onchange;
-  td.appendChild(input);
+  td.firstChild.maxLength = 5;
   return td;
 }
 
@@ -663,11 +639,7 @@ function refreshForwardOwnerOptions() {
 
 function actionCell(row) {
   var td = document.createElement('td');
-  var btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'btn small danger';
-  btn.textContent = '删除';
-  btn.onclick = function () {
+  var btn = actionButton('删除', 'danger', function () {
     var port = field(row, 'port').value.replace(/^\s+|\s+$/g, '');
     var users = selectedAllowedUsers(field(row, 'allowed_users'));
     var remove = function () {
@@ -681,7 +653,7 @@ function actionCell(row) {
     } else {
       remove();
     }
-  };
+  });
   td.appendChild(btn);
   return td;
 }
@@ -690,11 +662,7 @@ function userActionCell(row) {
   var td = document.createElement('td');
   var wrap = document.createElement('div');
   wrap.className = 'row-actions';
-  var deleteBtn = document.createElement('button');
-  deleteBtn.type = 'button';
-  deleteBtn.className = 'btn small danger';
-  deleteBtn.textContent = '删除';
-  deleteBtn.onclick = function () {
+  var deleteBtn = actionButton('删除', 'danger', function () {
     var username = field(row, 'username').value.replace(/^\s+|\s+$/g, '') || '未命名用户';
     confirmAction('确定删除用户“' + username + '”？删除后，该用户关联的转发端口需要重新分配。', function () {
       row.remove();
@@ -702,13 +670,9 @@ function userActionCell(row) {
       refreshForwardOwnerOptions();
       markDirty();
     });
-  };
-  var resetBtn = document.createElement('button');
-  resetBtn.type = 'button';
-  resetBtn.className = 'btn small muted';
+  });
+  var resetBtn = actionButton('重置密码', 'muted', function () { openResetPassword(row); });
   resetBtn.setAttribute('data-reset-password', '');
-  resetBtn.textContent = '重置密码';
-  resetBtn.onclick = function () { openResetPassword(row); };
   wrap.appendChild(deleteBtn);
   wrap.appendChild(resetBtn);
   td.appendChild(wrap);
@@ -1075,7 +1039,7 @@ function renderTemporaryBlockedIPs(items) {
     appendPlainCell(tr, item.ip || '-');
     appendPlainCell(tr, remainText(item.remaining_sec), 'strong-text');
     appendPlainCell(tr, timeText(item.blocked_until));
-    appendUnblockCell(tr, item.ip || '');
+    appendBlockActionCell(tr, item.ip || '', '解封', unblockIP);
     tbody.appendChild(tr);
   }
 }
@@ -1094,7 +1058,7 @@ function renderPermanentBlockedIPs(items) {
     appendPlainCell(tr, '永久封禁', 'strong-text');
     appendPlainCell(tr, permanentBlockSourceText(item), 'ellipsis-cell');
     appendPlainCell(tr, '重启服务后仍然生效', 'ellipsis-cell');
-    appendPermanentBlockDeleteCell(tr, item.ip || '');
+    appendBlockActionCell(tr, item.ip || '', '删除', deletePermanentBlock);
     tbody.appendChild(tr);
   }
 }
@@ -1106,45 +1070,20 @@ function permanentBlockSourceText(item) {
   return item.source;
 }
 
-function appendUnblockCell(row, ip) {
+function appendBlockActionCell(row, ip, label, action) {
   var td = document.createElement('td');
   td.className = 'action-cell';
-  var btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'btn small danger';
-  btn.textContent = '解封';
-  btn.setAttribute('data-unblock-ip', ip);
+  var btn = actionButton(label, 'danger', function () { action(ip); });
+  btn.setAttribute('data-block-ip', ip);
   btn.disabled = busy || !ip;
-  btn.onclick = function () { unblockIP(ip); };
   td.appendChild(btn);
   row.appendChild(td);
 }
 
-function appendPermanentBlockDeleteCell(row, ip) {
-  var td = document.createElement('td');
-  td.className = 'action-cell';
-  var btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'btn small danger';
-  btn.textContent = '删除';
-  btn.setAttribute('data-delete-permanent-ip', ip);
-  btn.disabled = busy || !ip;
-  btn.onclick = function () { deletePermanentBlock(ip); };
-  td.appendChild(btn);
-  row.appendChild(td);
-}
-
-function setUnblockButtonsDisabled(disabled) {
-  var buttons = document.querySelectorAll('[data-unblock-ip]');
+function setBlockActionButtonsDisabled(disabled) {
+  var buttons = document.querySelectorAll('[data-block-ip]');
   for (var i = 0; i < buttons.length; i++) {
-    buttons[i].disabled = disabled;
-  }
-}
-
-function setPermanentBlockDeleteButtonsDisabled(disabled) {
-  var buttons = document.querySelectorAll('[data-delete-permanent-ip]');
-  for (var i = 0; i < buttons.length; i++) {
-    buttons[i].disabled = disabled;
+    buttons[i].disabled = disabled || !buttons[i].getAttribute('data-block-ip');
   }
 }
 
@@ -1266,6 +1205,7 @@ function bindActions() {
 }
 
 function init() {
+  bindWindowControls();
   bindTabs();
   bindSecurityFields();
   bindActions();

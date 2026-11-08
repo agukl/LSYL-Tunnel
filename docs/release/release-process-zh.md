@@ -5,8 +5,8 @@
 当前版本：
 
 ```text
-APP_VERSION=3.3.0
-WINDOWS_FILE_VERSION=3.3.0.0
+APP_VERSION=3.4.0
+WINDOWS_FILE_VERSION=3.4.0.0
 PROTOCOL_VERSION=3
 ```
 
@@ -28,6 +28,7 @@ Windows `FileVersion` 使用四段号，由产品版本派生，例如 `3.0.0 ->
 - `README.md`
 - `docs/README-zh.md`
 - `docs/release/release-notes-zh.md`
+- `docs/system/config-reference-zh.md`（配置字段或语义变化时）
 - `docs/release/release-process-zh.md`（本页当前版本）
 - `deploy/windows/inno/package-client.iss`
 - `deploy/windows/inno/package-server.iss`
@@ -50,7 +51,10 @@ Win7 Lite 的两份资源 `rsrc_windows_386.syso`、`rsrc_windows_amd64.syso` �
 - 配置结构版本高于当前程序支持范围时，安装器或程序启动必须阻止并提示升级程序。
 - `requires.min_client_version`、`requires.min_server_version` 高于当前程序版本时必须阻止。
 - 修改 LSYL 握手字段、请求类型、错误码语义、转发语义或连接行为时，默认按协议升级处理。
-- 只新增可选且旧程序能安全忽略的字段时，可以作为兼容扩展，但发布说明必须写明结论。
+- 配置字段或层级变化时，先核对 [配置契约与出处](../system/config-reference-zh.md#配置契约与出处)列出的代码位置，再决定是否提高对应 `config_version`；发布说明要列出字段路径、原有写法、新写法、默认值及安装/回退结论。
+- 即使只新增可选字段，旧程序的严格 YAML 解码也可能拒绝新配置；不可仅凭“可选”判定双向兼容。必须分别验证旧配置在新程序、新配置在旧程序中的结果。
+- Windows 覆盖安装只自动迁移已安装 3.x 的当前配置结构；先预检，在文件覆盖前补齐可推导字段、转换已登记旧字段并清理弃用字段，失败回滚。客户端所有 `client.*.yaml` 归档一并预检和迁移。回滚失败的备份保留在安装目录；2.x、来源版本不可识别、未知字段或不能推导的必需值阻止安装。
+- 新增或移除配置字段时，同步更新两端配置结构、默认值、迁移输出和测试；不能靠 `config_version` 判断来源产品版本，升级门槛读取旧 EXE 的 Windows 文件版本。
 
 ## 发布命令
 

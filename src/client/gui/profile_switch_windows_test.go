@@ -16,6 +16,8 @@ func TestProfileSwitchFriendlyError(t *testing.T) {
 		raw  string
 		want string
 	}{
+		{name: "obsolete config", raw: "目标配置校验失败: client config_version 1 is no longer supported", want: "目标配置结构与当前客户端不兼容，请联系管理员重新下发配置。"},
+		{name: "obsolete current config", raw: "读取当前配置失败: client config_version 1 is no longer supported", want: "配置版本过旧，当前客户端不再支持；请联系管理员重新下发配置。"},
 		{name: "newer client", raw: "目标配置校验失败: client config_version 4 requires a newer client", want: "目标配置需要更高版本的客户端，请升级客户端后再切换。"},
 		{name: "incompatible structure", raw: "目标配置校验失败: field legacy_virtual_ip not found in type tunnel.Config", want: "目标配置结构与当前客户端不兼容，请联系管理员重新下发配置。"},
 		{name: "certificate mismatch", raw: "目标配置校验失败: x509: certificate doesn't contain any IP SANs", want: "目标配置与配套证书不匹配，请联系管理员重新下发配置。"},
@@ -97,11 +99,24 @@ func TestLoadClientProfilesDisplaysConfigRemarks(t *testing.T) {
 }
 
 func clientProfileConfigForTest(serverAddr, remark string) string {
-	return "server_addr: " + serverAddr + "\n" +
+	return "config_version: 2\n" +
+		"requires:\n" +
+		"  min_client_version: 2.1.0\n" +
+		"server_addr: " + serverAddr + "\n" +
 		"remark: " + remark + "\n" +
 		"username: alice\n" +
+		"password: \"\"\n" +
+		"password_env: \"\"\n" +
+		"password_file: \"\"\n" +
+		"saved_credential: {}\n" +
+		"client_id: \"\"\n" +
 		"tls:\n" +
 		"  ca_cert_file: ../cert/server.crt\n" +
+		"  server_name: \"\"\n" +
+		"  min_version: \"1.3\"\n" +
+		"  insecure_skip_verify: false\n" +
+		"connection:\n" +
+		"  dial_timeout_sec: 5\n" +
 		"forwards:\n" +
 		"  - name: rdp\n" +
 		"    direction: client_to_server\n" +

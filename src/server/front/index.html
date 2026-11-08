@@ -32,7 +32,7 @@
     </aside>
 
     <main class="main">
-      <div id="toast" class="toast hidden"></div>
+      <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
       <section class="status-strip">
         <div class="status-pill" id="servicePill"><span></span><strong>读取中</strong></div>
@@ -43,6 +43,11 @@
             <button type="button" data-log-view="requests" aria-pressed="false">请求流水</button>
           </div>
           <button class="btn small muted status-refresh" type="button" data-action="refresh">刷新</button>
+        </div>
+        <div class="window-controls" aria-label="窗口操作">
+          <button type="button" id="windowMinimize" title="最小化" aria-label="最小化">&#x2212;</button>
+          <button type="button" id="windowMaximize" title="最大化或还原" aria-label="最大化或还原">&#x25A1;</button>
+          <button type="button" id="windowClose" title="关闭" aria-label="关闭">&#x00D7;</button>
         </div>
       </section>
       <div id="configLockBanner" class="hint-card error hidden"></div>
@@ -359,6 +364,7 @@
       <button id="resetConfirmBtn" class="btn primary" type="button">确认重置</button>
     </div>
   </dialog>
+  <script type="module" src="/wails/runtime.js"></script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

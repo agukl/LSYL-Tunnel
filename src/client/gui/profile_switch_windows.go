@@ -199,6 +199,8 @@ func profileSwitchFriendlyError(err error) string {
 		}
 	}
 	switch {
+	case containsAnyText(text, "config_version") && containsAnyText(text, "no longer supported"):
+		return "配置版本过旧，当前客户端不再支持；请联系管理员重新下发配置。"
 	case containsAnyText(text, "requires a newer client", "requires version >="):
 		return "目标配置需要更高版本的客户端，请升级客户端后再切换。"
 	case containsAnyText(text, "请先断开"):
@@ -234,6 +236,8 @@ func clientProfileCompatibilityMessage(err error) string {
 	}
 	text := strings.ToLower(err.Error())
 	switch {
+	case strings.Contains(text, "config_version") && strings.Contains(text, "no longer supported"):
+		return "配置结构不兼容"
 	case strings.Contains(text, "requires a newer client"),
 		strings.Contains(text, "current client supports config_version"),
 		(strings.Contains(text, "client config requires version >=") && strings.Contains(text, "current version")):

@@ -1,5 +1,5 @@
 #define AppName "LSYL Tunnel Client"
-#define AppVersion "3.3.0"
+#define AppVersion "3.4.0"
 #define WinDivertDLLSHA256 "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
 #define WinDivertDriverSHA256 "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
 ; This script is copied into the client distributable package:
@@ -91,6 +91,10 @@ var
   ClientRollbackArchiveConfigFile: String;
   ClientRollbackArchiveCertFile: String;
   ClientQuitUseInstalledApp: Boolean;
+  ClientMigrationNeeded: Boolean;
+  ClientInstalledVersion: String;
+  ClientRollbackOwned: Boolean;
+  ClientRollbackFailed: Boolean;
 
 #include "webview2-runtime.iss"
 
@@ -134,7 +138,7 @@ end;
 
 function ClientRollbackDir: String;
 begin
-  Result := ExpandConstant('{tmp}\lsyl-client-install-rollback');
+  Result := ExpandConstant('{app}\conf\.install-rollback');
 end;
 
 procedure CleanupClientQuitHelper;
@@ -162,7 +166,11 @@ begin
   CleanupClientQuitHelper();
   CleanupClientConfigCheckHelper();
   CleanupClientUpgradeHelper();
-  CleanupClientRollbackFiles();
+  if ClientRollbackOwned and not ClientRollbackFailed then
+  begin
+    CleanupClientRollbackFiles();
+    ClientRollbackOwned := False;
+  end;
 end;
 
 function RequestClientQuit: String;
@@ -250,11 +258,23 @@ var
   Params: String;
   Detail: AnsiString;
   DetailText: String;
+  FindRec: TFindRec;
 begin
   Result := '';
   ConfigFile := ExpandConstant('{app}\conf\client.yaml');
-  if not FileExists(ConfigFile) then
+  ClientMigrationNeeded := FileExists(ConfigFile);
+  if FindFirst(ExpandConstant('{app}\conf\client.*.yaml'), FindRec) then begin
+    try
+      ClientMigrationNeeded := True;
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+  if not ClientMigrationNeeded then
     exit;
+
+  if not GetVersionNumbersString(ExpandConstant('{app}\bin\lsyl-tunnel-client-gui.exe'), ClientInstalledVersion) then
+    ClientInstalledVersion := '';
 
   CleanupClientConfigCheckHelper();
   ExtractTemporaryFile('lsyl-tunnel-client-gui-check.exe');
@@ -265,6 +285,8 @@ begin
   Params :=
     '-config-compat-check' +
     ' -config "' + ConfigFile + '"' +
+    ' -source-version "' + ClientInstalledVersion + '"' +
+    ' -backup-file "' + ClientRollbackDir() + '\migration.json"' +
     ' -result-file "' + ResultFile + '"';
   if not Exec(CheckerExe, Params, ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then begin
     Result :=
@@ -286,6 +308,26 @@ begin
       'Installed config: ' + ConfigFile;
   end;
   CleanupClientConfigCheckHelper();
+end;
+
+function RunClientConfigMigration(Rollback: Boolean): Boolean;
+var
+  ResultCode: Integer;
+  Params: String;
+begin
+  Result := True;
+  ExtractTemporaryFile('lsyl-tunnel-client-gui-check.exe');
+  Params := '-config-compat-check -backup-file "' + ClientRollbackDir() + '\migration.json"';
+  if Rollback then
+    Params := Params + ' -rollback'
+  else
+    Params := Params + ' -apply -config "' + ExpandConstant('{app}\conf\client.yaml') +
+      '" -source-version "' + ClientInstalledVersion + '"';
+  if not Exec(ClientConfigCheckHelperPath(), Params, ExpandConstant('{tmp}'), SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) then
+    Result := False
+  else
+    Result := ResultCode = 0;
 end;
 
 function TrimClientYamlValue(Value: String): String;
@@ -406,11 +448,19 @@ begin
   ClientHadArchiveCertFile := False;
   ClientArchiveConfigFile := '';
   ClientArchiveCertFile := '';
-  CleanupClientRollbackFiles();
-  if not CreateDir(RollbackDir) then begin
-    Result := '无法创建安装回滚目录，请检查临时目录权限后重试。';
+  if DirExists(RollbackDir) then begin
+    Result := '存在上次安装留下的配置回滚数据，请先检查并恢复：' + RollbackDir;
     exit;
   end;
+  if not ForceDirectories(ExpandConstant('{app}\conf')) then begin
+    Result := '无法创建客户端配置目录，请检查安装目录权限后重试。';
+    exit;
+  end;
+  if not CreateDir(RollbackDir) then begin
+    Result := '无法创建安装回滚目录，请检查安装目录权限后重试。';
+    exit;
+  end;
+  ClientRollbackOwned := True;
   if ClientHadConfigFile then begin
     if not CopyFile(ConfigFile, ClientRollbackConfigFile, False) then begin
       Result := '无法备份当前客户端配置，安装已停止。请检查安装目录权限后重试。';
@@ -459,43 +509,52 @@ begin
   ClientInstallPrepared := True;
 end;
 
-procedure RollbackClientRuntimeFiles;
+function RollbackClientRuntimeFiles: Boolean;
 var
   ConfigFile: String;
   CertFile: String;
 begin
+  Result := True;
   if not ClientInstallPrepared then
     exit;
   ConfigFile := ExpandConstant('{app}\conf\client.yaml');
   CertFile := ExpandConstant('{app}\cert\server.crt');
   if ClientHadConfigFile then begin
     CreateDir(ExpandConstant('{app}\conf'));
-    if FileExists(ClientRollbackConfigFile) then
-      CopyFile(ClientRollbackConfigFile, ConfigFile, False);
+    if not FileExists(ClientRollbackConfigFile) or
+       not CopyFile(ClientRollbackConfigFile, ConfigFile, False) then
+      Result := False;
   end else begin
-    DeleteFile(ConfigFile);
+    if FileExists(ConfigFile) and not DeleteFile(ConfigFile) then
+      Result := False;
   end;
   if ClientHadCertFile then begin
     CreateDir(ExpandConstant('{app}\cert'));
-    if FileExists(ClientRollbackCertFile) then
-      CopyFile(ClientRollbackCertFile, CertFile, False);
+    if not FileExists(ClientRollbackCertFile) or
+       not CopyFile(ClientRollbackCertFile, CertFile, False) then
+      Result := False;
   end else begin
-    DeleteFile(CertFile);
+    if FileExists(CertFile) and not DeleteFile(CertFile) then
+      Result := False;
   end;
   if ClientArchiveConfigFile <> '' then begin
     if ClientHadArchiveConfigFile then begin
-      if FileExists(ClientRollbackArchiveConfigFile) then
-        CopyFile(ClientRollbackArchiveConfigFile, ClientArchiveConfigFile, False);
+      if not FileExists(ClientRollbackArchiveConfigFile) or
+         not CopyFile(ClientRollbackArchiveConfigFile, ClientArchiveConfigFile, False) then
+        Result := False;
     end else begin
-      DeleteFile(ClientArchiveConfigFile);
+      if FileExists(ClientArchiveConfigFile) and not DeleteFile(ClientArchiveConfigFile) then
+        Result := False;
     end;
   end;
   if ClientArchiveCertFile <> '' then begin
     if ClientHadArchiveCertFile then begin
-      if FileExists(ClientRollbackArchiveCertFile) then
-        CopyFile(ClientRollbackArchiveCertFile, ClientArchiveCertFile, False);
+      if not FileExists(ClientRollbackArchiveCertFile) or
+         not CopyFile(ClientRollbackArchiveCertFile, ClientArchiveCertFile, False) then
+        Result := False;
     end else begin
-      DeleteFile(ClientArchiveCertFile);
+      if FileExists(ClientArchiveCertFile) and not DeleteFile(ClientArchiveCertFile) then
+        Result := False;
     end;
   end;
 end;
@@ -504,6 +563,14 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   QuitMessage: String;
 begin
+  if ClientRollbackFailed then begin
+    Result := '上次安装回滚未完成，备份已保留在：' + ClientRollbackDir();
+    exit;
+  end;
+  if ClientInstallPrepared then begin
+    Result := '';
+    exit;
+  end;
   Result := EnsureWebView2Runtime(NeedsRestart);
   if Result <> '' then
     exit;
@@ -523,8 +590,10 @@ begin
   Result := BackupClientRuntimeFiles();
   if Result <> '' then begin
     if ClientInstallPrepared then begin
-      RollbackClientRuntimeFiles();
-      ClientInstallPrepared := False;
+      if RollbackClientRuntimeFiles() then
+        ClientInstallPrepared := False
+      else
+        ClientRollbackFailed := True;
     end;
     CleanupClientInstallTemps();
   end;
@@ -532,6 +601,13 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
+  if (CurStep = ssInstall) and ClientMigrationNeeded then begin
+    WizardForm.StatusLabel.Caption := '正在升级客户端配置...';
+    if not RunClientConfigMigration(False) then begin
+      MsgBox('客户端配置迁移失败，安装已停止；原配置将恢复。', mbError, MB_OK);
+      Abort;
+    end;
+  end;
   if CurStep = ssDone then begin
     ClientInstallSucceeded := True;
     CleanupClientInstallTemps();
@@ -540,8 +616,15 @@ end;
 
 procedure DeinitializeSetup;
 begin
-  if ClientInstallPrepared and not ClientInstallSucceeded then
-    RollbackClientRuntimeFiles();
+  if ClientInstallPrepared and not ClientInstallSucceeded then begin
+    if FileExists(ClientRollbackDir() + '\migration.json') and
+       not RunClientConfigMigration(True) then
+      ClientRollbackFailed := True;
+    if not RollbackClientRuntimeFiles() then
+      ClientRollbackFailed := True;
+    if ClientRollbackFailed then
+      MsgBox('客户端配置自动回滚失败，备份已保留在：' + ClientRollbackDir(), mbError, MB_OK);
+  end;
   CleanupClientInstallTemps();
 end;
 

@@ -1,7 +1,7 @@
 export async function api(method, path, body, cb) {
   let data;
   try {
-    const headers = { Accept: 'application/json', 'X-LSYL-Panel-Token': globalThis.__lsylPanelToken || '' };
+    const headers = { Accept: 'application/json' };
     if (body != null) { headers['Content-Type'] = 'application/json; charset=utf-8'; }
     const response = await fetch(path, {
       method,
@@ -19,7 +19,7 @@ export async function api(method, path, body, cb) {
       data.message = data.message || '管理台请求失败';
     }
   } catch {
-    data = { ok: false, message: '管理台连接失败，请重新打开服务端 GUI' };
+    data = { ok: false, message: '管理台请求失败，请重新打开服务端 GUI' };
   }
   cb(data);
 }

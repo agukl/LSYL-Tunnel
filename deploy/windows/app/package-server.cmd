@@ -27,9 +27,11 @@ if not exist "%PACKAGE_DIR%\logs\service" mkdir "%PACKAGE_DIR%\logs\service" || 
 if not exist "%PACKAGE_DIR%\assets" mkdir "%PACKAGE_DIR%\assets" || exit /b 1
 if not exist "%PACKAGE_DIR%\installer\Languages" mkdir "%PACKAGE_DIR%\installer\Languages" || exit /b 1
 if not exist "%PACKAGE_DIR%\licenses\WebView2" mkdir "%PACKAGE_DIR%\licenses\WebView2" || exit /b 1
+if not exist "%PACKAGE_DIR%\licenses\Wails" mkdir "%PACKAGE_DIR%\licenses\Wails" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%prepare-webview2.ps1" -PackageDir "%PACKAGE_DIR%" || exit /b 1
 copy /y ".\LICENSE" "%PACKAGE_DIR%\LICENSE" >nul || exit /b 1
 copy /y ".\third_party\webview2\LICENSE-*.txt" "%PACKAGE_DIR%\licenses\WebView2\" >nul || exit /b 1
+copy /y ".\third_party\wails\LICENSE-Wails.txt" "%PACKAGE_DIR%\licenses\Wails\" >nul || exit /b 1
 copy /y ".\build\bin\server\lsyl-tunnel-server-svc.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\build\bin\server\lsyl-tunnel-server-gui.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\build\bin\server\lsyl-tunnel-cert.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1

@@ -90,16 +90,10 @@ func TestLoadConfigDefaultsTrafficLogPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(confDir, "server.yaml")
-	data := strings.Join([]string{
-		"tls:",
-		"  cert_file: " + filepath.ToSlash(certFile),
-		"  key_file: " + filepath.ToSlash(keyFile),
-		"auth:",
-		"  users:",
-		"    - username: alice",
-		"      password_hash: plain:secret",
-	}, "\n")
-	if err := os.WriteFile(configPath, []byte(data), 0o644); err != nil {
+	if err := SaveConfig(configPath, Config{
+		TLS:  TLSConfig{CertFile: certFile, KeyFile: keyFile},
+		Auth: AuthConfig{Users: []UserConfig{{Username: "alice", PasswordHash: "plain:secret"}}},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := LoadConfig(configPath)

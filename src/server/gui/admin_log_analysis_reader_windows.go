@@ -10,27 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"lsyltunnel/src/server/tunnel"
 )
 
-func readBusinessLogsInRange(basePath string, start, end time.Time, visit func(tunnel.BusinessLogEntry, time.Time)) (int, error) {
+func readLogsInRange[T any](basePath string, start, end time.Time, visit func(T, time.Time)) (int, error) {
 	total := 0
 	err := readJSONLRange(basePath, start, end, func(line []byte, t time.Time) {
-		var entry tunnel.BusinessLogEntry
-		if err := json.Unmarshal(line, &entry); err != nil {
-			return
-		}
-		total++
-		visit(entry, t)
-	})
-	return total, err
-}
-
-func readRequestLogsInRange(basePath string, start, end time.Time, visit func(tunnel.RequestLogEntry, time.Time)) (int, error) {
-	total := 0
-	err := readJSONLRange(basePath, start, end, func(line []byte, t time.Time) {
-		var entry tunnel.RequestLogEntry
+		var entry T
 		if err := json.Unmarshal(line, &entry); err != nil {
 			return
 		}
@@ -79,8 +64,8 @@ func readJSONLRangeFile(path string, start, end time.Time, visit func([]byte, ti
 		if t.Before(start) || t.After(end) {
 			continue
 		}
-		copied := append([]byte(nil), line...)
-		visit(copied, t)
+		// The callback decodes before the scanner reuses its line buffer.
+		visit(line, t)
 	}
 	return scanner.Err()
 }
