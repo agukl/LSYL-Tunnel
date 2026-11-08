@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"encoding/json"
+	"lsyltunnel/src/internal/atomicfile"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,7 +92,7 @@ func UnblockBlockedIP(stateFile, ip string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return true, os.WriteFile(stateFile, data, 0o600)
+	return true, atomicfile.WriteFile(stateFile, data, 0o600)
 }
 
 func (f *failTracker) load() error {
@@ -153,10 +154,13 @@ func (f *failTracker) load() error {
 	return cleanupErr
 }
 
-func (f *failTracker) saveLocked() error {
+func (f *failTracker) save() error {
 	if f == nil || f.stateFile == "" {
 		return nil
 	}
+	f.persistMu.Lock()
+	defer f.persistMu.Unlock()
+	f.mu.RLock()
 	now := f.now()
 	state := persistedRuntimeState{BlockedIPs: []persistedBlockedIP{}}
 	for ip, item := range f.items {
@@ -168,6 +172,7 @@ func (f *failTracker) saveLocked() error {
 			BlockedUntil: item.blockedUntil,
 		})
 	}
+	f.mu.RUnlock()
 	if err := os.MkdirAll(filepath.Dir(f.stateFile), 0o755); err != nil {
 		return err
 	}
@@ -175,7 +180,7 @@ func (f *failTracker) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(f.stateFile, data, 0o600)
+	return atomicfile.WriteFile(f.stateFile, data, 0o600)
 }
 
 func (f *failTracker) snapshotBlocked() []BlockedIPState {
@@ -211,10 +216,10 @@ func (f *failTracker) unblock(key string) (bool, error) {
 		return false, nil
 	}
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	_, removed := f.items[key]
 	delete(f.items, key)
-	if err := f.saveLocked(); err != nil {
+	f.mu.Unlock()
+	if err := f.save(); err != nil {
 		return removed, err
 	}
 	return removed, nil
@@ -228,6 +233,8 @@ func (f *failTracker) unblockPermanent(key string) (bool, error) {
 	if key == "" {
 		return false, nil
 	}
+	f.persistMu.Lock()
+	defer f.persistMu.Unlock()
 	memoryKey := permanentBlockIPKey(key)
 	_, inMemory := f.permanent.Load(memoryKey)
 	removed, err := RemovePermanentBlockedIP(f.permanentFile, key)

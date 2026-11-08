@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -119,6 +120,34 @@ func TestFailTrackerPersistsBlockedIP(t *testing.T) {
 	}
 }
 
+func TestExpiredTemporaryBlockDoesNotWriteFromEntryCheck(t *testing.T) {
+	now := time.Unix(1000, 0)
+	stateFile := filepath.Join(t.TempDir(), "server-state.json")
+	tracker := newFailTracker(SecurityConfig{AuthFailWindowSec: 1, AuthFailThreshold: 1, AuthFailBlockSec: 1}, stateFile, "")
+	tracker.now = func() time.Time { return now }
+	tracker.addFailure("203.0.113.10")
+	before, err := os.ReadFile(stateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Second)
+	if got := tracker.blockKind("203.0.113.10"); got != blockedNone {
+		t.Fatalf("block kind = %v, want none", got)
+	}
+	after, err := os.ReadFile(stateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("entry check rewrote the state file")
+	}
+	reloaded := newFailTracker(SecurityConfig{AuthFailWindowSec: 1, AuthFailThreshold: 1, AuthFailBlockSec: 1}, stateFile, "")
+	reloaded.now = func() time.Time { return now }
+	if err := reloaded.load(); err != nil || reloaded.isBlocked("203.0.113.10") {
+		t.Fatalf("expired on-disk block was restored: %v", err)
+	}
+}
+
 func TestUnblockBlockedIPRemovesPersistedState(t *testing.T) {
 	stateFile := filepath.Join(t.TempDir(), "server-state.json")
 	permanentFile := filepath.Join(t.TempDir(), "server-permanent-block.txt")
@@ -196,6 +225,27 @@ func TestFailTrackerPermanentBlockUsesDedicatedFile(t *testing.T) {
 	}
 	if !reloaded.isBlocked("203.0.113.10") {
 		t.Fatal("permanent blocked IP was not restored")
+	}
+}
+
+func TestConcurrentPermanentBlockWritesOnce(t *testing.T) {
+	permanentFile := filepath.Join(t.TempDir(), "server-permanent-block.txt")
+	tracker := newFailTracker(SecurityConfig{AuthFailWindowSec: 60, AuthFailThreshold: 1}, "", permanentFile)
+	var workers sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			tracker.addProtocolFailure("203.0.113.10")
+		}()
+	}
+	workers.Wait()
+	data, err := os.ReadFile(permanentFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(data), "203.0.113.10\n"); got != 1 {
+		t.Fatalf("permanent block was written %d times, want once: %s", got, data)
 	}
 }
 

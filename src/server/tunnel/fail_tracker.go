@@ -8,21 +8,24 @@ import (
 )
 
 type failTracker struct {
-	mu             sync.RWMutex
-	window         time.Duration
-	limit          int
-	blockFor       time.Duration
-	maxItems       int
-	cleanupEvery   time.Duration
-	now            func() time.Time
-	successfulDate string
-	successfulIPs  map[string]struct{}
-	items          map[string]*failState
-	permanent      sync.Map
-	stateFile      string
-	permanentFile  string
-	evicted        atomic.Uint64
-	capacityDrop   atomic.Uint64
+	mu sync.RWMutex
+	// File writes use a separate lock so entry checks never wait on disk under mu.
+	persistMu               sync.Mutex
+	window                  time.Duration
+	limit                   int
+	blockFor                time.Duration
+	maxItems                int
+	cleanupEvery            time.Duration
+	now                     func() time.Time
+	successfulDate          string
+	successfulIPs           map[string]struct{}
+	successCapacityExceeded bool
+	items                   map[string]*failState
+	permanent               sync.Map
+	stateFile               string
+	permanentFile           string
+	evicted                 atomic.Uint64
+	capacityDrop            atomic.Uint64
 }
 
 type blockKind int
@@ -106,19 +109,19 @@ func (f *failTracker) blockKind(key string) blockKind {
 	if len(state.authFailures) == 0 && len(state.protocolFailures) == 0 {
 		delete(f.items, key)
 	}
-	_ = f.saveLocked()
 	return blockedNone
 }
 
 func (f *failTracker) addFailure(key string) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	now := f.now()
 	state, ok := f.trackStateLocked(key, now)
 	if !ok {
+		f.mu.Unlock()
 		return
 	}
 	if f.hasPermanent(key) {
+		f.mu.Unlock()
 		return
 	}
 	state.authFailures = appendRecentFailures(state.authFailures, now.Add(-f.window))
@@ -127,8 +130,11 @@ func (f *failTracker) addFailure(key string) {
 	if len(state.authFailures) >= f.limit {
 		state.blockedUntil = now.Add(f.blockFor)
 		state.authFailures = nil
-		_ = f.saveLocked()
+		f.mu.Unlock()
+		_ = f.save()
+		return
 	}
+	f.mu.Unlock()
 }
 
 func (f *failTracker) addProtocolFailure(key string) bool {
@@ -136,16 +142,18 @@ func (f *failTracker) addProtocolFailure(key string) bool {
 		key = canonical
 	}
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	now := f.now()
-	if f.successfulTodayLocked(key, now) {
+	if f.successfulTodayLocked(key, now) || f.successCapacityExceeded {
+		f.mu.Unlock()
 		return false
 	}
 	state, ok := f.trackStateLocked(key, now)
 	if !ok {
+		f.mu.Unlock()
 		return false
 	}
 	if f.hasPermanent(key) {
+		f.mu.Unlock()
 		return false
 	}
 	state.protocolFailures = appendRecentFailures(state.protocolFailures, now.Add(-f.window))
@@ -155,25 +163,40 @@ func (f *failTracker) addProtocolFailure(key string) bool {
 		state.blockedUntil = time.Time{}
 		state.authFailures = nil
 		state.protocolFailures = nil
-		return f.blockPermanentLocked(key)
+		f.mu.Unlock()
+		return f.blockPermanent(key)
 	}
+	f.mu.Unlock()
 	return false
 }
 
-func (f *failTracker) blockPermanentLocked(key string) bool {
+func (f *failTracker) blockPermanent(key string) bool {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return false
 	}
+	f.persistMu.Lock()
 	if f.hasPermanent(key) {
+		f.persistMu.Unlock()
 		return false
 	}
+	f.mu.Lock()
+	if f.successfulTodayLocked(key, f.now()) || f.successCapacityExceeded {
+		f.mu.Unlock()
+		f.persistMu.Unlock()
+		return false
+	}
+	f.mu.Unlock()
 	if err := appendPermanentBlockedIP(f.permanentFile, key); err != nil {
+		f.persistMu.Unlock()
 		return false
 	}
 	f.permanent.Store(key, struct{}{})
+	f.mu.Lock()
 	delete(f.items, key)
-	_ = f.saveLocked()
+	f.mu.Unlock()
+	f.persistMu.Unlock()
+	_ = f.save()
 	return true
 }
 
@@ -243,11 +266,12 @@ func (f *failTracker) cleanup() error {
 		return nil
 	}
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if !f.cleanupLocked(f.now()) {
+	changed := f.cleanupLocked(f.now())
+	f.mu.Unlock()
+	if !changed {
 		return nil
 	}
-	return f.saveLocked()
+	return f.save()
 }
 
 func (f *failTracker) cleanupLocked(now time.Time) bool {

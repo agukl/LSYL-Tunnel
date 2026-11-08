@@ -158,6 +158,27 @@ func TestSuccessfulIPSetIsBounded(t *testing.T) {
 	if got := len(tracker.successfulIPs); got != 2 {
 		t.Fatalf("successful IP count = %d, want 2", got)
 	}
+	if !tracker.successCapacityExceeded {
+		t.Fatal("successful IP capacity was not recorded")
+	}
+}
+
+func TestSuccessfulIPCapacityStopsNewPermanentBlocksUntilNextDay(t *testing.T) {
+	now := time.Date(2026, time.August, 4, 12, 0, 0, 0, time.Local)
+	tracker := newFailTracker(SecurityConfig{AuthFailWindowSec: 60, AuthFailThreshold: 2, MaxTrackedFailureIPs: 2}, "", filepath.Join(t.TempDir(), "permanent.txt"))
+	tracker.now = func() time.Time { return now }
+	tracker.markSuccessful("203.0.113.10")
+	tracker.markSuccessful("203.0.113.20")
+	tracker.markSuccessful("203.0.113.30")
+	for i := 0; i < 2; i++ {
+		if tracker.addProtocolFailure("203.0.113.40") {
+			t.Fatal("permanent block created after successful-IP capacity was reached")
+		}
+	}
+	now = now.AddDate(0, 0, 1)
+	if tracker.addProtocolFailure("203.0.113.40") || !tracker.addProtocolFailure("203.0.113.40") {
+		t.Fatal("permanent blocks did not resume the next day")
+	}
 }
 
 func TestReconcileSuccessfulIPHistoryRemovesRecentPermanentBlocks(t *testing.T) {

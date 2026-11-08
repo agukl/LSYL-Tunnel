@@ -121,17 +121,20 @@ func (f *failTracker) markSuccessful(key string) bool {
 		return false
 	}
 	now := f.now()
+	f.persistMu.Lock()
+	defer f.persistMu.Unlock()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rotateSuccessfulIPsLocked(now)
+	if state := f.items[key]; state != nil {
+		state.protocolFailures = nil
+	}
 	if _, exists := f.successfulIPs[key]; !exists {
 		if len(f.successfulIPs) >= f.maxItems {
+			f.successCapacityExceeded = true
 			return false
 		}
 		f.successfulIPs[key] = struct{}{}
-	}
-	if state := f.items[key]; state != nil {
-		state.protocolFailures = nil
 	}
 	return true
 }
@@ -149,6 +152,7 @@ func (f *failTracker) rotateSuccessfulIPsLocked(now time.Time) {
 	}
 	f.successfulDate = date
 	f.successfulIPs = map[string]struct{}{}
+	f.successCapacityExceeded = false
 }
 
 func reconcileSuccessfulIPHistory(fails *failTracker, requestLogPath string, now time.Time) error {
@@ -173,6 +177,8 @@ func (f *failTracker) removePermanentSuccessful(ips map[string]struct{}) (int, e
 	if f == nil || len(ips) == 0 {
 		return 0, nil
 	}
+	f.persistMu.Lock()
+	defer f.persistMu.Unlock()
 	removed, err := removePermanentBlockedIPs(f.permanentFile, ips)
 	if err != nil {
 		return 0, err
