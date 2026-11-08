@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"lsyltunnel/src/internal/netaddr"
 	"lsyltunnel/src/internal/protocol"
 	"lsyltunnel/src/internal/transport"
 )
@@ -95,6 +96,9 @@ func (c *Client) checkForwardNow(ctx context.Context, name string, fwd ForwardCo
 func (c *Client) restoreCheckedForward(name string, fwd ForwardConfig) error {
 	switch strings.TrimSpace(fwd.Direction) {
 	case DirectionVirtual:
+		if host, _, err := parseVirtualListenAddr(fwd.ListenAddr); err == nil && host == netaddr.LoopbackIPv4 {
+			return c.ensureVirtualLoopbackListener(name, fwd)
+		}
 		if !c.virtualForwardActive(name) {
 			return fmt.Errorf("virtual redirect is inactive; disconnect and reconnect to request administrator authorization")
 		}

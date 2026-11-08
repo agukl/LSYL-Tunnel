@@ -60,10 +60,8 @@ function Get-Targets([string]$scope) {
         (Join-Path $clientPackageRoot "bin\lsyl-tunnel-client-lite.exe")
     )
     $serverPackage = @(
-        (Join-Path $serverPackageRoot "bin\lsyl-tunnel-server.exe"),
         (Join-Path $serverPackageRoot "bin\lsyl-tunnel-server-svc.exe"),
         (Join-Path $serverPackageRoot "bin\lsyl-tunnel-server-gui.exe"),
-        (Join-Path $serverPackageRoot "bin\lsyl-tunnel-passwd.exe"),
         (Join-Path $serverPackageRoot "bin\lsyl-tunnel-cert.exe")
     )
     $installerRoot = "dist\installers"

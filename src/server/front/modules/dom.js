@@ -13,16 +13,6 @@ export function hiddenInput(value, name) {
   return input;
 }
 
-export function preventEvent(event) {
-  if (!event) { return; }
-  if (event.preventDefault) { event.preventDefault(); }
-  event.returnValue = false;
-}
-
-export function hasClass(node, className) {
-  return (' ' + (node.className || '') + ' ').indexOf(' ' + className + ' ') >= 0;
-}
-
 export function appendPlainCell(row, text, className) {
   var td = document.createElement('td');
   if (className) { td.className = className; }
@@ -63,19 +53,7 @@ export function hasDataRows(tbody) {
   if (!tbody) { return false; }
   var rows = tbody.getElementsByTagName('tr');
   for (var i = 0; i < rows.length; i++) {
-    if (rows[i].className !== 'empty-row-wrap') { return true; }
+    if (!rows[i].classList.contains('empty-row-wrap')) { return true; }
   }
   return false;
-}
-
-export function setClassEnabled(node, className, enabled) {
-  if (!node) { return; }
-  var current = ' ' + (node.className || '') + ' ';
-  var token = ' ' + className + ' ';
-  var hasClass = current.indexOf(token) >= 0;
-  if (enabled && !hasClass) {
-    node.className = (node.className ? node.className + ' ' : '') + className;
-  } else if (!enabled && hasClass) {
-    node.className = current.replace(token, ' ').replace(/^\s+|\s+$/g, '').replace(/\s+/g, ' ');
-  }
 }

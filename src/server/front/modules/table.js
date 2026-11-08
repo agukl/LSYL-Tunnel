@@ -1,4 +1,4 @@
-import { $, preventEvent, setClassEnabled } from './dom.js';
+import { $ } from './dom.js';
 
 export function updateLogHorizontalScroll(tableID, barID, trackID) {
   var table = $(tableID);
@@ -28,21 +28,9 @@ export function updateLogScrollbars() {
   updateLogHorizontalScroll('requestTable', 'requestScrollBar', 'requestScrollTrack');
 }
 
-function addDocumentEvent(name, handler) {
-  document.addEventListener(name, handler, true);
-}
-
-function removeDocumentEvent(name, handler) {
-  document.removeEventListener(name, handler, true);
-}
-
 function stopMouseEvent(evt) {
-  evt = evt || window.event;
-  if (!evt) { return false; }
-  if (evt.preventDefault) { evt.preventDefault(); }
-  if (evt.stopPropagation) { evt.stopPropagation(); }
-  evt.returnValue = false;
-  evt.cancelBubble = true;
+  evt.preventDefault();
+  evt.stopPropagation();
   return false;
 }
 
@@ -80,7 +68,7 @@ function saveTableColumnWidths(table, widths) {
 }
 
 function getTableHeaders(table) {
-  var thead = table.tHead || table.getElementsByTagName('thead')[0];
+  var thead = table.tHead;
   if (!thead) { return []; }
   var rows = thead.getElementsByTagName('tr');
   if (!rows.length) { return []; }
@@ -141,32 +129,30 @@ function applyTableColumnWidths(table, widths) {
 }
 
 function beginColumnResize(table, headers, index, evt) {
-  evt = evt || window.event;
-  var startX = evt.clientX || 0;
+  var startX = evt.clientX;
   var startWidths = currentTableColumnWidths(table, headers);
   if (!startWidths) { return stopMouseEvent(evt); }
-  setClassEnabled(document.body, 'column-resizing', true);
+  document.body.classList.add('column-resizing');
 
   var moveHandler = function (moveEvt) {
-    moveEvt = moveEvt || window.event;
     var next = [];
     for (var i = 0; i < startWidths.length; i++) { next.push(startWidths[i]); }
-    next[index] = Math.max(56, startWidths[index] + ((moveEvt.clientX || 0) - startX));
+    next[index] = Math.max(56, startWidths[index] + (moveEvt.clientX - startX));
     applyTableColumnWidths(table, next);
     stopMouseEvent(moveEvt);
   };
 
   var upHandler = function (upEvt) {
-    removeDocumentEvent('mousemove', moveHandler);
-    removeDocumentEvent('mouseup', upHandler);
-    setClassEnabled(document.body, 'column-resizing', false);
+    document.removeEventListener('mousemove', moveHandler, true);
+    document.removeEventListener('mouseup', upHandler, true);
+    document.body.classList.remove('column-resizing');
     var finalWidths = currentTableColumnWidths(table, headers);
     if (finalWidths) { saveTableColumnWidths(table, finalWidths); }
     stopMouseEvent(upEvt);
   };
 
-  addDocumentEvent('mousemove', moveHandler);
-  addDocumentEvent('mouseup', upHandler);
+  document.addEventListener('mousemove', moveHandler, true);
+  document.addEventListener('mouseup', upHandler, true);
   return stopMouseEvent(evt);
 }
 
@@ -174,34 +160,30 @@ function bindResizableTable(table) {
   if (!table || !table.id || table.getAttribute('data-resizable-bound') === '1') { return; }
   var headers = getTableHeaders(table);
   if (!headers.length) { return; }
-  setClassEnabled(table, 'resizable-table', true);
-  for (var i = 0; i < headers.length; i++) {
-    (function (columnIndex) {
-      var handle = document.createElement('span');
-      handle.className = 'column-resizer';
-      handle.title = '拖拽或按左右方向键调整列宽';
-      handle.tabIndex = 0;
-      handle.setAttribute('role', 'separator');
-      handle.setAttribute('aria-orientation', 'vertical');
-      handle.setAttribute('aria-valuemin', '0');
-      handle.setAttribute('aria-valuemax', '100');
-      handle.setAttribute('aria-label', '调整' + headers[columnIndex].textContent + '列宽');
-      handle.onmousedown = function (evt) {
-        return beginColumnResize(table, headers, columnIndex, evt);
-      };
-      handle.onkeydown = function (evt) {
-        evt = evt || window.event;
-        var code = evt.keyCode || evt.which;
-        if (code !== 37 && code !== 39) { return; }
-        var widths = currentTableColumnWidths(table, headers);
-        if (!widths) { return; }
-        widths[columnIndex] = Math.max(56, widths[columnIndex] + (code === 39 ? 12 : -12));
-        applyTableColumnWidths(table, widths);
-        saveTableColumnWidths(table, widths);
-        preventEvent(evt);
-      };
-      headers[columnIndex].appendChild(handle);
-    })(i);
+  table.classList.add('resizable-table');
+  for (let i = 0; i < headers.length; i++) {
+    var handle = document.createElement('span');
+    handle.className = 'column-resizer';
+    handle.title = '拖拽或按左右方向键调整列宽';
+    handle.tabIndex = 0;
+    handle.setAttribute('role', 'separator');
+    handle.setAttribute('aria-orientation', 'vertical');
+    handle.setAttribute('aria-valuemin', '0');
+    handle.setAttribute('aria-valuemax', '100');
+    handle.setAttribute('aria-label', '调整' + headers[i].textContent + '列宽');
+    handle.onmousedown = function (evt) {
+      return beginColumnResize(table, headers, i, evt);
+    };
+    handle.onkeydown = function (evt) {
+      if (evt.key !== 'ArrowLeft' && evt.key !== 'ArrowRight') { return; }
+      var widths = currentTableColumnWidths(table, headers);
+      if (!widths) { return; }
+      widths[i] = Math.max(56, widths[i] + (evt.key === 'ArrowRight' ? 12 : -12));
+      applyTableColumnWidths(table, widths);
+      saveTableColumnWidths(table, widths);
+      evt.preventDefault();
+    };
+    headers[i].appendChild(handle);
   }
   table.setAttribute('data-resizable-bound', '1');
 }

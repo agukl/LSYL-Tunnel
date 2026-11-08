@@ -56,16 +56,14 @@ goto :eof
 if not exist ".\build\bin\client" mkdir ".\build\bin\client"
 if exist ".\build\bin\client\lsyl-tunnel-client.exe" del /f /q ".\build\bin\client\lsyl-tunnel-client.exe" >nul 2>nul
 
-echo [1/3] build lsyl-tunnel-client-gui.exe
+echo [1/2] build lsyl-tunnel-client-gui.exe
 "%GOEXE%" build -trimpath -ldflags "-H windowsgui -s -w" -o ".\build\bin\client\lsyl-tunnel-client-gui.exe" ".\src\client\cmd\lsyl-tunnel-client-gui" || exit /b 1
 
-echo [2/3] build lsyl-tunnel-client-lite.exe
+echo [2/2] build lsyl-tunnel-client-lite.exe
 call "%SCRIPT_DIR%build-win7-lite.cmd" || exit /b 1
 
-echo [3/3] stage WinDivert runtime
-copy /y ".\third_party\windivert\2.2.2\x64\WinDivert.dll" ".\build\bin\client\WinDivert.dll" >nul || exit /b 1
-copy /y ".\third_party\windivert\2.2.2\x64\WinDivert64.sys" ".\build\bin\client\WinDivert64.sys" >nul || exit /b 1
-
+rem package-client.cmd copies runtime files directly from third_party into its fresh package.
+rem Do not overwrite build\bin runtime files: a development session may have loaded the driver.
 echo Client package build completed: %WORKSPACE%\build\bin\client
 goto :eof
 

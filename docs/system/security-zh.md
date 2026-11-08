@@ -92,7 +92,7 @@ pbkdf2-sha256:<iterations>:<salt-base64>:<hash-base64>
 
 `max_concurrent_streams_per_user` 限制单个账号同时保持的正向 `open` 和反向 `reverse_stream` 数据通道数量。登录、健康检查、转发检查和反向控制连接不占用该额度。
 
-`stream_rate_limit_bytes_per_sec` 限制每条业务连接的上下行合计速率。它不会改变业务日志口径；连接关闭时仍按实际通过的字节数记录 `bytes_up`、`bytes_down` 和 `duration_ms`。
+`stream_rate_limit_bytes_per_sec` 限制每条业务连接的上下行合计速率。连接关闭时在业务流水中按实际通过的字节数记录 `bytes_up`、`bytes_down`、`duration_ms`、总字节数和平均速率。
 
 ## 登录失败封禁
 
@@ -117,7 +117,7 @@ pbkdf2-sha256:<iterations>:<salt-base64>:<hash-base64>
 请求、认证、连接、策略拒绝、目标失败等属于运行事件：
 
 - 服务进程内保留最近 `runtime.recent_events` 条。
-- 同步写入按天切分的服务日志。
+- 对应请求和业务结果写入各自的 JSONL 流水；服务自身诊断仍写入按天切分的服务日志。
 - 用于运行详情页和故障排查。
 
 运行事件不应该记录密码、密封凭据密文或完整业务数据包。

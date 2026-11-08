@@ -1,9 +1,9 @@
 import {
   $, setText, hiddenInput, appendPlainCell, appendBadgeCell, appendEmptyRow,
-  removeEmptyRows, hasDataRows, setClassEnabled,
+  removeEmptyRows, hasDataRows,
 } from './modules/dom.js';
 import { api } from './modules/api.js';
-import { numberText, bytesText, rateText, isFailureRecord, timeText, remainText } from './modules/format.js';
+import { numberText, bytesText, rateText, timeText, remainText } from './modules/format.js';
 import {
   addCustomSelect, renderCustomSelect, closeAllCustomSelects, bindCustomSelectDismissal,
 } from './modules/select.js';
@@ -16,11 +16,9 @@ let dirty = false;
 let editRevision = 0;
 let busy = false;
 let activeTab = 'overview';
+let activeLogView = 'business';
 let resetPasswordRow = null;
-const lockedSecurityIds = [
-  'listenAddr', 'monitorAddr', 'logLevel', 'tlsCert', 'tlsKey', 'tlsMinVersion',
-  'sealKeyID', 'sealPrivate', 'sealPublic', 'sealExpires',
-];
+let pendingConfirmAction = null;
 const editableSecurityIds = [
   'handshakeTimeout', 'dialTimeout', 'maxHandshakeBytes', 'maxConcurrentConnections',
   'maxConcurrentConnectionsPerIP', 'connectionRateWindow', 'maxNewConnectionsPerIPWindow',
@@ -38,6 +36,21 @@ function showToast(message, isError) {
       if (box.textContent === message) { box.className = 'toast hidden'; }
     }, 4200);
   }
+}
+
+function confirmAction(message, action) {
+  var dialog = $('actionConfirmDialog');
+  if (dialog.open) { return; }
+  $('actionConfirmMessage').textContent = message;
+  pendingConfirmAction = action;
+  dialog.returnValue = 'cancel';
+  dialog.showModal();
+}
+
+function finishConfirmAction() {
+  var action = pendingConfirmAction;
+  pendingConfirmAction = null;
+  if (this.returnValue === 'confirm' && action) { action(); }
 }
 
 function formatIssues(issues) {
@@ -224,15 +237,7 @@ function setConfigEditingEnabled(enabled) {
 }
 
 function fillSecurity(cfg) {
-  var tls = cfg.tls || {};
   var sec = cfg.security || {};
-  var seal = cfg.credential_seal || {};
-  $('listenAddr').value = cfg.listen_addr || '';
-  $('monitorAddr').value = cfg.monitor_addr || '';
-  $('logLevel').value = cfg.log_level || '';
-  $('tlsCert').value = tls.cert_file || '';
-  $('tlsKey').value = tls.key_file || '';
-  $('tlsMinVersion').value = tls.min_version || '';
   $('handshakeTimeout').value = sec.handshake_timeout_sec || '';
   $('dialTimeout').value = sec.dial_timeout_sec || '';
   $('maxHandshakeBytes').value = sec.max_handshake_bytes || '';
@@ -250,10 +255,6 @@ function fillSecurity(cfg) {
   $('authFailWindow').value = sec.auth_fail_window_sec || '';
   $('authFailThreshold').value = sec.auth_fail_threshold || '';
   $('authFailBlock').value = sec.auth_fail_block_sec || '';
-  $('sealKeyID').value = seal.key_id || '';
-  $('sealPrivate').value = seal.private_key_file || '';
-  $('sealPublic').value = seal.public_key_file || '';
-  $('sealExpires').value = seal.expires_at || '';
 }
 
 function renderUserConcurrency(cfg, mon) {
@@ -309,38 +310,9 @@ function appendUserConcurrencyRow(tbody, username, disabled, ports, active, maxS
 }
 
 function bindSecurityFields() {
-  lockSecurityFields();
   for (var i = 0; i < editableSecurityIds.length; i++) {
     $(editableSecurityIds[i]).onchange = markDirty;
     $(editableSecurityIds[i]).onkeyup = markDirty;
-  }
-}
-
-function lockSecurityFields() {
-  for (var i = 0; i < lockedSecurityIds.length; i++) {
-    var input = $(lockedSecurityIds[i]);
-    if (!input) { continue; }
-    input.readOnly = true;
-    input.tabIndex = -1;
-    input.setAttribute('aria-readonly', 'true');
-    input.setAttribute('data-locked', 'true');
-    input.title = '此项由配置文件或部署脚本维护';
-    if (input.className.indexOf('locked-input') < 0) {
-      input.className = (input.className ? input.className + ' ' : '') + 'locked-input';
-    }
-    input.onfocus = function () { this.blur(); };
-    input.onmousedown = function (event) {
-      event = event || window.event;
-      if (event.preventDefault) { event.preventDefault(); }
-      event.returnValue = false;
-      return false;
-    };
-    input.onkeydown = function (event) {
-      event = event || window.event;
-      if (event.preventDefault) { event.preventDefault(); }
-      event.returnValue = false;
-      return false;
-    };
   }
 }
 
@@ -367,6 +339,7 @@ function addUserRow(user, boundPorts) {
   tr.appendChild(checkCell(!!user.disabled, 'disabled', refreshForwardOwnerOptions));
   tr.appendChild(userActionCell(tr));
   tbody.appendChild(tr);
+  return tr;
 }
 
 function boundPortsCell(ports) {
@@ -427,12 +400,13 @@ function addForwardRow(fwd) {
   removeEmptyRows(tbody);
   var tr = document.createElement('tr');
   tr.appendChild(directionCell(fwd.direction || '', tr));
-  tr.appendChild(allowedUsersCell(allowedUsersForForward(fwd)));
-  tr.appendChild(serverHostCell(forwardHostValue(fwd)));
-  tr.appendChild(portCell(forwardPortValue(fwd)));
+  tr.appendChild(allowedUsersCell(allowedUsersForForward(fwd), tr));
+  tr.appendChild(serverHostCell(forwardHostValue(fwd), tr));
+  tr.appendChild(portCell(forwardPortValue(fwd), tr));
   tr.appendChild(actionCell(tr));
   tbody.appendChild(tr);
   updateForwardRowForDirection(tr);
+  return tr;
 }
 
 function textCell(value, name, afterChange) {
@@ -442,6 +416,7 @@ function textCell(value, name, afterChange) {
   input.value = value;
   input.setAttribute('data-name', name);
   input.onchange = function () {
+    clearEditorRowError(td.parentNode);
     markDirty();
     if (afterChange) { afterChange(); }
   };
@@ -458,6 +433,7 @@ function checkCell(value, name, afterChange) {
   input.checked = !!value;
   input.setAttribute('data-name', name);
   input.onchange = function () {
+    clearEditorRowError(td.parentNode);
     markDirty();
     if (afterChange) { afterChange(); }
   };
@@ -467,23 +443,23 @@ function checkCell(value, name, afterChange) {
 
 function directionCell(value, row) {
   var td = document.createElement('td');
-  td.className = 'select-cell';
   addCustomSelect(td, 'direction', value === 'server_to_client' || value === 'client_to_server' ? value : '', [
     { value: '', text: '\u8bf7\u9009\u62e9\u65b9\u5411' },
     { value: 'client_to_server', text: '正向代理' },
     { value: 'server_to_client', text: '反向代理' }
   ], function () {
+    clearEditorRowError(row);
     markDirty();
     updateForwardRowForDirection(row);
   });
   return td;
 }
 
-function allowedUsersCell(selectedUsers) {
+function allowedUsersCell(selectedUsers, row) {
   var td = document.createElement('td');
-  td.className = 'select-cell';
   var control = addCustomSelect(td, 'allowed_users', '', [], function () {
     setSelectedUsersData(control, selectedAllowedUsers(control));
+    clearEditorRowError(row);
     markDirty();
     refreshUserBoundPorts();
   });
@@ -554,7 +530,7 @@ function currentUserNames() {
   return out;
 }
 
-function serverHostCell(value) {
+function serverHostCell(value, row) {
   var td = document.createElement('td');
   td.className = 'target-cell';
   var input = document.createElement('input');
@@ -562,8 +538,9 @@ function serverHostCell(value) {
   input.value = value || '';
   input.setAttribute('data-name', 'server_host');
   input.onchange = function () {
+    clearEditorRowError(row);
     markDirty();
-    updateForwardRowForDirection(input.parentNode.parentNode);
+    updateForwardRowForDirection(row);
     refreshUserBoundPorts();
   };
   input.onkeyup = input.onchange;
@@ -571,7 +548,7 @@ function serverHostCell(value) {
   return td;
 }
 
-function portCell(value) {
+function portCell(value, row) {
   var td = document.createElement('td');
   td.className = 'port-cell';
   var input = document.createElement('input');
@@ -580,6 +557,7 @@ function portCell(value) {
   input.maxLength = 5;
   input.setAttribute('data-name', 'port');
   input.onchange = function () {
+    clearEditorRowError(row);
     markDirty();
     refreshUserBoundPorts();
   };
@@ -661,18 +639,15 @@ function updateForwardRowForDirection(row) {
   if (!row) { return; }
   var direction = field(row, 'direction');
   var host = field(row, 'server_host');
-  var port = field(row, 'port');
-  if (!direction || !host || !port) { return; }
+  if (!direction || !host) { return; }
   if (direction.value === 'server_to_client') {
+    if (!host.disabled) { row._forwardHost = host.value; }
     host.value = '127.0.0.1';
     host.disabled = true;
-    host.placeholder = '';
-    port.placeholder = '18080';
     return;
   }
+  if (host.disabled && row._forwardHost !== undefined) { host.value = row._forwardHost; }
   host.disabled = false;
-  host.placeholder = '127.0.0.1 或 192.168.1.10';
-  port.placeholder = '3389';
 }
 
 function refreshForwardOwnerOptions() {
@@ -693,10 +668,19 @@ function actionCell(row) {
   btn.className = 'btn small delete-btn';
   btn.textContent = '删除';
   btn.onclick = function () {
-    row.parentNode.removeChild(row);
-    ensureForwardsEmptyRow();
-    refreshUserBoundPorts();
-    markDirty();
+    var port = field(row, 'port').value.replace(/^\s+|\s+$/g, '');
+    var users = selectedAllowedUsers(field(row, 'allowed_users'));
+    var remove = function () {
+      row.remove();
+      ensureForwardsEmptyRow();
+      refreshUserBoundPorts();
+      markDirty();
+    };
+    if (port || users.length) {
+      confirmAction('确定删除端口 ' + (port || '未填写') + ' 的转发规则？保存配置后生效。', remove);
+    } else {
+      remove();
+    }
   };
   td.appendChild(btn);
   return td;
@@ -712,13 +696,12 @@ function userActionCell(row) {
   deleteBtn.textContent = '删除';
   deleteBtn.onclick = function () {
     var username = field(row, 'username').value.replace(/^\s+|\s+$/g, '') || '未命名用户';
-    if (!window.confirm('确定删除用户“' + username + '”？删除后，该用户关联的转发端口需要重新分配。')) {
-      return;
-    }
-    row.parentNode.removeChild(row);
-    ensureUsersEmptyRow();
-    refreshForwardOwnerOptions();
-    markDirty();
+    confirmAction('确定删除用户“' + username + '”？删除后，该用户关联的转发端口需要重新分配。', function () {
+      row.remove();
+      ensureUsersEmptyRow();
+      refreshForwardOwnerOptions();
+      markDirty();
+    });
   };
   var resetBtn = document.createElement('button');
   resetBtn.type = 'button';
@@ -741,18 +724,19 @@ function openResetPassword(row) {
   $('resetUserName').textContent = username;
   $('resetPassword').value = '';
   $('resetPasswordConfirm').value = '';
-  $('resetModal').className = 'modal';
-  window.setTimeout(function () { $('resetPassword').focus(); }, 0);
+  $('resetModal').showModal();
+  $('resetPassword').focus();
 }
 
 function closeResetPassword() {
   resetPasswordRow = null;
   $('resetPassword').value = '';
   $('resetPasswordConfirm').value = '';
-  $('resetModal').className = 'modal hidden';
+  if ($('resetModal').open) { $('resetModal').close(); }
 }
 
 function confirmResetPassword() {
+  if (busy) { return; }
   if (!resetPasswordRow) {
     closeResetPassword();
     return;
@@ -767,14 +751,17 @@ function confirmResetPassword() {
     showToast('两次输入的新密码不一致', true);
     return;
   }
+  var row = resetPasswordRow;
   setBusy(true);
   api('POST', '/api/password/hash', { password: password }, function (res) {
     setBusy(false);
+    if (resetPasswordRow !== row || !row.isConnected) { return; }
     if (!res.ok || !res.password_hash) {
       showToast(res.message || '密码重置失败', true);
       return;
     }
-    field(resetPasswordRow, 'password_hash').value = res.password_hash;
+    field(row, 'password_hash').value = res.password_hash;
+    clearEditorRowError(row);
     closeResetPassword();
     markDirty();
     showToast('密码已重置，请保存配置后生效', false);
@@ -782,14 +769,16 @@ function confirmResetPassword() {
 }
 
 function collectConfig() {
+  var cfg = state.config;
+  var tls = cfg.tls || {};
+  var seal = cfg.credential_seal || {};
   return {
-    listen_addr: $('listenAddr').value,
-    monitor_addr: $('monitorAddr').value,
-    log_level: $('logLevel').value,
+    listen_addr: cfg.listen_addr || '',
+    monitor_addr: cfg.monitor_addr || '',
     tls: {
-      cert_file: $('tlsCert').value,
-      key_file: $('tlsKey').value,
-      min_version: $('tlsMinVersion').value
+      cert_file: tls.cert_file || '',
+      key_file: tls.key_file || '',
+      min_version: tls.min_version || ''
     },
     users: collectUsers(),
     forwards: collectForwards(),
@@ -813,11 +802,11 @@ function collectConfig() {
       auth_fail_block_sec: toInt($('authFailBlock').value)
     },
     credential_seal: {
-      key_id: $('sealKeyID').value,
-      private_key_file: $('sealPrivate').value,
-      public_key_file: $('sealPublic').value,
-      expires_at: $('sealExpires').value,
-      active: true
+      key_id: seal.key_id || '',
+      private_key_file: seal.private_key_file || '',
+      public_key_file: seal.public_key_file || '',
+      expires_at: seal.expires_at || '',
+      active: !!seal.active
     }
   };
 }
@@ -864,6 +853,7 @@ function collectForwards() {
 
 function validateUsers() {
   var rows = $('usersTable').getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+  for (var n = 0; n < rows.length; n++) { clearEditorRowError(rows[n]); }
   var seen = {};
   for (var i = 0; i < rows.length; i++) {
     var usernameNode = field(rows[i], 'username');
@@ -873,16 +863,15 @@ function validateUsers() {
     var username = usernameNode ? usernameNode.value.replace(/^\s+|\s+$/g, '') : '';
     var passwordHash = passwordNode ? passwordNode.value.replace(/^\s+|\s+$/g, '') : '';
     var disabled = disabledNode ? disabledNode.checked : false;
-    if (!username && !passwordHash && !disabled) { continue; }
     if (!username) {
-      return '\u7528\u6237\u540d\u4e0d\u80fd\u4e3a\u7a7a\u3002';
+      return markEditorRowError(rows[i], usernameNode, '\u7528\u6237\u540d\u4e0d\u80fd\u4e3a\u7a7a\u3002');
     }
     if (seen[username]) {
-      return '\u7528\u6237 "' + username + '" \u91cd\u590d\uff0c\u8bf7\u4fdd\u7559\u552f\u4e00\u4e00\u6761\u3002';
+      return markEditorRowError(rows[i], usernameNode, '\u7528\u6237 "' + username + '" \u91cd\u590d\uff0c\u8bf7\u4fdd\u7559\u552f\u4e00\u4e00\u6761\u3002');
     }
     seen[username] = true;
     if (!disabled && !passwordHash) {
-      return '\u7528\u6237 "' + username + '" \u8fd8\u6ca1\u6709\u5bc6\u7801\uff0c\u8bf7\u5148\u70b9\u51fb\u201c\u91cd\u7f6e\u5bc6\u7801\u201d\u3002';
+      return markEditorRowError(rows[i], rows[i].querySelector('.reset-btn'), '\u7528\u6237 "' + username + '" \u8fd8\u6ca1\u6709\u5bc6\u7801\uff0c\u8bf7\u5148\u70b9\u51fb\u201c\u91cd\u7f6e\u5bc6\u7801\u201d\u3002');
     }
   }
   return '';
@@ -890,6 +879,7 @@ function validateUsers() {
 
 function validateForwards() {
   var rows = $('forwardsTable').getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+  for (var n = 0; n < rows.length; n++) { clearEditorRowError(rows[n]); }
   for (var i = 0; i < rows.length; i++) {
     var name = '\u7b2c ' + (i + 1) + ' \u6761\u89c4\u5219';
     var directionNode = field(rows[i], 'direction');
@@ -903,25 +893,40 @@ function validateForwards() {
     var port = portNode.value.replace(/^\s+|\s+$/g, '');
     if (!host && !port && !allowedUsers.length && !direction) { continue; }
     if (!direction) {
-      return '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u9700\u8981\u9009\u62e9\u4ee3\u7406\u65b9\u5411\u3002';
+      return markEditorRowError(rows[i], directionNode, '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u9700\u8981\u9009\u62e9\u4ee3\u7406\u65b9\u5411\u3002');
     }
     if (!port || !isValidPort(port)) {
-      return '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u7684\u670d\u52a1\u7aef\u7aef\u53e3\u5fc5\u987b\u662f 1-65535 \u7684\u6570\u5b57\u3002';
+      return markEditorRowError(rows[i], portNode, '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u7684\u670d\u52a1\u7aef\u7aef\u53e3\u5fc5\u987b\u662f 1-65535 \u7684\u6570\u5b57\u3002');
     }
     if (direction === 'server_to_client') {
       if (!allowedUsers.length) {
-        return '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u9700\u8981\u586b\u5199\u653e\u901a\u7528\u6237\u3002';
+        return markEditorRowError(rows[i], allowedNode, '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u9700\u8981\u586b\u5199\u653e\u901a\u7528\u6237\u3002');
       }
       continue;
     }
     if (!host || !isValidHostPort(joinHostPort(host, port))) {
-      return '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u7684\u670d\u52a1\u7aef IP \u5730\u5740\u4e0d\u6b63\u786e\u3002';
+      return markEditorRowError(rows[i], hostNode, '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u7684\u670d\u52a1\u7aef IP \u5730\u5740\u4e0d\u6b63\u786e\u3002');
     }
     if (!allowedUsers.length) {
-      return '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u9700\u8981\u586b\u5199\u653e\u901a\u7528\u6237\u3002';
+      return markEditorRowError(rows[i], allowedNode, '\u8f6c\u53d1\u7aef\u53e3 "' + name + '" \u9700\u8981\u586b\u5199\u653e\u901a\u7528\u6237\u3002');
     }
   }
   return '';
+}
+
+function clearEditorRowError(row) {
+  if (!row) { return; }
+  row.classList.remove('row-invalid');
+  if (row._errorControl) { row._errorControl.removeAttribute('aria-invalid'); }
+  row._errorControl = null;
+}
+
+function markEditorRowError(row, control, message) {
+  clearEditorRowError(row);
+  row.classList.add('row-invalid');
+  row._errorControl = control._customButton || control;
+  row._errorControl.setAttribute('aria-invalid', 'true');
+  return message;
 }
 
 function isValidPort(port) {
@@ -946,6 +951,11 @@ function toInt(value) {
 }
 
 function saveConfig(done) {
+  if (!state || !state.config) {
+    showToast('服务端配置尚未读取完成', true);
+    if (done) { done(false); }
+    return;
+  }
   if (state && state.config_writable === false) {
     showToast(configLockMessage(), true);
     if (done) { done(false); }
@@ -953,12 +963,14 @@ function saveConfig(done) {
   }
   var userError = validateUsers();
   if (userError) {
+    focusInvalidEditorRow('users', 'usersTable');
     showToast(userError, true);
     if (done) { done(false); }
     return;
   }
   var forwardError = validateForwards();
   if (forwardError) {
+    focusInvalidEditorRow('forwards', 'forwardsTable');
     showToast(forwardError, true);
     if (done) { done(false); }
     return;
@@ -978,6 +990,14 @@ function saveConfig(done) {
     showToast(res.message || '配置已保存', false);
     if (done) { done(true); }
   });
+}
+
+function focusInvalidEditorRow(tab, tableId) {
+  setActiveTab(tab);
+  var row = $(tableId).querySelector('.row-invalid');
+  if (!row) { return; }
+  row.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  if (row._errorControl) { row._errorControl.focus(); }
 }
 
 function serviceAction(path, successMessage) {
@@ -1001,12 +1021,14 @@ function unblockIP(ip) {
 
 function deletePermanentBlock(ip) {
   if (!ip || busy) { return; }
-  if (!window.confirm('确认删除永久封禁 IP：' + ip + '？')) { return; }
-  setBusy(true);
-  api('POST', '/api/security/permanent-block/delete', { ip: ip }, function (res) {
-    setBusy(false);
-    if (res.state) { renderState(res.state, false); }
-    showToast((res && res.message) || ('已删除永久封禁 ' + ip), !(res && res.ok));
+  confirmAction('确认删除永久封禁 IP：' + ip + '？', function () {
+    if (busy) { return; }
+    setBusy(true);
+    api('POST', '/api/security/permanent-block/delete', { ip: ip }, function (res) {
+      setBusy(false);
+      if (res.state) { renderState(res.state, false); }
+      showToast((res && res.message) || ('已删除永久封禁 ' + ip), !(res && res.ok));
+    });
   });
 }
 
@@ -1025,21 +1047,6 @@ function renderActivityDetails(businessLogs, requestLogs, blocked, permanentBloc
   requestLogs = requestLogs || [];
   blocked = blocked || [];
   permanentBlocked = permanentBlocked || [];
-  var businessFailed = 0;
-  for (var i = 0; i < businessLogs.length; i++) {
-    if (isFailureRecord(businessLogs[i])) { businessFailed++; }
-  }
-  var requestFailed = 0;
-  var requestAuthOK = 0;
-  for (var j = 0; j < requestLogs.length; j++) {
-    if (isFailureRecord(requestLogs[j])) { requestFailed++; }
-    if ((requestLogs[j] || {}).auth_result === 'ok') { requestAuthOK++; }
-  }
-  setText('businessFailedCountView', businessFailed);
-  setText('businessCountView', businessLogs.length);
-  setText('requestCountView', requestLogs.length);
-  setText('requestFailedCountView', requestFailed);
-  setText('requestAuthOKView', requestAuthOK);
   renderBlockDetails(blocked, permanentBlocked);
   renderBusinessLogs(businessLogs);
   renderRequestLogs(requestLogs);
@@ -1166,10 +1173,22 @@ function setActiveTab(tab) {
   var panels = document.querySelectorAll('.tab-panel');
   for (var j = 0; j < panels.length; j++) {
     var panelActive = panels[j].id === activeTab;
-    setClassEnabled(panels[j], 'active', panelActive);
+    panels[j].classList.toggle('active', panelActive);
   }
+  $('logViewSwitch').classList.toggle('hidden', activeTab !== 'logs');
   if (activeTab === 'analysis' && !hasLoadedAnalysis()) {
     loadAnalysis();
+  }
+  setLogView(activeLogView);
+}
+
+function setLogView(view) {
+  activeLogView = view === 'requests' ? 'requests' : 'business';
+  $('businessLogView').classList.toggle('active', activeLogView === 'business');
+  $('requestLogView').classList.toggle('active', activeLogView === 'requests');
+  var buttons = document.querySelectorAll('#logViewSwitch [data-log-view]');
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].setAttribute('aria-pressed', String(buttons[i].getAttribute('data-log-view') === activeLogView));
   }
   initResizableTables();
   updateLogScrollbars();
@@ -1181,6 +1200,10 @@ function bindTabs() {
     navItems[i].onclick = function () {
       setActiveTab(this.getAttribute('data-tab'));
     };
+  }
+  var logButtons = document.querySelectorAll('#logViewSwitch [data-log-view]');
+  for (var j = 0; j < logButtons.length; j++) {
+    logButtons[j].onclick = function () { setLogView(this.getAttribute('data-log-view')); };
   }
 }
 
@@ -1203,16 +1226,36 @@ function bindActions() {
     };
   }
   $('addUserBtn').onclick = function () {
-    addUserRow({}, []);
+    var row = addUserRow({}, []);
     refreshForwardOwnerOptions();
     markDirty();
+    requestAnimationFrame(function () {
+      row.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      field(row, 'username').focus();
+    });
   };
   $('addForwardBtn').onclick = function () {
-    addForwardRow({});
+    if (!currentUserNames().length) {
+      setActiveTab('users');
+      showToast('请先新增用户，再配置转发端口', true);
+      $('addUserBtn').focus();
+      return;
+    }
+    var row = addForwardRow({ direction: 'client_to_server' });
     markDirty();
+    requestAnimationFrame(function () {
+      row.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      var owner = field(row, 'allowed_users');
+      if (owner && owner._customButton) {
+        owner._customButton.focus();
+        owner._customButton.click();
+      }
+    });
   };
   $('resetCancelBtn').onclick = closeResetPassword;
   $('resetConfirmBtn').onclick = confirmResetPassword;
+  $('resetModal').addEventListener('close', closeResetPassword);
+  $('actionConfirmDialog').addEventListener('close', finishConfirmAction);
   $('refreshDialog').addEventListener('close', function () {
     if (this.returnValue === 'discard') { loadState(true); }
   });

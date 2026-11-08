@@ -426,6 +426,19 @@ func carryBusinessFields(dst *tunnel.BusinessLogEntry, src tunnel.BusinessLogEnt
 	if dst.BytesDown == 0 {
 		dst.BytesDown = src.BytesDown
 	}
+	if dst.BytesTotal == 0 {
+		dst.BytesTotal = src.BytesTotal
+	}
+	if dst.AverageBytesPerSec == 0 {
+		dst.AverageBytesPerSec = src.AverageBytesPerSec
+	}
+	if dst.RateLimitBytesPerSec == 0 {
+		dst.RateLimitBytesPerSec = src.RateLimitBytesPerSec
+	}
+	if dst.MaxConcurrentStreamsUser == 0 {
+		dst.MaxConcurrentStreamsUser = src.MaxConcurrentStreamsUser
+	}
+	dst.Abnormal = dst.Abnormal || src.Abnormal
 }
 
 func businessResultPriority(result string) int {

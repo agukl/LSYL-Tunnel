@@ -34,11 +34,11 @@ func classifyVirtualForwardError(raw string) (message string, permanent bool, ok
 	case containsAny(text, "virtual listen_addr port must be between 1 and 65535"):
 		return "虚拟入口端口必须在 1 到 65535 之间", true, true
 	case containsAny(text, "virtual listen_addr does not support domain names"):
-		return "虚拟入口不支持域名，请填写 :端口，或填写服务端证书中的 IPv4:端口", true, true
+		return "虚拟入口不支持域名，请填写 :端口 或 IPv4:端口；公网 IP 必须在证书中", true, true
 	case containsAny(text, "virtual listen_addr host must be an ipv4 address"):
-		return "虚拟入口不支持 IPv6，请填写 :端口，或填写服务端证书中的 IPv4:端口", true, true
+		return "虚拟入口不支持 IPv6，请填写 :端口 或 IPv4:端口；公网 IP 必须在证书中", true, true
 	case containsAny(text, "virtual listen_addr host must be a usable non-local ipv4 address"):
-		return "虚拟入口必须使用可用的非本地 IPv4，不能使用回环、链路本地或保留地址", true, true
+		return "虚拟入口不能使用链路本地或保留地址；回环入口请填写 127.0.0.1", true, true
 	case containsAny(text, "server_addr must include a valid port before virtual forwarding"):
 		return "服务端地址必须包含有效端口，配置虚拟转发前请先修正 server_addr", true, true
 	case containsAny(text, "virtual listen_addr cannot use the server_addr port"):
@@ -50,11 +50,11 @@ func classifyVirtualForwardError(raw string) (message string, permanent bool, ok
 	case containsAny(text, "multiple usable ipv4 sans"):
 		return "服务端证书包含多个可用 IPv4，请将虚拟 listen_addr 填写为完整的 IPv4:端口", true, true
 	case containsAny(text, "no usable non-local ipv4 san"):
-		return "服务端证书没有可用于虚拟入口的非本地 IPv4 SAN，请重新下发证书", true, true
+		return "服务端证书没有可用于自动选择的 IPv4，请显式填写内网 IPv4 或 127.0.0.1 加端口，或重新下发证书", true, true
 	case containsAny(text, "no ipv4 san for virtual forwarding"):
-		return "服务端证书没有 IPv4 SAN，无法配置虚拟入口，请重新下发证书", true, true
+		return "服务端证书没有 IPv4 SAN，请显式填写内网 IPv4 或 127.0.0.1 加端口，或重新下发证书", true, true
 	case containsAny(text, "not authorized by the server certificate ipv4 san"):
-		return "填写的虚拟 IP 不在服务端证书 IPv4 SAN 中，请修正 listen_addr 或重新下发证书", true, true
+		return "填写的公网虚拟 IP 不在服务端证书 IPv4 SAN 中，请修正 listen_addr 或重新下发证书", true, true
 	case containsAny(text, "tls.ca_cert_file is required to authorize virtual forwarding"):
 		return "缺少服务端信任证书，无法校验虚拟 IP，请重新下发客户端安装包", true, true
 	case strings.Contains(text, "read virtual forwarding certificate policy") && containsAny(text, "no such file", "cannot find", "找不到", "系统找不到"):

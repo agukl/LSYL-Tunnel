@@ -3,74 +3,41 @@ package tunnel
 import (
 	"fmt"
 	"net"
+
+	"lsyltunnel/src/internal/netaddr"
 )
 
-type preparedVirtualForward struct {
-	name        string
-	fwd         ForwardConfig
-	listener    net.Listener
-	virtualAddr string
-	rule        virtualRedirectRule
-}
-
-func (c *Client) prepareVirtualForwardListener(name string, fwd ForwardConfig) (preparedVirtualForward, error) {
-	virtualHost, virtualPort, err := parseVirtualListenAddr(fwd.ListenAddr)
-	if err != nil {
-		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
-		return preparedVirtualForward{}, err
+func (c *Client) startVirtualForwardBatch(prepared []preparedVirtualForward) error {
+	rules := make([]virtualRedirectRule, 0, len(prepared))
+	for _, forward := range prepared {
+		rules = append(rules, forward.rule)
 	}
-	if c.virtualResolver == nil {
-		c.virtualResolver, err = newVirtualAddressResolver(c.cfg)
-		if err != nil {
-			c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
-			return preparedVirtualForward{}, err
+	session, err := startVirtualRedirectSessionFn(c.ctx, rules)
+	if err == nil && session == nil {
+		err = fmt.Errorf("virtual redirect helper did not start")
+	}
+	if err != nil {
+		for _, forward := range prepared {
+			c.stopForwardListener(forward.name)
+			c.setForwardState(forward.name, ForwardListenFailed, ForwardErrorMessage(err))
+			c.log("forward %s virtual endpoint setup failed: %v", forward.name, err)
 		}
+		return err
 	}
-	virtualAddr, err := c.virtualResolver.resolve(virtualHost, virtualPort)
-	if err != nil {
-		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
-		return preparedVirtualForward{}, err
+	if !c.attachVirtualRedirectSession(prepared, session) {
+		_ = session.Close()
+		err := fmt.Errorf("virtual forward listeners are no longer active")
+		for _, forward := range prepared {
+			c.stopForwardListener(forward.name)
+			c.setForwardState(forward.name, ForwardListenFailed, ForwardErrorMessage(err))
+		}
+		return err
 	}
-	internal, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		listenerErr := fmt.Errorf("allocate virtual local redirect listener: %w", err)
-		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(listenerErr))
-		c.log("forward %s random local redirect listen failed: %v", name, err)
-		return preparedVirtualForward{}, listenerErr
+	for _, forward := range prepared {
+		c.activateVirtualForward(forward)
 	}
-	localAddr, ok := internal.Addr().(*net.TCPAddr)
-	if !ok || localAddr.Port <= 0 || localAddr.Port > 65535 {
-		_ = internal.Close()
-		err := fmt.Errorf("forward %s did not allocate a valid local redirect port", name)
-		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
-		return preparedVirtualForward{}, err
-	}
-	rule, err := newVirtualRedirectRule(virtualAddr, localAddr.Port)
-	if err != nil {
-		_ = internal.Close()
-		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
-		return preparedVirtualForward{}, err
-	}
-
-	c.forwardsMu.Lock()
-	if c.listeners[name] != nil {
-		c.forwardsMu.Unlock()
-		_ = internal.Close()
-		return preparedVirtualForward{}, fmt.Errorf("virtual forward %s listener already exists", name)
-	}
-	c.listeners[name] = internal
-	c.virtualAddrs[name] = virtualAddr
-	c.forwardsMu.Unlock()
-
-	c.setForwardAddresses(name, internal.Addr().String(), virtualAddr)
-	c.log("forward %s prepared virtual endpoint %s on local redirect port %d", name, virtualAddr, localAddr.Port)
-	return preparedVirtualForward{name: name, fwd: fwd, listener: internal, virtualAddr: virtualAddr, rule: rule}, nil
-}
-
-func (c *Client) activateVirtualForward(prepared preparedVirtualForward) {
-	c.setForwardState(prepared.name, ForwardListening, "虚拟端点已接管")
-	c.log("forward %s virtual endpoint %s -> local redirect %s -> %s", prepared.name, prepared.virtualAddr, prepared.listener.Addr(), prepared.fwd.ServerTarget)
-	go c.acceptLoop(c.ctx, prepared.listener, prepared.name, prepared.fwd)
+	go c.watchVirtualRedirectSession(session)
+	return nil
 }
 
 func (c *Client) watchVirtualRedirectSession(session virtualRedirectSession) {
@@ -140,6 +107,9 @@ func (c *Client) detachVirtualRedirectSession(session virtualRedirectSession) []
 func (c *Client) virtualForwardActive(name string) bool {
 	c.forwardsMu.Lock()
 	defer c.forwardsMu.Unlock()
+	if host, _, err := net.SplitHostPort(c.virtualAddrs[name]); err == nil && host == netaddr.LoopbackIPv4 {
+		return c.listeners[name] != nil
+	}
 	_, member := c.virtualRedirectMembers[name]
 	return member && c.virtualRedirectSession != nil && c.listeners[name] != nil && c.virtualAddrs[name] != ""
 }

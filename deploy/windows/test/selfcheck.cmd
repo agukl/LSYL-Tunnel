@@ -145,8 +145,8 @@ findstr /c:"restartreplace" deploy\windows\inno\package-client.iss >nul || (echo
 findstr /c:"-installer-cleanup" deploy\windows\inno\package-client.iss >nul || (echo [ERROR] Client installer is missing targeted upgrade conflict cleanup & exit /b 1)
 findstr /c:"LSYL Tunnel Client\bin\WinDivert.dll" deploy\windows\sign\write-release-manifest.ps1 >nul || (echo [ERROR] Release manifest defaults are missing WinDivert.dll & exit /b 1)
 findstr /c:"LSYL Tunnel Client\bin\WinDivert64.sys" deploy\windows\sign\write-release-manifest.ps1 >nul || (echo [ERROR] Release manifest defaults are missing WinDivert64.sys & exit /b 1)
-findstr /c:"DirectionVirtual" src\client\tunnel\config.go >nul || (echo [ERROR] Client config is missing direction: virtual & exit /b 1)
-findstr /c:"virtual_ip,omitempty" src\client\tunnel\config.go >nul && (echo [ERROR] Client config must use listen_addr instead of virtual_ip & exit /b 1)
+findstr /c:"DirectionVirtual" src\client\tunnel\config_forward.go >nul || (echo [ERROR] Client config is missing direction: virtual & exit /b 1)
+findstr /c:"virtual_ip,omitempty" src\client\tunnel\config_forward.go >nul && (echo [ERROR] Client config must use listen_addr instead of virtual_ip & exit /b 1)
 findstr /c:"WinDivertOpen" src\client\tunnel\windivert_windows.go >nul || (echo [ERROR] Virtual forwarding must use endpoint-specific WinDivert interception & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path 'src\client\tunnel\virtual_redirect_windows.go' -Pattern 'netsh interface|store=active|store=persistent|virtual-ip-state' -List; if($hit){ Write-Host ('[ERROR] Obsolete whole-IP alias logic remains: ' + $hit.Path + ':' + $hit.LineNumber); exit 1 }" || exit /b 1
 if not exist third_party\windivert\2.2.2\x64\WinDivert.dll (echo [ERROR] Missing WinDivert.dll source dependency & exit /b 1)
@@ -164,6 +164,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$hit=Select-String -Path
 rem LSYLTunnelClient is the current Run registry value, not an obsolete service reference.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$roots=@('src','deploy','docs'); $files=foreach($r in $roots){ if(Test-Path $r){ Get-ChildItem $r -Recurse -File } }; $files=$files | Where-Object { $_.FullName -notlike '*\deploy\windows\test\selfcheck.cmd' }; $hit=$files | Select-String -SimpleMatch 'lsyl-tunnel-client-svc' -List; if($hit){ $hit | ForEach-Object { Write-Host ('[ERROR] Forbidden client service reference: ' + $_.Path + ':' + $_.LineNumber) }; exit 1 }" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\test\check-text.ps1 || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\test\test-release-flow.ps1 || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\test\test-clear-client-id.ps1 || exit /b 1
 
 echo [5/6] verify build outputs and package layouts
@@ -179,7 +180,7 @@ if not exist build\bin\server\lsyl-tunnel-cert.exe (echo [ERROR] Missing: build\
 if not exist build\bin\server\lsyl-tunnel-passwd.exe (echo [ERROR] Missing: build\bin\server\lsyl-tunnel-passwd.exe & exit /b 1)
 if not exist mobile\android\settings.gradle.kts (echo [ERROR] Missing Android Gradle project settings & exit /b 1)
 if not exist mobile\android\app\build.gradle.kts (echo [ERROR] Missing Android app Gradle config & exit /b 1)
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$targets=@('build\bin\client\lsyl-tunnel-client.exe','build\bin\client\lsyl-tunnel-client-gui.exe','build\bin\client\lsyl-tunnel-client-lite.exe','build\bin\profile\lsyl-tunnel-profile.exe','build\bin\server\lsyl-tunnel-server.exe','build\bin\server\lsyl-tunnel-server-gui.exe','build\bin\server\lsyl-tunnel-server-svc.exe','build\bin\server\lsyl-tunnel-cert.exe','build\bin\server\lsyl-tunnel-passwd.exe'); $bad=@(); foreach($t in $targets){ $vi=(Get-Item $t).VersionInfo; if([string]::IsNullOrWhiteSpace($vi.ProductName) -or [string]::IsNullOrWhiteSpace($vi.FileDescription) -or [string]::IsNullOrWhiteSpace($vi.CompanyName) -or $vi.FileVersion -ne '3.2.0.0'){ $bad += ($t + ' product=' + $vi.ProductName + ' desc=' + $vi.FileDescription + ' company=' + $vi.CompanyName + ' version=' + $vi.FileVersion) } }; if($bad){ Write-Host '[ERROR] Missing or incomplete Windows version resource:'; $bad | ForEach-Object { Write-Host ('  ' + $_) }; exit 1 }" || exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$targets=@('build\bin\client\lsyl-tunnel-client.exe','build\bin\client\lsyl-tunnel-client-gui.exe','build\bin\client\lsyl-tunnel-client-lite.exe','build\bin\profile\lsyl-tunnel-profile.exe','build\bin\server\lsyl-tunnel-server.exe','build\bin\server\lsyl-tunnel-server-gui.exe','build\bin\server\lsyl-tunnel-server-svc.exe','build\bin\server\lsyl-tunnel-cert.exe','build\bin\server\lsyl-tunnel-passwd.exe'); $bad=@(); foreach($t in $targets){ $vi=(Get-Item $t).VersionInfo; if([string]::IsNullOrWhiteSpace($vi.ProductName) -or [string]::IsNullOrWhiteSpace($vi.FileDescription) -or [string]::IsNullOrWhiteSpace($vi.CompanyName) -or $vi.FileVersion -ne '3.3.0.0'){ $bad += ($t + ' product=' + $vi.ProductName + ' desc=' + $vi.FileDescription + ' company=' + $vi.CompanyName + ' version=' + $vi.FileVersion) } }; if($bad){ Write-Host '[ERROR] Missing or incomplete Windows version resource:'; $bad | ForEach-Object { Write-Host ('  ' + $_) }; exit 1 }" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='build\bin\client\lsyl-tunnel-client-lite.exe'; $b=[IO.File]::ReadAllBytes($p); $pe=[BitConverter]::ToInt32($b,0x3c); $machine=[BitConverter]::ToUInt16($b,$pe+4); if($machine -ne 0x014c){ Write-Host ('[ERROR] Win7 Lite client must be PE32/i386, got machine 0x{0:X4}' -f $machine); exit 1 }" || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\sign\write-release-manifest.ps1 -OutputDir %SELF_TMP%\selfcheck-release-manifest -DistDir . -Files build\bin\client\lsyl-tunnel-client.exe,build\bin\client\lsyl-tunnel-client-gui.exe,build\bin\client\lsyl-tunnel-client-lite.exe,build\bin\client\WinDivert.dll,build\bin\client\WinDivert64.sys,build\bin\profile\lsyl-tunnel-profile.exe,build\bin\server\lsyl-tunnel-server.exe,build\bin\server\lsyl-tunnel-server-gui.exe,build\bin\server\lsyl-tunnel-server-svc.exe,build\bin\server\lsyl-tunnel-cert.exe,build\bin\server\lsyl-tunnel-passwd.exe >nul || exit /b 1
 if not exist %SELF_TMP%\selfcheck-release-manifest\release-manifest.json (echo [ERROR] Missing generated release manifest json & exit /b 1)
@@ -243,11 +244,11 @@ if exist %SELF_TMP%\selfcheck-server-package rmdir /s /q %SELF_TMP%\selfcheck-se
 call deploy\windows\app\package-server.cmd %SELF_TMP%\selfcheck-server-package >nul || exit /b 1
 if not exist "%SELF_TMP%\selfcheck-server-package\LICENSE" (echo [ERROR] Missing: server package project LICENSE & exit /b 1)
 fc /b "LICENSE" "%SELF_TMP%\selfcheck-server-package\LICENSE" >nul || (echo [ERROR] Server package project LICENSE differs from source & exit /b 1)
-if not exist %SELF_TMP%\selfcheck-server-package\bin\lsyl-tunnel-server.exe (echo [ERROR] Missing: server package cli & exit /b 1)
+if exist %SELF_TMP%\selfcheck-server-package\bin\lsyl-tunnel-server.exe (echo [ERROR] Server package must not include development cli & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\bin\lsyl-tunnel-server-svc.exe (echo [ERROR] Missing: server package service & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\bin\lsyl-tunnel-server-gui.exe (echo [ERROR] Missing: server package gui & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\bin\lsyl-tunnel-cert.exe (echo [ERROR] Missing: server package cert tool & exit /b 1)
-if not exist %SELF_TMP%\selfcheck-server-package\bin\lsyl-tunnel-passwd.exe (echo [ERROR] Missing: server package password tool & exit /b 1)
+if exist %SELF_TMP%\selfcheck-server-package\bin\lsyl-tunnel-passwd.exe (echo [ERROR] Server package must not include development password tool & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\conf\server.yaml (echo [ERROR] Missing: server package config & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\certs (echo [ERROR] Missing: server package certs dir & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\data (echo [ERROR] Missing: server package data dir & exit /b 1)
@@ -255,7 +256,7 @@ if not exist %SELF_TMP%\selfcheck-server-package\logs (echo [ERROR] Missing: ser
 if not exist %SELF_TMP%\selfcheck-server-package\logs\request (echo [ERROR] Missing: server package request logs dir & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\logs\business (echo [ERROR] Missing: server package business logs dir & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\logs\entry-traffic (echo [ERROR] Missing: server package entry traffic logs dir & exit /b 1)
-if not exist %SELF_TMP%\selfcheck-server-package\logs\flow-traffic (echo [ERROR] Missing: server package flow traffic logs dir & exit /b 1)
+if exist %SELF_TMP%\selfcheck-server-package\logs\flow-traffic (echo [ERROR] Server package should not create legacy flow logs dir & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\logs\service (echo [ERROR] Missing: server package service logs dir & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\assets\server.ico (echo [ERROR] Missing: server package icon & exit /b 1)
 if not exist %SELF_TMP%\selfcheck-server-package\make-installer.cmd (echo [ERROR] Missing: server package installer builder & exit /b 1)
@@ -265,6 +266,8 @@ if not exist %SELF_TMP%\selfcheck-server-package\installer\Languages\ChineseSimp
 findstr /c:"autostartservice" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul || (echo [ERROR] Server package installer is missing service auto-start confirmation task & exit /b 1)
 findstr /c:"-start-type" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul || (echo [ERROR] Server package installer is missing service start-type registration parameter & exit /b 1)
 findstr /c:"config-compat-check" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul || (echo [ERROR] Server package installer is missing config compatibility check & exit /b 1)
+findstr /c:"lsyl-tunnel-server.exe" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul || (echo [ERROR] Server installer must remove the old development cli & exit /b 1)
+findstr /c:"lsyl-tunnel-passwd.exe" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul || (echo [ERROR] Server installer must remove the old development password tool & exit /b 1)
 findstr /c:"reference-config" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul && (echo [ERROR] Server package installer must not use reference-config YAML shape check & exit /b 1)
 findstr /c:"server-reference.yaml" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul && (echo [ERROR] Server package installer must not include server-reference.yaml & exit /b 1)
 if exist %SELF_TMP%\selfcheck-server-package\install-server-app.cmd (echo [ERROR] Server package should not include manual install script & exit /b 1)
@@ -281,7 +284,7 @@ findstr /c:"../data/server-permanent-block.txt" %SELF_TMP%\selfcheck-server-pack
 findstr /c:"../logs/request/request.jsonl" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1
 findstr /c:"../logs/business/business.jsonl" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1
 findstr /c:"../logs/entry-traffic/entry-traffic.jsonl" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1
-findstr /c:"../logs/flow-traffic/flow-traffic.jsonl" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1
+findstr /c:"flow_traffic_log_file" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul && (echo [ERROR] Server package config should not include legacy flow log path & exit /b 1)
 findstr /c:"logs\service\server-service.log" %SELF_TMP%\selfcheck-server-package\installer\server.iss >nul || exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%SELF_TMP%\selfcheck-server-package\conf\server.yaml'; $t=Get-Content -Raw -Encoding UTF8 $p; if($t -match '(?m)username:\s*(alice|bob)\b' -or $t -match '(?m)^\s*-\s*name:\s*(web|sql|rev)\b'){ Write-Host '[ERROR] Server package config contains demo users or demo forwards.'; exit 1 }" || exit /b 1
 set "LSYL_CLIENT_PACKAGE_DIR=%SELF_TMP%\selfcheck-client-package"

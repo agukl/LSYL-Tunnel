@@ -4,7 +4,7 @@ LSYL Tunnel is a username/password-authenticated TCP tunnel and port-forwarding 
 
 The account password remains the client identity boundary. Before TLS, the client must prove possession of the pre-distributed server certificate material; TLS then protects tunnel traffic and verifies the server. The client does not present a certificate or private key.
 
-Current release version: `3.2.0`
+Current release version: `3.3.0`
 
 Chinese documentation: [docs/README-zh.md](docs/README-zh.md)
 System flow overview (Chinese): [docs/system/overview-zh.md](docs/system/overview-zh.md)
@@ -23,7 +23,7 @@ build/tmp/              Local test, GUI, and packaging scratch files
 dist/                   Generated installers and optional on-site client repackaging kit
 runtime/data/           Local development runtime state
 runtime/logs/           Local development runtime logs, grouped by log type
-deploy/windows/         Windows scripts grouped by build/run/cert/service/app/inno/test
+deploy/windows/         Windows build/run entries and cert/service/app/inno/sign/test scripts
 third_party/            Redistributed dependency files, licenses, and required source archives
 tool/                   Local build tools and prerequisite installer cache (not source)
 docs/                   Chinese documentation
@@ -107,7 +107,7 @@ The server installer generates a self-signed server TLS identity during install 
 Forward entries support three modes:
 
 - `client_to_server`: the client listens locally, and the server connects to a server-side target.
-- `virtual`: the standard 64-bit Windows client intercepts certificate-authorized `IPv4:port` endpoints and maps each through a random loopback-only listener. Ready rules share one elevated helper per connection; cancelling authorization or losing that helper affects the whole batch, while unmatched ports retain their normal network path.
+- `virtual`: a standard 64-bit Windows client entry for forward traffic. Public IPv4 endpoints require certificate SAN authorization; explicit private IPv4 and `127.0.0.1` entries do not. Non-loopback entries use random loopback bridges and share one elevated helper per connection. `127.0.0.1` entries bind their configured ports directly without elevation. Helper failure affects only its batch; unmatched ports retain their normal network path.
 - `server_to_client`: the server creates a passive local listening port, and an authenticated client activates it; the server never dials the client.
 
 Configuration field ownership and address restrictions: [configuration reference](docs/system/config-reference-zh.md).

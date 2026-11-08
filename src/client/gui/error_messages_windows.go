@@ -162,15 +162,17 @@ func friendlyErrorText(raw string) string {
 		return "客户端与服务端协议版本不一致，请联系管理员升级对应一端。"
 	case strings.Contains(text, "invalid tunnel request") || strings.Contains(text, "unsupported request") || strings.Contains(text, "bad_request"):
 		return "客户端和服务端协议不匹配，请确认版本一致。"
+	case tunnel.IsNetworkTimeoutText(text):
+		return "连接超时，请检查网络或服务端防火墙。"
 	case strings.Contains(text, "connection refused") || strings.Contains(text, "actively refused") || strings.Contains(text, "connectex"):
 		return "连接不上服务端，请检查服务端是否启动或地址端口是否正确。"
-	case strings.Contains(text, "timeout") || strings.Contains(text, "deadline") || strings.Contains(text, "i/o timeout"):
-		return "连接超时，请检查网络或服务端防火墙。"
 	case strings.Contains(text, "network is unreachable") || strings.Contains(text, "no route to host"):
 		return "网络不可达，请检查本机网络。"
-	case strings.Contains(text, "connection reset") || strings.Contains(text, "forcibly closed") || strings.Contains(text, "wsarecv") || strings.Contains(text, "eof"):
-		return "连接被服务端断开，请稍后重试或联系管理员。"
-	case containsAnyText(text, "connection aborted", "broken pipe", "closed network connection"):
+	case containsAnyText(text, "connection reset", "forcibly closed"):
+		return "连接被重置，请检查网络链路或服务端状态。"
+	case strings.Contains(text, "eof"):
+		return "连接意外结束，请检查网络链路；若持续出现请查看两端日志。"
+	case containsAnyText(text, "wsarecv", "connection aborted", "broken pipe", "closed network connection"):
 		return "连接已中断，请稍后重试或联系管理员。"
 	case strings.Contains(text, "x509"):
 		return "服务端证书校验失败，请联系管理员检查证书和地址。"

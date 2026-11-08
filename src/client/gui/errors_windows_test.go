@@ -158,7 +158,7 @@ func TestFriendlyErrorText(t *testing.T) {
 		{
 			name: "virtual domain name",
 			raw:  "virtual listen_addr does not support domain names; use an IPv4 address from the server certificate SAN",
-			want: "虚拟入口不支持域名，请填写 :端口，或填写服务端证书中的 IPv4:端口。",
+			want: "虚拟入口不支持域名，请填写 :端口 或 IPv4:端口；公网 IP 必须在证书中。",
 		},
 		{
 			name: "ambiguous virtual IP",
@@ -178,12 +178,12 @@ func TestFriendlyErrorText(t *testing.T) {
 		{
 			name: "virtual IPv6",
 			raw:  "virtual listen_addr host must be an IPv4 address",
-			want: "虚拟入口不支持 IPv6，请填写 :端口，或填写服务端证书中的 IPv4:端口。",
+			want: "虚拟入口不支持 IPv6，请填写 :端口 或 IPv4:端口；公网 IP 必须在证书中。",
 		},
 		{
 			name: "virtual local address",
 			raw:  "virtual listen_addr host must be a usable non-local IPv4 address",
-			want: "虚拟入口必须使用可用的非本地 IPv4，不能使用回环、链路本地或保留地址。",
+			want: "虚拟入口不能使用链路本地或保留地址；回环入口请填写 127.0.0.1。",
 		},
 		{
 			name: "virtual tunnel port conflict",
@@ -203,12 +203,12 @@ func TestFriendlyErrorText(t *testing.T) {
 		{
 			name: "certificate has no IPv4 SAN",
 			raw:  "server certificate has no IPv4 SAN for virtual forwarding",
-			want: "服务端证书没有 IPv4 SAN，无法配置虚拟入口，请重新下发证书。",
+			want: "服务端证书没有 IPv4 SAN，请显式填写内网 IPv4 或 127.0.0.1 加端口，或重新下发证书。",
 		},
 		{
 			name: "virtual IP outside certificate",
 			raw:  "virtual listen_addr 203.0.113.10:22 is not authorized by the server certificate IPv4 SAN",
-			want: "填写的虚拟 IP 不在服务端证书 IPv4 SAN 中，请修正 listen_addr 或重新下发证书。",
+			want: "填写的公网虚拟 IP 不在服务端证书 IPv4 SAN 中，请修正 listen_addr 或重新下发证书。",
 		},
 		{
 			name: "WinDivert load failure",
@@ -233,7 +233,17 @@ func TestFriendlyErrorText(t *testing.T) {
 		{
 			name: "certificate gate eof",
 			raw:  "read certificate possession gate challenge: EOF",
-			want: "连接被服务端断开，请稍后重试或联系管理员。",
+			want: "连接意外结束，请检查网络链路；若持续出现请查看两端日志。",
+		},
+		{
+			name: "windows read timeout",
+			raw:  "read tcp 10.42.159.244:62380->36.27.120.130:55443: wsarecv: A connection attempt failed because the connected party did not properly respond after a period of time",
+			want: "连接超时，请检查网络或服务端防火墙。",
+		},
+		{
+			name: "connection reset",
+			raw:  "wsarecv: An existing connection was forcibly closed by the remote host",
+			want: "连接被重置，请检查网络链路或服务端状态。",
 		},
 		{
 			name: "tls handshake timeout after gate",

@@ -558,8 +558,6 @@ func friendlyLiteError(err error) string {
 		return "服务端证书和当前地址不匹配，请联系管理员检查服务端地址或证书。"
 	case strings.Contains(text, "unknown authority") || strings.Contains(text, "not trusted"):
 		return "服务端证书不受信任，请重新导出 .lsylprofile。"
-	case strings.Contains(text, "certificate") || strings.Contains(text, "x509") || strings.Contains(text, "tls"):
-		return "服务端证书校验失败，请确认配置和服务器地址。"
 	case strings.Contains(text, "target_denied") || strings.Contains(text, "not allowed to access"):
 		return "当前账号没有访问该目标的权限。"
 	case strings.Contains(text, "target_unreachable") || strings.Contains(text, "target service is unreachable"):
@@ -568,16 +566,22 @@ func friendlyLiteError(err error) string {
 		return "服务端地址格式不正确，应填写为 地址:端口。"
 	case strings.Contains(text, "already in use") || strings.Contains(text, "only one usage") || strings.Contains(text, "bind:"):
 		return "本地端口已被占用，请关闭占用程序后重试。"
+	case tunnel.IsNetworkTimeoutText(text):
+		return "连接超时，请检查网络或防火墙。"
 	case strings.Contains(text, "connection refused") || strings.Contains(text, "actively refused") || strings.Contains(text, "connectex"):
 		return "连接不上服务端，请检查服务端是否启动、地址和端口是否正确。"
-	case strings.Contains(text, "timeout") || strings.Contains(text, "deadline"):
-		return "连接超时，请检查网络或防火墙。"
 	case strings.Contains(text, "no such host"):
 		return "服务端地址无法解析，请检查域名或网络。"
 	case strings.Contains(text, "network is unreachable") || strings.Contains(text, "no route to host"):
 		return "网络不可达，请检查本机网络和服务端地址。"
-	case strings.Contains(text, "connection reset") || strings.Contains(text, "forcibly closed") || strings.Contains(text, "wsarecv") || strings.Contains(text, "eof"):
-		return "连接被服务端断开，请稍后重试或联系管理员。"
+	case strings.Contains(text, "connection reset") || strings.Contains(text, "forcibly closed"):
+		return "连接被重置，请检查网络链路或服务端状态。"
+	case strings.Contains(text, "eof"):
+		return "连接意外结束，请检查网络链路；若持续出现请查看两端日志。"
+	case strings.Contains(text, "wsarecv"):
+		return "连接已中断，请稍后重试或联系管理员。"
+	case strings.Contains(text, "certificate") || strings.Contains(text, "x509") || strings.Contains(text, "tls"):
+		return "服务端证书校验失败，请确认配置和服务器地址。"
 	case strings.Contains(text, "profile package is missing"):
 		return "导入文件不完整，缺少 profile.json 或 server.crt。"
 	case strings.Contains(text, "mobile profile only supports client_to_server"):

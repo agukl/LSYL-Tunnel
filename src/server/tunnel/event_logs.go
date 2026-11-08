@@ -28,24 +28,29 @@ type RequestLogEntry struct {
 }
 
 type BusinessLogEntry struct {
-	Time        string `json:"time"`
-	StartedAt   string `json:"started_at,omitempty"`
-	EndedAt     string `json:"ended_at,omitempty"`
-	RequestID   string `json:"request_id,omitempty"`
-	Kind        string `json:"kind"`
-	Result      string `json:"result"`
-	RemoteIP    string `json:"remote_ip,omitempty"`
-	Username    string `json:"username,omitempty"`
-	ClientID    string `json:"client_id,omitempty"`
-	ForwardName string `json:"forward_name,omitempty"`
-	Direction   string `json:"direction,omitempty"`
-	Target      string `json:"target,omitempty"`
-	ListenAddr  string `json:"listen_addr,omitempty"`
-	Code        string `json:"code,omitempty"`
-	Message     string `json:"message,omitempty"`
-	DurationMS  int64  `json:"duration_ms,omitempty"`
-	BytesUp     int64  `json:"bytes_up,omitempty"`
-	BytesDown   int64  `json:"bytes_down,omitempty"`
+	Time                     string `json:"time"`
+	StartedAt                string `json:"started_at,omitempty"`
+	EndedAt                  string `json:"ended_at,omitempty"`
+	RequestID                string `json:"request_id,omitempty"`
+	Kind                     string `json:"kind"`
+	Result                   string `json:"result"`
+	RemoteIP                 string `json:"remote_ip,omitempty"`
+	Username                 string `json:"username,omitempty"`
+	ClientID                 string `json:"client_id,omitempty"`
+	ForwardName              string `json:"forward_name,omitempty"`
+	Direction                string `json:"direction,omitempty"`
+	Target                   string `json:"target,omitempty"`
+	ListenAddr               string `json:"listen_addr,omitempty"`
+	Code                     string `json:"code,omitempty"`
+	Message                  string `json:"message,omitempty"`
+	DurationMS               int64  `json:"duration_ms,omitempty"`
+	BytesUp                  int64  `json:"bytes_up,omitempty"`
+	BytesDown                int64  `json:"bytes_down,omitempty"`
+	BytesTotal               int64  `json:"bytes_total,omitempty"`
+	AverageBytesPerSec       int64  `json:"average_bytes_per_sec,omitempty"`
+	RateLimitBytesPerSec     int    `json:"rate_limit_bytes_per_sec,omitempty"`
+	MaxConcurrentStreamsUser int    `json:"max_concurrent_streams_per_user,omitempty"`
+	Abnormal                 bool   `json:"abnormal,omitempty"`
 }
 
 type EntryTrafficLogEntry struct {
@@ -63,31 +68,6 @@ type EntryTrafficLogEntry struct {
 	Limit                 int    `json:"limit,omitempty"`
 	WindowSec             int    `json:"window_sec,omitempty"`
 	PermanentBlockCreated bool   `json:"permanent_block_created,omitempty"`
-}
-
-type FlowTrafficLogEntry struct {
-	Time                     string `json:"time"`
-	RequestID                string `json:"request_id,omitempty"`
-	Event                    string `json:"event"`
-	Kind                     string `json:"kind"`
-	Result                   string `json:"result"`
-	RemoteIP                 string `json:"remote_ip,omitempty"`
-	Username                 string `json:"username,omitempty"`
-	ClientID                 string `json:"client_id,omitempty"`
-	ForwardName              string `json:"forward_name,omitempty"`
-	Direction                string `json:"direction,omitempty"`
-	Target                   string `json:"target,omitempty"`
-	ListenAddr               string `json:"listen_addr,omitempty"`
-	Code                     string `json:"code,omitempty"`
-	Message                  string `json:"message,omitempty"`
-	Abnormal                 bool   `json:"abnormal,omitempty"`
-	DurationMS               int64  `json:"duration_ms,omitempty"`
-	BytesUp                  int64  `json:"bytes_up,omitempty"`
-	BytesDown                int64  `json:"bytes_down,omitempty"`
-	BytesTotal               int64  `json:"bytes_total,omitempty"`
-	AverageBytesPerSec       int64  `json:"average_bytes_per_sec,omitempty"`
-	RateLimitBytesPerSec     int    `json:"rate_limit_bytes_per_sec,omitempty"`
-	MaxConcurrentStreamsUser int    `json:"max_concurrent_streams_per_user,omitempty"`
 }
 
 type jsonlLog struct {
@@ -196,7 +176,6 @@ func (s *Server) recordRequestLog(entry RequestLogEntry) {
 		s.log("write request log failed: %v", err)
 		return
 	}
-	s.log("request_log %s", string(data))
 	if s.requestLog == nil {
 		return
 	}
@@ -214,7 +193,6 @@ func (s *Server) recordBusinessLog(entry BusinessLogEntry) {
 		s.log("write business log failed: %v", err)
 		return
 	}
-	s.log("business_log %s", string(data))
 	if s.businessLog == nil {
 		return
 	}
@@ -240,42 +218,11 @@ func (s *Server) writeEntryTrafficLog(entry EntryTrafficLogEntry) {
 		s.log("write entry traffic log failed: %v", err)
 		return
 	}
-	s.log("entry_traffic_log %s", string(data))
 	if s.entryTrafficLog == nil {
 		return
 	}
 	if err := s.entryTrafficLog.WriteJSON(data); err != nil {
 		s.log("write entry traffic log failed: %v", err)
-	}
-}
-
-func (s *Server) recordFlowTrafficLog(entry FlowTrafficLogEntry) {
-	if entry.Time == "" {
-		entry.Time = time.Now().Format(time.RFC3339)
-	}
-	if entry.BytesTotal == 0 {
-		entry.BytesTotal = entry.BytesUp + entry.BytesDown
-	}
-	if entry.AverageBytesPerSec == 0 {
-		entry.AverageBytesPerSec = averageBytesPerSec(entry.BytesTotal, entry.DurationMS)
-	}
-	if entry.RateLimitBytesPerSec == 0 {
-		entry.RateLimitBytesPerSec = s.cfg.Security.StreamRateLimitBytesPerSec
-	}
-	if entry.MaxConcurrentStreamsUser == 0 {
-		entry.MaxConcurrentStreamsUser = s.cfg.Security.MaxConcurrentStreamsPerUser
-	}
-	data, err := json.Marshal(entry)
-	if err != nil {
-		s.log("write flow traffic log failed: %v", err)
-		return
-	}
-	s.log("flow_traffic_log %s", string(data))
-	if s.flowTrafficLog == nil {
-		return
-	}
-	if err := s.flowTrafficLog.WriteJSON(data); err != nil {
-		s.log("write flow traffic log failed: %v", err)
 	}
 }
 
@@ -290,7 +237,7 @@ func (s *Server) recordBusinessLogFromEvent(event RuntimeEvent) {
 	if !isBusinessRuntimeEvent(event) {
 		return
 	}
-	s.recordBusinessLog(BusinessLogEntry{
+	entry := BusinessLogEntry{
 		Time:        event.Time,
 		RequestID:   event.RequestID,
 		Kind:        event.Kind,
@@ -307,7 +254,24 @@ func (s *Server) recordBusinessLogFromEvent(event RuntimeEvent) {
 		DurationMS:  event.DurationMS,
 		BytesUp:     event.BytesUp,
 		BytesDown:   event.BytesDown,
-	})
+	}
+	if isFlowBusinessEvent(event) {
+		entry.BytesTotal = event.BytesUp + event.BytesDown
+		entry.AverageBytesPerSec = averageBytesPerSec(entry.BytesTotal, event.DurationMS)
+		entry.RateLimitBytesPerSec = s.cfg.Security.StreamRateLimitBytesPerSec
+		entry.MaxConcurrentStreamsUser = s.cfg.Security.MaxConcurrentStreamsPerUser
+		entry.Abnormal = event.Result != "closed"
+	}
+	s.recordBusinessLog(entry)
+}
+
+func isFlowBusinessEvent(event RuntimeEvent) bool {
+	switch event.Kind {
+	case "open", "reverse_stream", "reverse_inbound":
+		return event.Result == "closed" || event.Result == "failed" || event.Result == "denied"
+	default:
+		return false
+	}
 }
 
 func isBusinessRuntimeEvent(event RuntimeEvent) bool {

@@ -1,5 +1,5 @@
 #define AppName "LSYL Tunnel Server"
-#define AppVersion "3.2.0"
+#define AppVersion "3.3.0"
 ; This script is copied into the server distributable package:
 ;   LSYL Tunnel Server\installer\server.iss
 ; It compiles the files from that package directory, not from source.
@@ -41,17 +41,14 @@ Name: "{app}\logs"; Flags: uninsneveruninstall
 Name: "{app}\logs\request"; Flags: uninsneveruninstall
 Name: "{app}\logs\business"; Flags: uninsneveruninstall
 Name: "{app}\logs\entry-traffic"; Flags: uninsneveruninstall
-Name: "{app}\logs\flow-traffic"; Flags: uninsneveruninstall
 Name: "{app}\logs\service"; Flags: uninsneveruninstall
 
 [Files]
 Source: "{#SourceRoot}\prerequisites\MicrosoftEdgeWebview2Setup.exe"; Flags: dontcopy
 Source: "{#SourceRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceRoot}\licenses\WebView2\*"; DestDir: "{app}\licenses\WebView2"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#SourceRoot}\bin\lsyl-tunnel-server.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-server-svc.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-server-gui.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
-Source: "{#SourceRoot}\bin\lsyl-tunnel-passwd.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\bin\lsyl-tunnel-cert.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceRoot}\assets\server.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#SourceRoot}\assets\server.svg"; DestDir: "{app}\assets"; Flags: ignoreversion
@@ -63,6 +60,8 @@ Name: "{group}\LSYL Tunnel Server"; Filename: "{app}\bin\lsyl-tunnel-server-gui.
 Name: "{autodesktop}\LSYL Tunnel Server"; Filename: "{app}\bin\lsyl-tunnel-server-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\assets\server.ico"; Tasks: desktopicon
 
 [InstallDelete]
+Type: files; Name: "{app}\bin\lsyl-tunnel-server.exe"
+Type: files; Name: "{app}\bin\lsyl-tunnel-passwd.exe"
 Type: files; Name: "{app}\install-server-app.cmd"
 Type: files; Name: "{app}\uninstall-server-app.cmd"
 Type: files; Name: "{app}\uninstall-server-app.ps1"

@@ -114,7 +114,7 @@ func (a *App) runUI() error {
 		Title:      windowTitle,
 		Size:       Size{Width: 1180, Height: 760},
 		MinSize:    Size{Width: 980, Height: 640},
-		Background: SolidColorBrush{Color: walk.RGB(232, 246, 245)},
+		Background: SolidColorBrush{Color: walk.RGB(255, 255, 255)},
 		Layout:     VBox{MarginsZero: true, SpacingZero: true},
 		Children: []Widget{
 			Composite{

@@ -773,7 +773,7 @@ func TestValidateConfigRejectsInvalidVirtualForwardSettings(t *testing.T) {
 			mutate: func(cfg *Config) {
 				cfg.Forwards[0].ListenAddr = "127.0.0.2:22"
 			},
-			message: "virtual listen_addr host must be a usable non-local IPv4 address",
+			message: "use 127.0.0.1",
 		},
 		{
 			name: "missing port",

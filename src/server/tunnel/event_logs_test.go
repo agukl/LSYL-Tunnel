@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,12 +32,11 @@ func TestJSONLLogWriteJSONPreservesEncodedBytes(t *testing.T) {
 	}
 }
 
-func TestStructuredLogBytesMatchJSONL(t *testing.T) {
+func TestStructuredLogsDoNotMirrorToServiceLog(t *testing.T) {
 	dir := t.TempDir()
 	requestPath := filepath.Join(dir, "request.jsonl")
 	businessPath := filepath.Join(dir, "business.jsonl")
 	entryPath := filepath.Join(dir, "entry.jsonl")
-	flowPath := filepath.Join(dir, "flow.jsonl")
 	var serviceLogs []string
 	server := &Server{
 		logf: func(format string, args ...any) {
@@ -45,40 +45,81 @@ func TestStructuredLogBytesMatchJSONL(t *testing.T) {
 		requestLog:      newJSONLLog(requestPath),
 		businessLog:     newJSONLLog(businessPath),
 		entryTrafficLog: newJSONLLog(entryPath),
-		flowTrafficLog:  newJSONLLog(flowPath),
 	}
 	defer server.Close()
 
 	server.recordRequestLog(RequestLogEntry{RequestID: "request-1", Result: "ok"})
 	server.recordBusinessLog(BusinessLogEntry{RequestID: "business-1", Kind: "open", Result: "connected"})
 	server.recordEntryTrafficLog(EntryTrafficLogEntry{RequestID: "entry-1", Event: "connection_rejected", Result: "rejected"})
-	server.recordFlowTrafficLog(FlowTrafficLogEntry{RequestID: "flow-1", Event: "stream_closed", Kind: "open", Result: "closed"})
+	server.log("service diagnostic: %s", "ready")
 
 	date := time.Now().Format("2006-01-02")
-	assertStructuredLogMatchesFile(t, serviceLogs, "request_log", datedJSONLPath(requestPath, date))
-	assertStructuredLogMatchesFile(t, serviceLogs, "business_log", datedJSONLPath(businessPath, date))
-	assertStructuredLogMatchesFile(t, serviceLogs, "entry_traffic_log", datedJSONLPath(entryPath, date))
-	assertStructuredLogMatchesFile(t, serviceLogs, "flow_traffic_log", datedJSONLPath(flowPath, date))
-}
-
-func assertStructuredLogMatchesFile(t *testing.T, serviceLogs []string, prefix, path string) {
-	t.Helper()
-	want := ""
-	for _, line := range serviceLogs {
-		if strings.HasPrefix(line, prefix+" ") {
-			want = strings.TrimPrefix(line, prefix+" ")
-			break
+	for _, entry := range []struct{ path, requestID string }{
+		{datedJSONLPath(requestPath, date), "request-1"},
+		{datedJSONLPath(businessPath, date), "business-1"},
+		{datedJSONLPath(entryPath, date), "entry-1"},
+	} {
+		data, err := os.ReadFile(entry.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), `"request_id":"`+entry.requestID+`"`) {
+			t.Fatalf("%s is missing request %q: %s", entry.path, entry.requestID, data)
 		}
 	}
-	if want == "" {
-		t.Fatalf("service log prefix %q not found in %#v", prefix, serviceLogs)
+	if len(serviceLogs) != 1 || serviceLogs[0] != "service diagnostic: ready" {
+		t.Fatalf("service logs contain mirrored traffic: %#v", serviceLogs)
 	}
-	data, err := os.ReadFile(path)
+}
+
+func TestFlowMetricsAreIncludedInBusinessEvents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "business.jsonl")
+	server := &Server{
+		cfg:         Config{Security: SecurityConfig{StreamRateLimitBytesPerSec: 1024, MaxConcurrentStreamsPerUser: 4}},
+		businessLog: newJSONLLog(path),
+	}
+	defer server.Close()
+	server.recordEvent(RuntimeEvent{Kind: "open", Result: "closed", DurationMS: 1000, BytesUp: 300, BytesDown: 200})
+	server.recordEvent(RuntimeEvent{Kind: "reverse_inbound", Result: "failed", RemoteIP: "192.0.2.10", Code: "client_stream_timeout"})
+
+	data, err := os.ReadFile(datedJSONLPath(path, time.Now().Format("2006-01-02")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.TrimSuffix(string(data), "\n"); got != want {
-		t.Fatalf("%s JSONL = %q, service log JSON = %q", prefix, got, want)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("business event count = %d, want 2: %s", len(lines), data)
+	}
+	var closed, failed BusinessLogEntry
+	if err := json.Unmarshal([]byte(lines[0]), &closed); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &failed); err != nil {
+		t.Fatal(err)
+	}
+	if closed.BytesTotal != 500 || closed.AverageBytesPerSec != 500 || closed.RateLimitBytesPerSec != 1024 || closed.MaxConcurrentStreamsUser != 4 || closed.Abnormal {
+		t.Fatalf("closed stream metrics = %+v", closed)
+	}
+	if failed.RemoteIP != "192.0.2.10" || failed.Code != "client_stream_timeout" || !failed.Abnormal {
+		t.Fatalf("reverse inbound failure = %+v", failed)
+	}
+}
+
+func TestRuntimeEventsOnlyLogOperationalDiagnostics(t *testing.T) {
+	var serviceLogs []string
+	server := &Server{
+		logf: func(format string, args ...any) {
+			serviceLogs = append(serviceLogs, fmt.Sprintf(format, args...))
+		},
+		businessLog: newJSONLLog(filepath.Join(t.TempDir(), "business.jsonl")),
+	}
+	defer server.Close()
+
+	server.recordEvent(RuntimeEvent{Kind: "open", Result: "connected"})
+	server.recordEvent(RuntimeEvent{Kind: "compatibility", Result: "rejected"})
+	server.recordEvent(RuntimeEvent{Kind: "forward_check", Result: "failed", Code: "target_unreachable"})
+	if len(serviceLogs) != 1 || !strings.Contains(serviceLogs[0], "event kind=forward_check result=failed") {
+		t.Fatalf("service logs should retain only operational diagnostics: %#v", serviceLogs)
 	}
 }
 

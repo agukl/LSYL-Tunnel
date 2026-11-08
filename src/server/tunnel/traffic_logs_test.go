@@ -56,11 +56,12 @@ func TestEntryTrafficLogSkipsAcceptedConnections(t *testing.T) {
 	}
 }
 
-func TestFlowTrafficLogRecordsOpenBytes(t *testing.T) {
+func TestBusinessLogRecordsOpenBytesWithoutLegacyFlowLog(t *testing.T) {
 	certFile, keyFile := writeTestCertificate(t)
 	echoLn := startEchoServer(t)
 	dir := t.TempDir()
-	flowLog := filepath.Join(dir, "flow-traffic.jsonl")
+	businessLog := filepath.Join(dir, "business.jsonl")
+	legacyFlowLog := filepath.Join(dir, "flow-traffic.jsonl")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -78,14 +79,16 @@ func TestFlowTrafficLogRecordsOpenBytes(t *testing.T) {
 			AllowedUsers: []string{"alice"},
 		}},
 		Security: SecurityConfig{
-			HandshakeTimeoutSec: 3,
-			DialTimeoutSec:      1,
-			MaxHandshakeBytes:   32768,
-			AuthFailThreshold:   3,
-			AuthFailWindowSec:   60,
-			AuthFailBlockSec:    60,
+			HandshakeTimeoutSec:         3,
+			DialTimeoutSec:              1,
+			MaxHandshakeBytes:           32768,
+			AuthFailThreshold:           3,
+			AuthFailWindowSec:           60,
+			AuthFailBlockSec:            60,
+			StreamRateLimitBytesPerSec:  1024,
+			MaxConcurrentStreamsPerUser: 4,
 		},
-		Runtime: RuntimeConfig{FlowTrafficLogFile: flowLog},
+		Runtime: RuntimeConfig{BusinessLogFile: businessLog, FlowTrafficLogFile: legacyFlowLog},
 	}, t.Logf)
 	if err != nil {
 		t.Fatal(err)
@@ -109,8 +112,13 @@ func TestFlowTrafficLogRecordsOpenBytes(t *testing.T) {
 	}
 	_ = conn.Close()
 
-	path := datedJSONLPath(flowLog, time.Now().Format("2006-01-02"))
-	waitForFileContains(t, path, `"event":"stream_closed"`, 2*time.Second)
+	path := datedJSONLPath(businessLog, time.Now().Format("2006-01-02"))
+	waitForFileContains(t, path, `"result":"closed"`, 2*time.Second)
 	waitForFileContains(t, path, `"bytes_up":8`, 2*time.Second)
 	waitForFileContains(t, path, `"bytes_down":8`, 2*time.Second)
+	waitForFileContains(t, path, `"bytes_total":16`, 2*time.Second)
+	waitForFileContains(t, path, `"rate_limit_bytes_per_sec":1024`, 2*time.Second)
+	if _, err := os.Stat(datedJSONLPath(legacyFlowLog, time.Now().Format("2006-01-02"))); !os.IsNotExist(err) {
+		t.Fatalf("legacy flow log should not be written, got %v", err)
+	}
 }

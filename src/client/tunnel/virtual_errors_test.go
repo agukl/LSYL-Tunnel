@@ -27,19 +27,19 @@ func TestVirtualForwardErrorClassification(t *testing.T) {
 		{
 			name:      "domain name",
 			raw:       "virtual listen_addr does not support domain names; use an IPv4 address from the server certificate SAN",
-			want:      "虚拟入口不支持域名，请填写 :端口，或填写服务端证书中的 IPv4:端口",
+			want:      "虚拟入口不支持域名，请填写 :端口 或 IPv4:端口；公网 IP 必须在证书中",
 			permanent: true,
 		},
 		{
 			name:      "IPv6 address",
 			raw:       "virtual listen_addr host must be an IPv4 address",
-			want:      "虚拟入口不支持 IPv6，请填写 :端口，或填写服务端证书中的 IPv4:端口",
+			want:      "虚拟入口不支持 IPv6，请填写 :端口 或 IPv4:端口；公网 IP 必须在证书中",
 			permanent: true,
 		},
 		{
 			name:      "local address",
 			raw:       "virtual listen_addr host must be a usable non-local IPv4 address",
-			want:      "虚拟入口必须使用可用的非本地 IPv4，不能使用回环、链路本地或保留地址",
+			want:      "虚拟入口不能使用链路本地或保留地址；回环入口请填写 127.0.0.1",
 			permanent: true,
 		},
 		{
@@ -75,19 +75,19 @@ func TestVirtualForwardErrorClassification(t *testing.T) {
 		{
 			name:      "no usable certificate IP",
 			raw:       "server certificate has no usable non-local IPv4 SAN for automatic virtual forwarding",
-			want:      "服务端证书没有可用于虚拟入口的非本地 IPv4 SAN，请重新下发证书",
+			want:      "服务端证书没有可用于自动选择的 IPv4，请显式填写内网 IPv4 或 127.0.0.1 加端口，或重新下发证书",
 			permanent: true,
 		},
 		{
 			name:      "no certificate IPv4 SAN",
 			raw:       "server certificate has no IPv4 SAN for virtual forwarding",
-			want:      "服务端证书没有 IPv4 SAN，无法配置虚拟入口，请重新下发证书",
+			want:      "服务端证书没有 IPv4 SAN，请显式填写内网 IPv4 或 127.0.0.1 加端口，或重新下发证书",
 			permanent: true,
 		},
 		{
 			name:      "IP outside certificate",
 			raw:       "virtual listen_addr 203.0.113.10:22 is not authorized by the server certificate IPv4 SAN",
-			want:      "填写的虚拟 IP 不在服务端证书 IPv4 SAN 中，请修正 listen_addr 或重新下发证书",
+			want:      "填写的公网虚拟 IP 不在服务端证书 IPv4 SAN 中，请修正 listen_addr 或重新下发证书",
 			permanent: true,
 		},
 		{

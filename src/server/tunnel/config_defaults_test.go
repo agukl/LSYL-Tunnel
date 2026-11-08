@@ -115,8 +115,8 @@ func TestLoadConfigDefaultsTrafficLogPaths(t *testing.T) {
 	if got, want := cfg.Runtime.EntryTrafficLogFile, filepath.Join(confDir, "..", "logs", "entry-traffic", "entry-traffic.jsonl"); got != want {
 		t.Fatalf("EntryTrafficLogFile = %q, want %q", got, want)
 	}
-	if got, want := cfg.Runtime.FlowTrafficLogFile, filepath.Join(confDir, "..", "logs", "flow-traffic", "flow-traffic.jsonl"); got != want {
-		t.Fatalf("FlowTrafficLogFile = %q, want %q", got, want)
+	if cfg.Runtime.FlowTrafficLogFile != "" {
+		t.Fatalf("deprecated FlowTrafficLogFile = %q, want empty", cfg.Runtime.FlowTrafficLogFile)
 	}
 }
 

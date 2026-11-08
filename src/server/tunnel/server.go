@@ -38,7 +38,6 @@ type Server struct {
 	businessLog         *jsonlLog
 	entryTrafficLog     *jsonlLog
 	entryTrafficWriter  *asyncEntryTrafficLog
-	flowTrafficLog      *jsonlLog
 	requestSeq          atomic.Uint64
 	permanentBlockHits  *permanentBlockHitAggregator
 	connLimiter         *connectionLimiter
@@ -132,7 +131,6 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 		requestLog:         newJSONLLog(cfg.Runtime.RequestLogFile),
 		businessLog:        newJSONLLog(cfg.Runtime.BusinessLogFile),
 		entryTrafficLog:    newJSONLLog(cfg.Runtime.EntryTrafficLogFile),
-		flowTrafficLog:     newJSONLLog(cfg.Runtime.FlowTrafficLogFile),
 		permanentBlockHits: newPermanentBlockHitAggregator(defaultPermanentBlockHitLogInterval),
 		connLimiter:        newConnectionLimiter(cfg.Security),
 		userStreams:        newUserStreamLimiter(cfg.Security),

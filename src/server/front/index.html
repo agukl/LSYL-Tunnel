@@ -20,9 +20,8 @@
         <button class="nav-item" data-tab="users">用户认证</button>
         <button class="nav-item" data-tab="forwards">转发端口</button>
         <button class="nav-item" data-tab="user-concurrency">用户并发</button>
+        <button class="nav-item" data-tab="logs">流水日志</button>
         <button class="nav-item" data-tab="security">服务安全</button>
-        <button class="nav-item" data-tab="business">业务流水</button>
-        <button class="nav-item" data-tab="requests">请求流水</button>
         <button class="nav-item" data-tab="blocks">封禁查看</button>
         <button class="nav-item" data-tab="analysis">归属分析</button>
       </nav>
@@ -38,7 +37,13 @@
       <section class="status-strip">
         <div class="status-pill" id="servicePill"><span></span><strong>读取中</strong></div>
         <div class="status-text" id="summaryText">正在读取服务端状态...</div>
-        <button class="btn small muted status-refresh" type="button" data-action="refresh">刷新</button>
+        <div class="status-actions">
+          <div id="logViewSwitch" class="log-view-switch hidden" role="group" aria-label="流水类型">
+            <button type="button" data-log-view="business" aria-pressed="true">业务流水</button>
+            <button type="button" data-log-view="requests" aria-pressed="false">请求流水</button>
+          </div>
+          <button class="btn small muted status-refresh" type="button" data-action="refresh">刷新</button>
+        </div>
       </section>
       <div id="configLockBanner" class="hint-card error hidden"></div>
 
@@ -64,57 +69,49 @@
         </div>
       </section>
 
-      <section id="business" class="panel tab-panel log-panel business-panel">
-        <h2 class="panel-title">业务流水</h2>
-        <div class="detail-grid business-summary">
-          <div class="detail-card warn"><small>业务失败</small><strong id="businessFailedCountView">0</strong></div>
-          <div class="detail-card"><small>业务记录</small><strong id="businessCountView">0</strong></div>
-        </div>
-        <div class="detail-section">
-          <div class="detail-title">
-            <h3>最近业务事件</h3>
-            <span>来自 business/request 日志，按时间倒序展示抽象后的业务记录。</span>
-          </div>
-          <div class="log-scrollbar" id="businessScrollBar" aria-label="业务流水横向滚动" tabindex="0"><div id="businessScrollTrack"></div></div>
-          <div class="table-wrap detail-table-wrap">
-            <table class="data-table detail-table readable-table business-log-table" id="businessTable">
-              <thead>
-                <tr>
-                  <th>时间段</th>
-                  <th>动作</th>
-                  <th>结果</th>
-                  <th>用户 / 来源</th>
-                  <th>端口 / 目标</th>
-                  <th>流量 / 耗时</th>
-                  <th>原因</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+      <section id="logs" class="panel tab-panel log-panel">
+        <h2 class="panel-title">流水日志</h2>
+        <div id="businessLogView" class="log-view active">
+          <div class="detail-section">
+            <div class="log-scrollbar" id="businessScrollBar" aria-label="业务流水横向滚动" tabindex="0"><div id="businessScrollTrack"></div></div>
+            <div class="table-wrap detail-table-wrap">
+              <table class="data-table detail-table readable-table business-log-table" id="businessTable">
+                <thead>
+                  <tr>
+                    <th>时间段</th>
+                    <th>动作</th>
+                    <th>结果</th>
+                    <th>用户 / 来源</th>
+                    <th>端口 / 目标</th>
+                    <th>流量 / 耗时</th>
+                    <th>原因</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </section>
-
-      <section id="requests" class="panel tab-panel log-panel request-panel">
-        <h2 class="panel-title">请求流水</h2>
-        <div class="detail-section">
-          <div class="log-scrollbar" id="requestScrollBar" aria-label="请求流水横向滚动" tabindex="0"><div id="requestScrollTrack"></div></div>
-          <div class="table-wrap detail-table-wrap">
-            <table class="data-table detail-table readable-table request-log-table" id="requestTable">
-              <thead>
-                <tr>
-                  <th>时间</th>
-                  <th>来源</th>
-                  <th>请求</th>
-                  <th>结果</th>
-                  <th>用户 / 客户端</th>
-                  <th>端口 / 目标</th>
-                  <th>响应</th>
-                  <th>原始内容</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+        <div id="requestLogView" class="log-view">
+          <div class="detail-section">
+            <div class="log-scrollbar" id="requestScrollBar" aria-label="请求流水横向滚动" tabindex="0"><div id="requestScrollTrack"></div></div>
+            <div class="table-wrap detail-table-wrap">
+              <table class="data-table detail-table readable-table request-log-table" id="requestTable">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>来源</th>
+                    <th>请求</th>
+                    <th>结果</th>
+                    <th>用户 / 客户端</th>
+                    <th>端口 / 目标</th>
+                    <th>响应</th>
+                    <th>原始内容</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>
@@ -225,10 +222,7 @@
       </section>
 
       <section id="users" class="panel tab-panel">
-        <div class="panel-head panel-head-actions">
-          <h2 class="panel-title">用户认证</h2>
-          <button id="addUserBtn" class="btn small muted">新增用户</button>
-        </div>
+        <h2 class="panel-title">用户认证</h2>
         <div class="table-wrap">
           <table class="data-table" id="usersTable">
             <thead>
@@ -244,15 +238,13 @@
         </div>
         <p class="help">删除或禁用用户前，请先检查“转发端口”页是否仍有端口分配给该用户。</p>
         <div class="panel-actions">
+          <button id="addUserBtn" class="btn muted" type="button">新增用户</button>
           <button class="btn primary" data-action="save">保存配置</button>
         </div>
       </section>
 
       <section id="forwards" class="panel tab-panel">
-        <div class="panel-head panel-head-actions">
-          <h2 class="panel-title">转发端口</h2>
-          <button id="addForwardBtn" class="btn small muted">新增转发</button>
-        </div>
+        <h2 class="panel-title">转发端口</h2>
         <div class="table-wrap">
           <table class="data-table" id="forwardsTable">
             <thead>
@@ -268,6 +260,7 @@
           </table>
         </div>
         <div class="panel-actions">
+          <button id="addForwardBtn" class="btn muted" type="button">新增转发</button>
           <button class="btn primary" data-action="save">保存配置</button>
         </div>
       </section>
@@ -315,13 +308,6 @@
       <section id="security" class="panel tab-panel">
         <h2 class="panel-title">服务安全</h2>
         <div class="form-grid">
-          <div class="form-section-title">服务入口</div>
-          <label>监听地址<input id="listenAddr" type="text" readonly aria-readonly="true" tabindex="-1"></label>
-          <label>监控地址<input id="monitorAddr" type="text" readonly aria-readonly="true" tabindex="-1"></label>
-          <label>日志级别<input id="logLevel" type="text" readonly aria-readonly="true" tabindex="-1"></label>
-          <label>TLS 证书<input id="tlsCert" type="text" readonly aria-readonly="true" tabindex="-1"></label>
-          <label>TLS 私钥<input id="tlsKey" type="text" readonly aria-readonly="true" tabindex="-1"></label>
-          <label>TLS 最低版本<input id="tlsMinVersion" type="text" readonly aria-readonly="true" tabindex="-1"></label>
           <div class="form-section-title">入口连接层</div>
           <label>入口最大并发连接<input id="maxConcurrentConnections" type="number"></label>
           <label>单 IP 最大并发连接<input id="maxConcurrentConnectionsPerIP" type="number"></label>
@@ -339,11 +325,6 @@
           <label>失败统计窗口秒<input id="authFailWindow" type="number"></label>
           <label>失败封禁阈值<input id="authFailThreshold" type="number"></label>
           <label>封禁时长秒<input id="authFailBlock" type="number"></label>
-          <div class="form-section-title">登录凭据密封</div>
-          <label>密封密钥 ID<input id="sealKeyID" type="text" readonly aria-readonly="true" tabindex="-1"></label>
-          <label>密封私钥<input id="sealPrivate" type="text" readonly aria-readonly="true" tabindex="-1"></label>
-          <label>密封公钥<input id="sealPublic" type="text" readonly aria-readonly="true" tabindex="-1"></label>
-          <label>密封过期时间<input id="sealExpires" type="text" readonly aria-readonly="true" tabindex="-1"></label>
         </div>
         <div class="panel-actions">
           <button class="btn primary" data-action="save">保存配置</button>
@@ -360,18 +341,24 @@
       <button class="btn danger" value="discard">丢弃并刷新</button>
     </form>
   </dialog>
-  <div id="resetModal" class="modal hidden">
-    <div class="modal-card">
-      <h3>重置用户密码</h3>
-      <p>用户：<strong id="resetUserName">-</strong></p>
-      <label>新密码<input id="resetPassword" type="password" autocomplete="new-password"></label>
-      <label>确认新密码<input id="resetPasswordConfirm" type="password" autocomplete="new-password"></label>
-      <div class="modal-actions">
-        <button id="resetCancelBtn" class="btn muted" type="button">取消</button>
-        <button id="resetConfirmBtn" class="btn primary" type="button">确认重置</button>
-      </div>
+  <dialog id="actionConfirmDialog" class="confirm-dialog" aria-labelledby="actionConfirmTitle" aria-describedby="actionConfirmMessage">
+    <h3 id="actionConfirmTitle">确认操作</h3>
+    <p id="actionConfirmMessage"></p>
+    <form method="dialog" class="modal-actions">
+      <button class="btn muted" value="cancel" autofocus>取消</button>
+      <button class="btn danger" value="confirm">确认</button>
+    </form>
+  </dialog>
+  <dialog id="resetModal" class="confirm-dialog reset-dialog" aria-labelledby="resetDialogTitle">
+    <h3 id="resetDialogTitle">重置用户密码</h3>
+    <p>用户：<strong id="resetUserName">-</strong></p>
+    <label>新密码<input id="resetPassword" type="password" autocomplete="new-password"></label>
+    <label>确认新密码<input id="resetPasswordConfirm" type="password" autocomplete="new-password"></label>
+    <div class="modal-actions">
+      <button id="resetCancelBtn" class="btn muted" type="button">取消</button>
+      <button id="resetConfirmBtn" class="btn primary" type="button">确认重置</button>
     </div>
-  </div>
+  </dialog>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

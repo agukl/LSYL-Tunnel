@@ -68,7 +68,9 @@ set "INSTALLERS_DIR=%STAGE_DIR%\installers"
 
 if "%VERIFY_ONLY%"=="1" goto verify_final_dist
 
-call deploy\windows\go-env.cmd "%WORKSPACE%" "%GOEXE%" || exit /b 1
+set "RELEASE_STEP=Resolve Go toolchain"
+call :write_release_result RUNNING "This run has not updated dist yet."
+call deploy\windows\go-env.cmd "%WORKSPACE%" "%GOEXE%" || goto fail
 
 echo [INFO] LSYL Tunnel release workflow
 echo [INFO] Workspace: %WORKSPACE%
@@ -76,9 +78,10 @@ echo [INFO] Final dist is generated directly from source through build\tmp\dist-
 if "%CLIENT_KIT%"=="1" echo [INFO] Client kit will be kept in final dist for on-site client installer regeneration.
 if "%BUNDLE_INNO%"=="1" if not "%CLIENT_KIT%"=="1" echo [WARN] /bundle-inno has no effect with /no-client-kit.
 
+set "RELEASE_STEP=Code signing setup"
 if "%LOCAL_SIGN%"=="1" (
   echo [1/8] Ensure local code signing certificate
-  call deploy\windows\sign\init-selfsigned-codesign.cmd || exit /b 1
+  call deploy\windows\sign\init-selfsigned-codesign.cmd || goto fail
 ) else (
   echo [1/8] Code signing setup
   if exist certs\codesign-thumbprint.txt (
@@ -92,10 +95,11 @@ if "%LOCAL_SIGN%"=="1" (
   )
 )
 
+set "RELEASE_STEP=Server TLS certificate"
 if defined HOSTS (
   echo [2/8] Generate server TLS certificate and sync client trust
-  call deploy\windows\cert\init-server.cmd "%HOSTS%" || exit /b 1
-  copy /y certs\server.crt src\client\cert\server.crt >nul || exit /b 1
+  call deploy\windows\cert\init-server.cmd "%HOSTS%" || goto fail
+  copy /y certs\server.crt src\client\cert\server.crt >nul || goto fail
   echo [INFO] Synced certs\server.crt to src\client\cert\server.crt
 ) else (
   echo [2/8] Server TLS certificate
@@ -107,25 +111,31 @@ if defined HOSTS (
   )
 )
 
+set "RELEASE_STEP=Go tests"
 if "%SKIP_TEST%"=="1" (
   echo [3/8] Tests skipped
 ) else (
   echo [3/8] Run Go tests
-  "%GOEXE%" test ./src/... || exit /b 1
+  "%GOEXE%" test ./src/... || goto fail
 )
 
 echo [4/8] Recreate temporary release work directories
-call :remove_dir "%WORK_DIR%" "old release work directory" || exit /b 1
-call :remove_dir "%STAGE_DIR%" "old staged dist directory" || exit /b 1
-mkdir "%WORK_DIR%" || exit /b 1
-mkdir "%INSTALLERS_DIR%" || exit /b 1
+set "RELEASE_STEP=Prepare release work directories"
+call :remove_dir "%WORK_DIR%" "old release work directory" || goto fail
+call :remove_dir "%STAGE_DIR%" "old staged dist directory" || goto fail
+mkdir "%WORK_DIR%" || goto fail
+mkdir "%INSTALLERS_DIR%" || goto fail
 copy /y "%WORKSPACE%\LICENSE" "%STAGE_DIR%\LICENSE" >nul || goto fail
 
 echo [5/8] Build temporary packages from source
+set "RELEASE_STEP=Build client package"
 call deploy\windows\app\package-client.cmd "%CLIENT_PACKAGE_DIR%" || goto fail
+set "RELEASE_STEP=Build server package"
 call deploy\windows\app\package-server.cmd "%SERVER_PACKAGE_DIR%" || goto fail
+set "RELEASE_STEP=Build Android APK"
 call deploy\windows\app\build-android-apk.cmd "%ANDROID_APK%" || goto fail
 
+set "RELEASE_STEP=Sign package binaries"
 set "LSYL_CLIENT_PACKAGE_DIR=%CLIENT_PACKAGE_DIR%"
 set "LSYL_SERVER_PACKAGE_DIR=%SERVER_PACKAGE_DIR%"
 call deploy\windows\sign\sign-release.cmd package || goto fail
@@ -133,8 +143,11 @@ set "LSYL_CLIENT_PACKAGE_DIR="
 set "LSYL_SERVER_PACKAGE_DIR="
 
 echo [6/8] Build installers into staged dist
+set "RELEASE_STEP=Build client installer"
 call "%CLIENT_PACKAGE_DIR%\make-installer.cmd" "%INSTALLERS_DIR%" || goto fail
+set "RELEASE_STEP=Build server installer"
 call "%SERVER_PACKAGE_DIR%\make-installer.cmd" "%INSTALLERS_DIR%" || goto fail
+set "RELEASE_STEP=Assemble staged dist"
 copy /y "%ANDROID_APK%" "%INSTALLERS_DIR%\LSYL-Tunnel-Android.apk" >nul || goto fail
 
 if "%CLIENT_KIT%"=="1" (
@@ -145,16 +158,25 @@ if "%CLIENT_KIT%"=="1" (
   set "LSYL_BUNDLE_INNO="
 )
 
+set "RELEASE_STEP=Sign installers"
 set "LSYL_INSTALLERS_DIR=%INSTALLERS_DIR%"
 call deploy\windows\sign\sign-release.cmd installers || goto fail
 set "LSYL_INSTALLERS_DIR="
 
+echo [7/8] Verify and publish staged dist
+set "RELEASE_STEP=Verify staged dist"
 call :verify_dist "%STAGE_DIR%" || goto fail
+set "RELEASE_STEP=Replace final dist"
 call :commit_dist || goto fail_keep_stage
+echo [8/8] Write release manifest and clean temporary package files
+set "RELEASE_STEP=Write release manifest"
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy\windows\sign\write-release-manifest.ps1 -OutputDir "%FINAL_DIST_DIR%" -DistDir "%FINAL_DIST_DIR%" || goto fail_after_commit
 
-if not "%KEEP_WORK%"=="1" call :remove_dir "%WORK_DIR%" "release work directory" || exit /b 1
+set "RELEASE_STEP=Clean release work directory"
+if not "%KEEP_WORK%"=="1" call :remove_dir "%WORK_DIR%" "release work directory" || goto fail_after_commit
 
+set "RELEASE_STEP=Completed"
+call :write_release_result SUCCESS "Final dist was updated and verified."
 echo Release ready
 echo Installers:
 echo   %FINAL_DIST_DIR%\installers\LSYL-Tunnel-Client-Setup.exe
@@ -294,23 +316,43 @@ exit /b 0
 :fail
 set "ERR=%ERRORLEVEL%"
 if "%ERR%"=="0" set "ERR=1"
+echo [ERROR] Failed step: %RELEASE_STEP%
 echo [ERROR] Release failed. Final dist was not replaced.
+echo [ERROR] Existing dist files belong to an earlier release, not this run.
 if not "%STAGE_DIR%"=="" if exist "%STAGE_DIR%" echo [INFO] Staged dist left for inspection: %STAGE_DIR%
+call :write_release_result FAILED "Final dist was not replaced. Existing files are from an earlier release."
 endlocal & exit /b %ERR%
 
 :fail_keep_stage
 set "ERR=%ERRORLEVEL%"
 if "%ERR%"=="0" set "ERR=1"
+echo [ERROR] Failed step: %RELEASE_STEP%
 echo [ERROR] Release failed while replacing dist.
 echo [INFO] Staged dist left for inspection: %STAGE_DIR%
+call :write_release_result FAILED "Replacing dist failed. Inspect dist and dist.stage before delivery."
 endlocal & exit /b %ERR%
 
 :fail_after_commit
 set "ERR=%ERRORLEVEL%"
 if "%ERR%"=="0" set "ERR=1"
-echo [ERROR] Release replaced final dist but failed while writing release manifest.
+echo [ERROR] Failed step: %RELEASE_STEP%
+echo [ERROR] Final dist was replaced, but release finalization failed.
 echo [INFO] Final dist is available for inspection: %FINAL_DIST_DIR%
+call :write_release_result FAILED "Final dist was replaced, but release finalization failed."
 endlocal & exit /b %ERR%
+
+:write_release_result
+if not exist "%WORKSPACE%\build\tmp" mkdir "%WORKSPACE%\build\tmp" >nul 2>nul
+> "%WORKSPACE%\build\tmp\release-result.txt" (
+  echo Status: %~1
+  echo Step: %RELEASE_STEP%
+  echo Updated: %DATE% %TIME%
+  echo Result: %~2
+  echo Dist: %FINAL_DIST_DIR%
+)
+if errorlevel 1 echo [WARN] Could not write build\tmp\release-result.txt
+echo [INFO] Last release result: %WORKSPACE%\build\tmp\release-result.txt
+exit /b 0
 
 :usage
 echo Usage:

@@ -46,7 +46,7 @@ deploy/windows/
   app/                  源码打包、Android 构建和安装依赖准备
   inno/                 安装器模板、共享前置依赖、现场重打包脚本
   sign/                 代码签名初始化和签名脚本
-  test/                 自检脚本
+  test/                 源码自检、发布流程回归和二进制标识校验
 
 check.cmd               源码检查入口：快速 Go 检查 / 完整跨端检查，不打包
 release.cmd             发布主入口：测试、打包、安装器、签名和验证
@@ -55,6 +55,19 @@ third_party/            随产品分发的第三方组件及许可
 tool/                   本机开发工具和依赖安装器缓存，不作为源码提交
 ```
 
+### 工作目录边界
+
+| 类别 | 目录 | 维护方式 |
+| --- | --- | --- |
+| 源码与构建定义 | `src`、`mobile/android`、`deploy`、`docs` | 随 Git 管理；单元测试与所属模块相邻 |
+| 本机配置与密钥 | `src/client/conf`、`src/client/cert`、`src/server/conf`、`certs` | 本机发布输入，不按临时产物清理；客户端证书目录不放服务端私钥 |
+| 构建输出与缓存 | `build/bin`、`build/tmp`、`build/gocache`、Android 的 `build` / `.gradle` | 可重新生成，不作为源码或交付入口 |
+| 交付产物 | `dist` | 由 `release.cmd` 生成；现场重打客户端安装器只封装已有二进制 |
+| 开发运行数据 | `runtime/data`、`runtime/logs` | 业务持久化与日志，不随代码整理删除 |
+| 工具与分发依赖 | `tool`、`third_party` | 前者是本机工具缓存，后者保留随产品交付的依赖及许可 |
+
+`dist.stage`、`dist.previous` 属于发布过程的暂存与回退目录，不是第二套源码。不要通过移动整个源码树或清空本机发布输入来整理目录；新增代码优先放入已有职责模块，只有依赖边界确实改变时才新增 Go 包。
+
 ## 进程与依赖
 
 项目是模块化的客户端 / 服务端系统，不是微服务，也不是完整 VPN。三个客户端共享协议契约，但运行边界不同：
@@ -62,7 +75,7 @@ tool/                   本机开发工具和依赖安装器缓存，不作为�
 ```text
 标准 Windows 客户端
   WebView2 页面 -> 本地 GUI API -> client/tunnel（同一进程）
-                                -> WinDivert helper（提权子进程，仅虚拟规则）
+                                -> WinDivert helper（提权子进程，仅非回环虚拟规则）
 
 Win7 Lite -> client/tunnel（同一进程，Go 1.20 / windows/386）
           -> mobileprofile（配置导入）
@@ -85,6 +98,7 @@ Android 不复用 Go 二进制，必须独立维护协议、前置门、Profile 
 
 服务端隧道核心位于 `src/server/tunnel`：
 
+- `config.go`：配置类型、加载保存和路径解析；`config_defaults.go`：默认值与反向端口归一化；`config_validation.go`：运行配置与版本校验；`config_forward.go`：转发字段约束；`config_compat.go`：安装前 YAML 结构检查。
 - `server.go`：构造服务、启动后台任务；`entry.go`：入口准入、前置门和 TLS 握手。
 - `request.go`：请求上下文、协议读取和分发；`authentication.go`：凭据校验与失败计数；`compatibility.go`：协议与客户端版本检查。
 - `forward.go`：正向业务流；`request_reverse.go`：反向请求响应与连接移交；`reverse.go`：反向监听和待回连流。
@@ -92,19 +106,26 @@ Android 不复用 Go 二进制，必须独立维护协议、前置门、Profile 
 - `authorization.go`：正向目标和反向监听授权。
 - `connection_limiter.go`、`fail_tracker.go`：入口连接限制和失败来源跟踪。
 - `monitor.go`：本地监控 HTTP 接口；`monitor_status.go`：类型化状态契约与快照；`maintenance.go`：后台清扫。
-- `event_logs.go`、`runtime_events.go`：四类业务日志和内存事件。
+- `event_logs.go`、`runtime_events.go`：三类业务 JSONL 和内存事件。
 
 客户端隧道核心位于 `src/client/tunnel`，仍使用同一 Go 包，按职责定位：
 
-- `client.go`：构造、启动和关闭；`request.go` / `tls.go`：登录探测、请求封装和 TLS 材料。
-- `forward.go` / `reverse.go`：正向监听和反向连接；`virtual_session.go`：多条虚拟规则共享会话。
+- `config.go`：配置类型、读写和默认值；`config_forward.go`：转发字段、严格解码和反向字段约束；`config_validation.go`：运行配置与版本语义校验；`config_compat.go`：YAML 结构与安装兼容检查。
+- `client.go`：实例构造、后台任务启动和关闭；`forward_start.go`：规则启动编排、局部失败与取消授权策略。
+- `request.go` / `tls.go`：登录探测、请求封装和 TLS 材料。
+- `forward.go` / `reverse.go`：正向监听和反向连接。
+- `virtual_address.go`：虚拟地址解析、证书 SAN 策略及自动选址，不负责 TLS 服务端身份验证；`virtual_listener.go`：直接回环监听与随机桥接监听的准备；`virtual_session.go`：helper 批量启动、成员登记、失败回收和关闭。
 - `status.go`：状态快照；`health.go`：健康检查；`forward_check.go`：规则预检与恢复。
 - `response_policy.go`：已知服务端错误码的提示与重试策略；`error_messages.go`：网络、证书和旧格式文本错误；`retry.go`：退避时间。
 - Windows 虚拟接管分别由 `virtual_redirect_windows.go` 管理会话，`virtual_helper_windows.go` 处理 helper 命令，`virtual_control_windows.go` 负责 IPC，`virtual_elevation_windows.go` 负责提权，`windivert_windows.go` 负责驱动调用与收发。均保持 `windows && !386` 构建边界。
 
-服务端拒绝响应转换为 `protocol.ResponseError`，保留 `Code`、`Message` 和原日志文本格式，可通过 `errors.As` 穿透包装读取。已知错误码优先决定重试策略，不受诊断文案中的 timeout 等词干扰；`reverse_failed` 尚未细分原因，未知码和无结构错误仍使用兼容分类。这不新增协议字段，也不改变四类业务日志。
+测试按相同职责放置：虚拟地址策略在 `virtual_address_test.go`，共享 helper 的启动、取消和回收在 `virtual_session_test.go`，提示与重试分类在 `error_messages_test.go`。移动实现时同步检查部署自检脚本中的文件路径，不以文件拆分改变公开接口、配置字段或错误文本。
+
+服务端拒绝响应转换为 `protocol.ResponseError`，保留 `Code`、`Message` 和原日志文本格式，可通过 `errors.As` 穿透包装读取。已知错误码优先决定重试策略，不受诊断文案中的 timeout 等词干扰；`reverse_failed` 尚未细分原因，未知码和无结构错误仍使用兼容分类。这不新增协议字段。
 
 服务端管理台后端位于 `src/server/gui`：`http_windows.go` 负责本地 HTTP 服务和路由，`admin_api_windows.go` 负责请求处理和状态组装，`admin_config_mapping_windows.go` 负责 GUI 与核心配置互转，`admin_forward_mapping_windows.go` 负责转发字段转换，`admin_monitor_client_windows.go` 负责访问服务端本地监控接口。
+
+日志归属分析由 `admin_log_analysis_windows.go` 编排并聚合事件，`admin_log_analysis_reader_windows.go` 按日期读取请求和业务 JSONL，`admin_log_analysis_geo_windows.go` 处理可选的 IP 归属查询。三者同属管理台，不进入转发核心或新增业务日志。
 
 标准客户端 GUI 的提示分类集中在 `error_messages_windows.go`，已知协议错误码优先，网络、配置和旧文本错误保留兼容分类。健康状态在进程内保留原始错误，JSON 仍只包含原有展示字段；清除保存凭据仅认 `auth_failed` / `credential_expired`，无错误码时才使用兼容文本判断，临时封禁等其他错误码不会误删凭据。
 
@@ -121,13 +142,13 @@ Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令�
 | 入口连接 | TCP 接收、封禁命中、来源连接限制、证书持有前置门、TLS 握手 | 内存计数及有界 IP 表；异常记录走有界异步入口日志，永久封禁命中聚合 |
 | 请求认证 | 有界 JSON 请求解析、协议版本检查、密码或密封凭据校验 | 请求流水；成功来源保护与失败追踪 |
 | 业务控制 | 正向目标授权、反向端口激活、待回连流 ID 管理 | 业务流水、内存事件及按账号并发准入 |
-| 数据流 | 连接目标、双向复制、单流双向合计速率限制、关闭回收 | 内存流量统计及流量日志；不逐包写业务日志 |
+| 数据流 | 连接目标、双向复制、单流双向合计速率限制、关闭回收 | 内存流量统计；关闭统计与异常并入业务流水，不逐包写日志 |
 
 正向和反向的每条业务流目前各自建立隧道连接并完成认证，不是登录后复用一条多路复用连接。`saved_credential` 用于密封保存密码，不是跳过密码 KDF 的会话令牌。TLS 配置缓存、一次登录探测和共享虚拟 helper 不改变这个认证边界。
 
-四类 JSONL 业务日志分别由 `event_logs.go` 写入 request、business、entry-traffic、flow-traffic 目录；服务日志还包含相同事件的文本归纳和服务运行信息，不能视为第五种业务模型。只有入口异常日志采用有界异步队列，其余日志仍同步写入。内存事件环用于运行展示，不代替持久日志。
+三类 JSONL 分别写入 request、business、entry-traffic 目录。数据流关闭时的字节数、时长、平均速率及限制值，连同异常结果写入已有 business 事件，不再生成 flow-traffic 流水；旧配置字段仍接受，但保存时移除，历史文件不删除。服务日志只记录运行诊断和写盘错误，不重复写入流水。入口异常日志采用有界异步队列，其余日志仍同步写入。内存事件环用于运行展示，不代替持久日志。
 
-入口并发名额随 TCP 连接持有，正向流、反向控制和反向数据流均在实际关闭时释放，不随请求处理函数返回提前释放。服务端拥有独立取消上下文；`Close()` 停止接收和任务登记、取消拨号与维护任务、关闭活动连接及反向监听，然后等待工作任务退出，最后排空入口日志队列并关闭四类日志文件。反向待回连的超时由工作任务持有，交接或退出后不保留游离定时回调。
+入口并发名额随 TCP 连接持有，正向流、反向控制和反向数据流均在实际关闭时释放，不随请求处理函数返回提前释放。服务端拥有独立取消上下文；`Close()` 停止接收和任务登记、取消拨号与维护任务、关闭活动连接及反向监听，然后等待工作任务退出，最后排空入口日志队列并关闭三类日志文件。反向待回连的超时由工作任务持有，交接或退出后不保留游离定时回调。
 
 ## 配置契约
 
@@ -182,7 +203,7 @@ Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令�
 
 `client_to_server`：客户端通过固定本地端口接收连接，服务端连接服务端侧目标。
 
-`virtual`：仅在标准 Windows 客户端增加按证书授权 `IPv4:端口` 拦截和随机回环桥接。多条规则共享一次提权 helper，会话结束后撤销接管；服务端仍按 `client_to_server` 授权，不知道也不下发虚拟入口。证书选择、端口冲突及取消授权规则见[配置参考](../system/config-reference-zh.md)。
+`virtual`：仅在标准 Windows 客户端增加按 `IPv4:端口` 拦截和随机回环桥接；公网 IP 要求证书 SAN 授权，RFC1918 私有 IPv4 豁免。`127.0.0.1` 复用普通监听流程，不进入驱动和提权 helper；多条非回环规则共享一次提权 helper，会话结束后撤销接管；服务端仍按 `client_to_server` 授权，不知道也不下发虚拟入口。证书选择、端口冲突及取消授权规则见[配置参考](../system/config-reference-zh.md)。
 
 `server_to_client`：服务端配置被动入口，客户端通过规则中的 `listen_addr` 选择并主动激活对应入口，同时上报本地 `server_target` 供运行记录。服务端按监听地址和登录账号校验归属；收到访问后只发送不透明流 ID，客户端再回建数据流并连接本地目标。服务端不会主动拨入客户端网络，不用客户端目标选择端口，也不会把保留端口下发或写回客户端配置。
 
@@ -201,14 +222,14 @@ Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令�
 | 本地 HTTP 服务、路由与静态资源 | 各端 `gui/http_windows.go` |
 | 原生窗口行为 | 各端 `gui/window_windows.go`；客户端托盘在 `tray_windows.go` |
 | 开发目录与安装目录定位 | 各端 `gui/paths_windows.go` |
-| 服务日志尾部读取 | 服务端 `gui/logging_windows.go`，复用有界尾读，不负责四类业务日志写入 |
+| 服务日志尾部读取 | 服务端 `gui/logging_windows.go`，复用有界尾读，不负责三类业务 JSONL 写入 |
 | WebView2 初始化与运行时检查 | `src/internal/webviewhost`，不包含隧道业务 |
 
 页面资源通过 `go:embed` 编入 exe，并由回环 HTTP 服务提供；更改页面后需要重新构建 GUI。发布机器不需要 Node，也不需要单独复制前端文件。`tunnel` 不依赖 `gui`、`front` 或 WebView2，Win7 Lite 和 Android 保持独立界面实现。
 
 GUI 自动定位只识别当前源码布局 `src/client/conf`、`src/server/conf` 和安装布局 `conf`，不再回读旧根目录的 `client/conf`、`server/conf` 或 `server/bin`。保留 `LSYL_TUNNEL_WORKSPACE` 显式覆盖及源码配置优先规则；不存在配置时仍返回源码默认路径，不自动迁移或改写旧目录中的文件。安装服务时使用显式 `-config` 参数。
 
-双端 GUI 的诊断使用 Go 标准 `log` 输出到 stderr，不再保留无人读取的内存日志副本，也不自动创建额外日志文件。界面提示、崩溃日志、服务日志和四类业务日志各自保持原有职责；需要调试诊断时由启动端显式重定向 stderr。
+双端 GUI 的诊断使用 Go 标准 `log` 输出到 stderr，不再保留无人读取的内存日志副本，也不自动创建额外日志文件。界面提示、崩溃日志、服务日志和三类业务 JSONL 各自保持原有职责；需要调试诊断时由启动端显式重定向 stderr。
 
 标准客户端使用透明原生宿主，WebView2 直接挂到主窗口；页面根背景透明，由 `.app` 绘制背景和圆角，避免 Win10 的窗口区域硬裁剪锯齿。透明合成与 WebView2 背景初始化集中在 `internal/webviewhost`，窗口消息和 COM 调用保持在 UI 线程，不增加逐帧截图或定时重绘。服务端仍使用默认不透明宿主；Win7 Lite 和 Android 不采用这一窗口方案。
 

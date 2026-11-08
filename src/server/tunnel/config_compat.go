@@ -147,15 +147,20 @@ func validateServerConfigV1Structure(data []byte) error {
 		return err
 	}
 	for _, name := range []string{
-		"config_version", "requires", "compatibility", "listen_addr", "monitor_addr", "log_level",
+		"config_version", "requires", "compatibility", "listen_addr", "monitor_addr",
 		"tls", "auth", "forwards", "security", "credential_seal", "runtime",
 	} {
 		if _, err := yamlRequiredField(top, "server config", name); err != nil {
 			return err
 		}
 	}
-	for _, name := range []string{"config_version", "listen_addr", "monitor_addr", "log_level"} {
+	for _, name := range []string{"config_version", "listen_addr", "monitor_addr"} {
 		if err := yamlRequireScalar(top, "server config", name); err != nil {
+			return err
+		}
+	}
+	if _, ok := top["log_level"]; ok {
+		if err := yamlRequireScalar(top, "server config", "log_level"); err != nil {
 			return err
 		}
 	}
@@ -188,7 +193,7 @@ func validateServerConfigV1Structure(data []byte) error {
 	}
 	return validateScalarMapping(top["runtime"], "server config.runtime",
 		"state_file", "permanent_block_file", "request_log_file", "business_log_file",
-		"entry_traffic_log_file", "flow_traffic_log_file", "recent_events")
+		"entry_traffic_log_file", "recent_events")
 }
 
 func validateAuthUsers(node *yaml.Node) error {

@@ -19,7 +19,7 @@ func TestEmbeddedModuleGraph(t *testing.T) {
 		t.Fatal("console entry must load as an ES module")
 	}
 	imports := regexp.MustCompile(`(?m)^import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]`)
-	exported := regexp.MustCompile(`(?m)^export function\s+([\w$]+)\(`)
+	exported := regexp.MustCompile(`(?m)^export (?:async )?function\s+([\w$]+)\(`)
 	visited, visiting := map[string]bool{}, map[string]bool{}
 	var visit func(string)
 	visit = func(name string) {

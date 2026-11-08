@@ -34,6 +34,44 @@ func TestCheckConfigUpgradeCompatibleAcceptsCompleteV1Config(t *testing.T) {
 	}
 }
 
+func TestCheckConfigUpgradeCompatibleAcceptsV1WithoutDeprecatedLogLevel(t *testing.T) {
+	path := writeTestConfig(t, t.TempDir(), "server.yaml", strings.Replace(validServerConfigV1YAML(""), "log_level: info\n", "", 1))
+	if err := CheckConfigUpgradeCompatible(path); err != nil {
+		t.Fatalf("expected V1 config without log_level to be upgrade-compatible, got %v", err)
+	}
+}
+
+func TestCheckConfigUpgradeCompatibleAcceptsV1WithoutDeprecatedFlowLog(t *testing.T) {
+	path := writeTestConfig(t, t.TempDir(), "server.yaml", strings.Replace(validServerConfigV1YAML(""), "  flow_traffic_log_file: logs/flow-traffic/flow-traffic.jsonl\n", "", 1))
+	if err := CheckConfigUpgradeCompatible(path); err != nil {
+		t.Fatalf("expected V1 config without flow_traffic_log_file to be upgrade-compatible, got %v", err)
+	}
+}
+
+func TestSaveConfigOmitsDeprecatedLogLevel(t *testing.T) {
+	path := writeTestConfig(t, t.TempDir(), "server.yaml", validServerConfigV1YAML(""))
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "log_level:") {
+		t.Fatalf("saved config still contains deprecated log_level: %s", data)
+	}
+	if strings.Contains(string(data), "flow_traffic_log_file:") {
+		t.Fatalf("saved config still contains deprecated flow_traffic_log_file: %s", data)
+	}
+	if err := CheckConfigUpgradeCompatible(path); err != nil {
+		t.Fatalf("saved config is not upgrade-compatible: %v", err)
+	}
+}
+
 func TestCheckConfigUpgradeCompatibleRejectsNewerConfigVersion(t *testing.T) {
 	dir := t.TempDir()
 	current := writeTestConfig(t, dir, "server.yaml", `

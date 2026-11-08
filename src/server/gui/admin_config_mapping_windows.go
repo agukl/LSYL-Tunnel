@@ -13,7 +13,6 @@ import (
 type adminConfig struct {
 	ListenAddr     string          `json:"listen_addr"`
 	MonitorAddr    string          `json:"monitor_addr"`
-	LogLevel       string          `json:"log_level"`
 	TLS            adminTLS        `json:"tls"`
 	Users          []adminUser     `json:"users"`
 	Forwards       []adminForward  `json:"forwards"`
@@ -88,7 +87,6 @@ func adminConfigFromTunnel(cfg tunnel.Config) adminConfig {
 	return adminConfig{
 		ListenAddr:  cfg.ListenAddr,
 		MonitorAddr: cfg.MonitorAddr,
-		LogLevel:    cfg.LogLevel,
 		TLS: adminTLS{
 			CertFile:   cfg.TLS.CertFile,
 			KeyFile:    cfg.TLS.KeyFile,
@@ -123,7 +121,6 @@ func adminConfigToTunnel(form adminConfig, existing tunnel.Config) (tunnel.Confi
 	cfg := existing
 	cfg.ListenAddr = strings.TrimSpace(form.ListenAddr)
 	cfg.MonitorAddr = strings.TrimSpace(form.MonitorAddr)
-	cfg.LogLevel = strings.TrimSpace(form.LogLevel)
 	cfg.TLS = tunnel.TLSConfig{
 		CertFile:   strings.TrimSpace(form.TLS.CertFile),
 		KeyFile:    strings.TrimSpace(form.TLS.KeyFile),

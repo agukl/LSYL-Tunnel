@@ -1,4 +1,4 @@
-import { hiddenInput, preventEvent, hasClass } from './dom.js';
+import { hiddenInput } from './dom.js';
 
 let customSelectCount = 0;
 
@@ -34,7 +34,7 @@ export function addCustomSelect(td, name, value, options, onChange) {
     if (!button.disabled) { toggleCustomSelect(control); }
   };
   button.onkeydown = function (event) {
-    handleCustomSelectButtonKey(control, event || window.event);
+    handleCustomSelectButtonKey(control, event);
   };
   shell.appendChild(button);
   shell.appendChild(list);
@@ -59,7 +59,8 @@ export function renderCustomSelect(control) {
   control._customLabel.textContent = selected ? selected.text : '';
   control._customButton.title = control._customLabel.textContent;
   control._customButton.disabled = !!control.disabled || !!control._customEmpty;
-  control._customShell.className = 'custom-select' + (control._customButton.disabled ? ' disabled' : '');
+  control._customShell.classList.toggle('disabled', control._customButton.disabled);
+  closeCustomSelect(control);
   var list = control._customList;
   list.innerHTML = '';
   for (var n = 0; n < options.length; n++) {
@@ -91,42 +92,39 @@ function customSelectOptionClick(control, value) {
 
 function customSelectOptionKey(control) {
   return function (event) {
-    event = event || window.event;
-    var code = event.keyCode || event.which;
-    if (code === 9) {
+    if (event.key === 'Tab') {
       closeCustomSelect(control);
       control._customButton.focus();
       return;
     }
-    if (code === 27) {
+    if (event.key === 'Escape') {
       closeCustomSelect(control);
       control._customButton.focus();
-      preventEvent(event);
+      event.preventDefault();
       return;
     }
-    if (code === 38 || code === 40) {
-      focusCustomOption(control, this, code === 40 ? 1 : -1);
-      preventEvent(event);
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      focusCustomOption(control, this, event.key === 'ArrowDown' ? 1 : -1);
+      event.preventDefault();
     }
   };
 }
 
 function handleCustomSelectButtonKey(control, event) {
-  var code = event.keyCode || event.which;
-  if (code === 27) {
+  if (event.key === 'Escape') {
     closeCustomSelect(control);
-    preventEvent(event);
+    event.preventDefault();
     return;
   }
-  if (code === 13 || code === 32 || code === 40) {
+  if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
     openCustomSelect(control);
     focusFirstCustomOption(control);
-    preventEvent(event);
+    event.preventDefault();
   }
 }
 
 function toggleCustomSelect(control) {
-  if (hasClass(control._customShell, 'open')) {
+  if (control._customShell.classList.contains('open')) {
     closeCustomSelect(control);
     return;
   }
@@ -136,13 +134,26 @@ function toggleCustomSelect(control) {
 function openCustomSelect(control) {
   if (!control || control._customButton.disabled) { return; }
   closeAllCustomSelects(control);
-  control._customShell.className = control._customShell.className.replace(/\s*open\b/g, '') + ' open';
+  control._customShell.classList.add('open');
   control._customButton.setAttribute('aria-expanded', 'true');
+  positionCustomSelect(control);
+}
+
+function positionCustomSelect(control) {
+  var buttonRect = control._customButton.getBoundingClientRect();
+  var list = control._customList;
+  var below = window.innerHeight - buttonRect.bottom - 8;
+  var above = buttonRect.top - 8;
+  var openAbove = below < Math.min(list.scrollHeight, 238) && above > below;
+  list.style.maxHeight = Math.min(238, Math.max(80, openAbove ? above : below)) + 'px';
+  list.style.width = Math.min(buttonRect.width, window.innerWidth - 16) + 'px';
+  list.style.left = Math.max(8, Math.min(buttonRect.left, window.innerWidth - list.offsetWidth - 8)) + 'px';
+  list.style.top = (openAbove ? buttonRect.top - list.offsetHeight - 4 : buttonRect.bottom + 4) + 'px';
 }
 
 function closeCustomSelect(control) {
   if (!control || !control._customShell) { return; }
-  control._customShell.className = control._customShell.className.replace(/\s*open\b/g, '');
+  control._customShell.classList.remove('open');
   control._customButton.setAttribute('aria-expanded', 'false');
 }
 
@@ -150,9 +161,9 @@ export function closeAllCustomSelects(exceptControl) {
   var nodes = document.querySelectorAll('.custom-select');
   for (var i = 0; i < nodes.length; i++) {
     if (exceptControl && nodes[i] === exceptControl._customShell) { continue; }
-    nodes[i].className = nodes[i].className.replace(/\s*open\b/g, '');
-    var buttons = nodes[i].getElementsByTagName('button');
-    if (buttons.length) { buttons[0].setAttribute('aria-expanded', 'false'); }
+    nodes[i].classList.remove('open');
+    var button = nodes[i].querySelector('.custom-select-button');
+    if (button) { button.setAttribute('aria-expanded', 'false'); }
   }
 }
 
@@ -183,13 +194,17 @@ function focusCustomOption(control, current, step) {
 
 export function bindCustomSelectDismissal() {
   var dismiss = function (event) {
-    event = event || window.event;
-    var node = event.target || event.srcElement;
-    while (node && node !== document) {
-      if (hasClass(node, 'custom-select')) { return; }
-      node = node.parentNode;
-    }
+    if (event.target.closest('.custom-select')) { return; }
     closeAllCustomSelects();
   };
   document.addEventListener('click', dismiss, false);
+  document.addEventListener('scroll', function (event) {
+    if (event.target.classList && event.target.classList.contains('custom-select-list')) { return; }
+    var nodes = document.querySelectorAll('.custom-select.open');
+    for (var i = 0; i < nodes.length; i++) {
+      var control = nodes[i].querySelector('input[data-name]');
+      if (control) { positionCustomSelect(control); }
+    }
+  }, true);
+  window.addEventListener('resize', function () { closeAllCustomSelects(); });
 }

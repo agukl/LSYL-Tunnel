@@ -23,7 +23,6 @@ if not exist "%PACKAGE_DIR%\logs" mkdir "%PACKAGE_DIR%\logs" || exit /b 1
 if not exist "%PACKAGE_DIR%\logs\request" mkdir "%PACKAGE_DIR%\logs\request" || exit /b 1
 if not exist "%PACKAGE_DIR%\logs\business" mkdir "%PACKAGE_DIR%\logs\business" || exit /b 1
 if not exist "%PACKAGE_DIR%\logs\entry-traffic" mkdir "%PACKAGE_DIR%\logs\entry-traffic" || exit /b 1
-if not exist "%PACKAGE_DIR%\logs\flow-traffic" mkdir "%PACKAGE_DIR%\logs\flow-traffic" || exit /b 1
 if not exist "%PACKAGE_DIR%\logs\service" mkdir "%PACKAGE_DIR%\logs\service" || exit /b 1
 if not exist "%PACKAGE_DIR%\assets" mkdir "%PACKAGE_DIR%\assets" || exit /b 1
 if not exist "%PACKAGE_DIR%\installer\Languages" mkdir "%PACKAGE_DIR%\installer\Languages" || exit /b 1
@@ -31,10 +30,8 @@ if not exist "%PACKAGE_DIR%\licenses\WebView2" mkdir "%PACKAGE_DIR%\licenses\Web
 powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%prepare-webview2.ps1" -PackageDir "%PACKAGE_DIR%" || exit /b 1
 copy /y ".\LICENSE" "%PACKAGE_DIR%\LICENSE" >nul || exit /b 1
 copy /y ".\third_party\webview2\LICENSE-*.txt" "%PACKAGE_DIR%\licenses\WebView2\" >nul || exit /b 1
-copy /y ".\build\bin\server\lsyl-tunnel-server.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\build\bin\server\lsyl-tunnel-server-svc.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\build\bin\server\lsyl-tunnel-server-gui.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
-copy /y ".\build\bin\server\lsyl-tunnel-passwd.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\build\bin\server\lsyl-tunnel-cert.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\src\server\conf\server.yaml" "%PACKAGE_DIR%\conf\server.yaml" >nul || exit /b 1
 ".\build\bin\server\lsyl-tunnel-server.exe" -prepare-fresh-install-config -config "%PACKAGE_DIR%\conf\server.yaml" || exit /b 1
@@ -86,7 +83,7 @@ copy /y "%SCRIPT_DIR%..\inno\Languages\ChineseSimplified.isl" "%PACKAGE_DIR%\ins
   echo Setup installs WebView2 when missing. The bundled bootstrapper requires Internet access.
   echo For offline sites, set WEBVIEW2_RUNTIME_INSTALLER to the Microsoft x64 standalone installer before packaging.
   echo The server service does not depend on WebView2.
-  echo Server logs are grouped under logs\request, logs\business, logs\entry-traffic, logs\flow-traffic and logs\service.
+  echo Server logs are grouped under logs\request, logs\business, logs\entry-traffic and logs\service.
 )
 echo Server package created:
 echo   %PACKAGE_DIR%

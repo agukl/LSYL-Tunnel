@@ -147,14 +147,7 @@ func (s *Server) registerReverseStream(conn net.Conn, req protocol.OpenRequest, 
 		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_stream", Result: "connected", Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: listenAddr, Code: "ok"})
 		inboundToClient, clientToInbound := transport.ProxyPairWithOptions(inbound, conn, &s.bytesUp, &s.bytesDown, s.proxyOptions())
 		durationMS := time.Since(started).Milliseconds()
-		flowLog := s.flowTrafficEntry(requestID, "stream_closed", "reverse_stream", "closed", remoteHost(conn.RemoteAddr()), req)
-		flowLog.ListenAddr = listenAddr
-		flowLog.Code = "closed"
-		flowLog.DurationMS = durationMS
-		flowLog.BytesUp = inboundToClient
-		flowLog.BytesDown = clientToInbound
-		s.recordFlowTrafficLog(flowLog)
-		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_stream", Result: "closed", Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: listenAddr, Code: "closed", DurationMS: durationMS, BytesUp: inboundToClient, BytesDown: clientToInbound})
+		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_stream", Result: "closed", RemoteIP: remoteHost(conn.RemoteAddr()), Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: listenAddr, Code: "closed", DurationMS: durationMS, BytesUp: inboundToClient, BytesDown: clientToInbound})
 	}) {
 		releaseUserStream()
 		_ = inbound.Close()
@@ -279,17 +272,7 @@ func (s *Server) handleReverseInbound(rl *reverseListener, inbound net.Conn) {
 	control := rl.pickControl()
 	if control == nil {
 		s.dialFailed.Add(1)
-		s.recordFlowTrafficLog(FlowTrafficLogEntry{
-			Event:      "reverse_inbound_failed",
-			Kind:       "reverse_inbound",
-			Result:     "failed",
-			RemoteIP:   remoteHost(inbound.RemoteAddr()),
-			ListenAddr: rl.addr,
-			Code:       "no_active_client",
-			Message:    "reverse stream has no active client",
-			Abnormal:   true,
-		})
-		s.recordEvent(RuntimeEvent{Kind: "reverse_inbound", Result: "failed", ListenAddr: rl.addr, Code: "no_active_client", Message: "reverse stream has no active client"})
+		s.recordEvent(RuntimeEvent{Kind: "reverse_inbound", Result: "failed", RemoteIP: remoteHost(inbound.RemoteAddr()), ListenAddr: rl.addr, Code: "no_active_client", Message: "reverse stream has no active client"})
 		_ = inbound.Close()
 		s.closeReverseListenerIfIdle(rl)
 		return
@@ -343,17 +326,7 @@ func (s *Server) expireReversePending(rl *reverseListener, streamID string) {
 			return
 		}
 		s.dialFailed.Add(1)
-		s.recordFlowTrafficLog(FlowTrafficLogEntry{
-			Event:      "reverse_inbound_failed",
-			Kind:       "reverse_inbound",
-			Result:     "failed",
-			RemoteIP:   remoteHost(pending.RemoteAddr()),
-			ListenAddr: rl.addr,
-			Code:       "client_stream_timeout",
-			Message:    "timed out waiting for client stream",
-			Abnormal:   true,
-		})
-		s.recordEvent(RuntimeEvent{Kind: "reverse_inbound", Result: "failed", ListenAddr: rl.addr, Code: "client_stream_timeout", Message: "timed out waiting for client stream"})
+		s.recordEvent(RuntimeEvent{Kind: "reverse_inbound", Result: "failed", RemoteIP: remoteHost(pending.RemoteAddr()), ListenAddr: rl.addr, Code: "client_stream_timeout", Message: "timed out waiting for client stream"})
 	}
 }
 

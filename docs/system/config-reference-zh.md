@@ -8,7 +8,7 @@
 
 配置中的回环地址只接受 `127.0.0.1`，带端口时写为 `127.0.0.1:端口`。`localhost`（含大小写、尾点变体）、`::1`、其他 `127.0.0.0/8` 地址及 IPv4 映射回环地址均明确报错，不自动转换。此规则适用于连接、监听、目标及 `tls.server_name` 配置，也适用于安装兼容检查和配置导入、导出。
 
-`server_addr` 仍支持普通域名；`0.0.0.0` 和 `::` 是全网卡监听，不属于回环地址，原有监听规则不变。虚拟入口仍必须是证书授权的非本地 IPv4，不能使用 `127.0.0.1`。
+`server_addr` 仍支持普通域名；`0.0.0.0` 和 `::` 是全网卡监听，不属于回环地址，原有监听规则不变。虚拟入口的公网 IPv4 必须在证书中；显式填写的 RFC1918 私有 IPv4 和 `127.0.0.1` 不要求包含在证书中。
 
 升级前需手工修正旧写法；若将 `tls.server_name` 改为 `127.0.0.1`，证书也必须包含相应 IP SAN。程序不会改写已签发证书，不会关闭证书校验。历史日志及封禁数据中的 IP 不做文本替换，回环封禁清理仍识别完整回环范围。
 
@@ -17,7 +17,7 @@
 | 方向 | 客户端负责 | 服务端负责 | 协议边界 |
 | --- | --- | --- | --- |
 | `client_to_server` | 配置并监听 `listen_addr`；提交 `server_target` | 配置相同的 `server_target` 和 `allowed_users`；按账号、方向、目标精确授权并连接目标 | 客户端提交目标，服务端不信任规则名 |
-| `virtual` | 校验证书 IP，接管 `listen_addr` 指定的 `IP:端口`，再通过随机本地桥接端口转发 | 与 `client_to_server` 相同，只校验服务端目标和账号授权 | 线上按 `client_to_server` 处理，服务端不感知虚拟入口 |
+| `virtual` | 公网 IP 校验证书 SAN，内网 IP 使用驱动接管和随机桥接；`127.0.0.1` 直接监听配置端口 | 与 `client_to_server` 相同，只校验服务端目标和账号授权 | 线上按 `client_to_server` 处理，服务端不感知虚拟入口 |
 | `server_to_client` | 配置服务端 `127.0.0.1:端口` 的 `listen_addr` 和客户端同格式的 `server_target`；收到流 ID 后连接本地目标 | 配置全局唯一的 `listen_port` 和单一归属账号；按客户端提交的监听地址与账号精确授权 | 客户端提交监听地址和本地目标；服务端只返回不透明流 ID，不下发或改写规则 |
 
 `server_addr`、账号和 TLS 信任用于连接并识别隧道服务端；它们不是业务目标。`forwards[].name` 不参与服务端授权，两端名称可以不同。
@@ -30,7 +30,7 @@
 | 客户端 `tls.server_name` | 证书允许的域名或 IP，不带端口；留空按 `server_addr` 校验 | 不参与端口映射 |
 | 正向 / 虚拟 `server_target` | `127.0.0.1:端口` 或私有 IP:端口，与服务端授权目标一致 | 不支持域名、公网 IP 或任意目标 |
 | 普通 Windows 正向 `listen_addr` | 本机监听地址:端口；通常用 `127.0.0.1`，全网卡监听也保留支持 | 不需要等于目标端口，也不由服务端下发 |
-| 虚拟 `listen_addr` | `:端口` 或证书授权的 `IPv4:端口` | 不支持域名接管、整个 IP 接管或隧道端口接管 |
+| 虚拟 `listen_addr` | `:端口` 或 `IPv4:端口`；公网 IP 要求证书授权，私有内网及 `127.0.0.1` 豁免 | 不支持域名接管、整个 IP 接管或隧道端口接管 |
 | 客户端反向 `listen_addr` / `server_target` | 均为 `127.0.0.1:端口`；前者在服务端，后者在客户端 | 两者不是同一台机器上的地址 |
 | 服务端反向 `listen_port` | 单个数字端口 | 不是客户端字段 |
 
@@ -58,6 +58,8 @@
 
 `monitor_addr`：本机监控 HTTP 地址，留空表示关闭。
 
+旧配置中的 `log_level` 仍可读取并通过覆盖安装检查，但该字段从未控制服务端日志级别；新配置不再生成它，GUI 保存配置时会移除它。
+
 `tls.cert_file`：服务端 TLS 公开身份文件，客户端会信任它来识别服务端。
 
 `tls.key_file`：服务端 TLS 私钥，必须保护好，不能发给客户端。
@@ -66,7 +68,7 @@
 
 `auth.users[].username`：用户名。
 
-`auth.users[].password_hash`：密码哈希，推荐使用 `lsyl-tunnel-passwd` 生成。
+`auth.users[].password_hash`：密码哈希，可在服务端 GUI 重置密码时生成；开发构建仍提供 `lsyl-tunnel-passwd` 工具。
 
 `auth.users[].disabled`：禁用用户。
 
@@ -120,13 +122,13 @@
 
 `runtime.request_log_file`：请求认证层流水日志。源码开发配置默认位于 `runtime\logs\request\request.jsonl`；安装包内配置默认位于 `logs\request\request.jsonl`。
 
-`runtime.business_log_file`：业务控制层流水日志。源码开发配置默认位于 `runtime\logs\business\business.jsonl`；安装包内配置默认位于 `logs\business\business.jsonl`。
+`runtime.business_log_file`：业务控制及数据流流水日志。源码开发配置默认位于 `runtime\logs\business\business.jsonl`；安装包内配置默认位于 `logs\business\business.jsonl`。流关闭时记录字节数、时长、平均速率及限制值，流拒绝、目标不可达和反向入站超时记录为异常业务事件。
 
 `runtime.entry_traffic_log_file`：入口连接层流量和异常日志。源码开发配置默认位于 `runtime\logs\entry-traffic\entry-traffic.jsonl`；安装包内配置默认位于 `logs\entry-traffic\entry-traffic.jsonl`。用于记录连接限制拒绝、永久封禁命中聚合、非 TLS、HTTP 探测、TLS/协议握手异常等入口层事件。该文件使用有界异步写入，不改变既有字段或文件类别。
 
-`runtime.flow_traffic_log_file`：业务数据流层流量和异常日志。源码开发配置默认位于 `runtime\logs\flow-traffic\flow-traffic.jsonl`；安装包内配置默认位于 `logs\flow-traffic\flow-traffic.jsonl`。用于记录 `open`、`reverse_stream` 数据流关闭时的字节数、时长、平均速率，以及单账号并发限制、目标不可达、反向流超时等异常。
+旧配置中的 `runtime.flow_traffic_log_file` 仍可读取并通过覆盖安装检查，但运行时不再写入该文件；新配置不生成该字段，GUI 保存配置时会移除它。旧 `flow-traffic` 文件不会被删除。
 
-`runtime.recent_events`：服务端内存中保留的最近运行事件数量，默认 500。请求、认证、连接、拒绝、目标失败等运行详情只做滑窗保留，并同步写入按天切分的服务日志。
+`runtime.recent_events`：服务端内存中保留的最近运行事件数量，默认 500。请求、认证、连接、拒绝、目标失败等运行详情只做滑窗保留；相应流水由 request、business、entry-traffic 三类 JSONL 文件记录，服务日志不再重复写入流水，仅保留服务运行诊断。
 
 `forwards[]`：服务端侧转发清单，用于启动前检查、反向端口授权，以及 GUI 中的端口放通管理。客户端仍需要配置自己的 `forwards[]` 来决定登录后启用哪些映射。
 
@@ -172,9 +174,9 @@
 
 `forwards[].direction`：转发方向。`client_to_server` 表示客户端监听普通本地入口、服务端连接目标；`virtual` 表示标准 64 位 Windows 客户端接管 `listen_addr` 指定的虚拟入口，服务端业务方向仍按 `client_to_server` 处理；`server_to_client` 表示服务端创建被动入口、客户端连接目标。留空时默认为 `client_to_server`。
 
-`forwards[].listen_addr`：`client_to_server` 时表示普通客户端入口；`server_to_client` 时必须填写服务端已预留的 `127.0.0.1:端口`，例如 `127.0.0.1:13306`，客户端会在控制连接和数据流请求中提交该值，由服务端精确校验端口配置及账号归属。服务端不会把监听地址下发给客户端。客户端反向规则不支持 `listen_port`，该字段即使为空也会按规则报错，配置文件保持原样。`virtual` 时支持 `":<业务端口>"` 和 `"<证书 IPv4>:<业务端口>"` 两种格式，不支持域名或 IPv6。`:端口` 会优先采用 `server_addr` 中已被证书授权的 IPv4；否则证书必须只有一个可用的非本地 IPv4 SAN。证书存在多个候选且无法由 `server_addr` 确定时，必须填写完整的 `IPv4:端口`。显式 IPv4 必须存在于 `tls.ca_cert_file` 所引用服务端证书的 IP SAN 中。虚拟端口不从 `server_target` 推导，也不能使用 `server_addr` 的隧道端口。同一证书 IP 可以配置不同业务端口，但同一 IP:端口只能出现一次；单个客户端配置最多 48 个虚拟端点。
+`forwards[].listen_addr`：`client_to_server` 时表示普通客户端入口；`server_to_client` 时必须填写服务端已预留的 `127.0.0.1:端口`，例如 `127.0.0.1:13306`，客户端会在控制连接和数据流请求中提交该值，由服务端精确校验端口配置及账号归属。服务端不会把监听地址下发给客户端。客户端反向规则不支持 `listen_port`，该字段即使为空也会按规则报错，配置文件保持原样。`virtual` 时支持 `":<业务端口>"` 和 `"<IPv4>:<业务端口>"` 两种格式，不支持域名或 IPv6。`:端口` 会优先采用 `server_addr` 中已被证书授权的 IPv4；否则证书必须只有一个可用的非本地 IPv4 SAN。证书存在多个候选且无法由 `server_addr` 确定时，必须填写完整的 `IPv4:端口`。显式公网 IPv4 必须存在于 `tls.ca_cert_file` 所引用服务端证书的 IP SAN 中；RFC1918 私有地址（`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`）和 `127.0.0.1` 不受此限制，证书只有域名 SAN 时也可显式配置。`:端口` 的自动选址仍基于证书，不会自动推测内网地址。虚拟端口不从 `server_target` 推导，也不能使用 `server_addr` 的隧道端口。同一 IP 可以配置不同业务端口，但同一 IP:端口只能出现一次；单个客户端配置最多 48 个虚拟端点。
 
 `forwards[].server_target`：目标地址。`client_to_server` 时表示服务端侧要访问的目标，必须是 `127.0.0.1` 或私有 IP:端口；`server_to_client` 时表示客户端侧要访问的 `127.0.0.1:端口`，例如 `127.0.0.1:3307`。反向目标由客户端实际使用，并随反向请求上报用于运行日志和诊断；服务端不连接该目标，也不以它选择保留端口或修改客户端配置。客户端可以配置多条 `server_to_client` 规则，每条规则都必须填写对应的 `listen_addr` 和 `server_target`。
 
-`direction: virtual` 是标准 64 位 Windows 客户端的会话级端点接管。客户端每次连接时先完成登录，将本次准备就绪的多条虚拟规则合并到一次提权 helper 会话，统一请求管理员授权。WinDivert 只拦截证书 IP 与配置业务端口的组合，分别反射到本次会话随机分配的 `127.0.0.1` 回环端口。取消授权或共享 helper 在运行中异常退出会使本批虚拟规则不可用，不影响普通和反向规则；单独停止一条规则只关闭对应入口。它不添加网卡 IP、不修改路由，也不接管同一 IP 的其他端口；因此 `server_addr` 的隧道端口仍按原网络路径访问。过滤句柄随提权子进程关闭，断开或异常退出后不保留持久状态。
+`direction: virtual` 是标准 64 位 Windows 客户端的会话级端点接管。客户端每次连接时先完成登录，将本次准备就绪的非回环虚拟规则合并到一次提权 helper 会话，统一请求管理员授权。WinDivert 只拦截已通过地址策略校验的 IP 与配置业务端口的组合，分别反射到本次会话随机分配的 `127.0.0.1` 回环端口。取消授权或共享 helper 在运行中异常退出会使本批虚拟规则不可用，不影响回环虚拟入口、普通和反向规则；单独停止一条规则只关闭对应入口。它不添加网卡 IP、不修改路由，也不接管同一 IP 的其他端口；因此 `server_addr` 的隧道端口仍按原网络路径访问。过滤句柄随提权子进程关闭，断开或异常退出后不保留持久状态。`127.0.0.1:端口` 直接监听该端口，不使用随机桥接或管理员 helper；端口已被占用时直接报错，断开时释放监听。以上豁免只针对虚拟入口 IP，TLS 身份验证、证书持有前置门和服务端目标授权均不放宽。
 

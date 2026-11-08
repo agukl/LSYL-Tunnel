@@ -36,6 +36,9 @@ func (s *Server) recordEvent(event RuntimeEvent) {
 	}
 	s.eventRing().Append(event)
 	s.recordBusinessLogFromEvent(event)
+	if isBusinessRuntimeEvent(event) || event.Kind == "compatibility" {
+		return
+	}
 	s.log("event kind=%s result=%s remote_ip=%s user=%s client=%s forward=%s direction=%s target=%s listen=%s code=%s duration_ms=%d message=%s",
 		logValue(event.Kind),
 		logValue(event.Result),

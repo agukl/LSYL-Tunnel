@@ -34,11 +34,6 @@ func (s *Server) handleReverseStream(conn net.Conn, req protocol.OpenRequest, us
 			s.dialFailed.Add(1)
 		}
 		resp := protocol.OpenResponse{OK: false, Code: code, Message: err.Error()}
-		flowLog := s.flowTrafficEntry(requestID, "stream_failed", "reverse_stream", "failed", remoteIP, req)
-		flowLog.Code = code
-		flowLog.Message = err.Error()
-		flowLog.Abnormal = true
-		s.recordFlowTrafficLog(flowLog)
 		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_stream", Result: "failed", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: req.ListenAddr, Code: code, Message: err.Error()})
 		recordRequest(req, "failed", "ok", resp, nil)
 		_ = protocol.WriteJSON(conn, resp)

@@ -126,7 +126,7 @@ func (s *Server) Close() error {
 		if s.entryTrafficWriter != nil {
 			s.entryTrafficWriter.Close()
 		}
-		for _, log := range []*jsonlLog{s.requestLog, s.businessLog, s.entryTrafficLog, s.flowTrafficLog} {
+		for _, log := range []*jsonlLog{s.requestLog, s.businessLog, s.entryTrafficLog} {
 			_ = log.Close()
 		}
 	})

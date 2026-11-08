@@ -88,6 +88,10 @@ dist\LSYL Tunnel Client\make-installer.cmd
 
 `build\tmp\dist-work` 是临时工作目录，不作为交付物。`dist.stage` 是最终 `dist` 的暂存目录，只有全部安装产物生成并校验通过后才替换 `dist`。
 
+每次完整发布会更新 `build\tmp\release-result.txt`，记录成功或失败及失败阶段。窗口关闭后可查看这个文件；仅运行过命令不代表已经更新，必须以 `Release ready` 和 `SUCCESS` 为准。`dist` 中的现场重打包命令只封装已有二进制，不编译源码。
+
+发布使用 `build.cmd client-package` 只构建客户端 EXE；WinDivert 从 `third_party` 直接复制进临时包，不覆盖开发目录中可能已被系统加载的驱动。开发运行所用的 `build.cmd client` 仍负责准备开发运行目录。
+
 ## 构建与运行脚本
 
 ```cmd
@@ -113,6 +117,8 @@ set "ALLOW_GO120_DOWNLOAD=1"
 ```
 
 默认找不到 Go 1.20 时直接失败，不自动下载。查找顺序是 `GO120EXE`、PATH、`tool\go1.20.14`；只有显式设置 `ALLOW_GO120_DOWNLOAD=1` 时，脚本才会下载 Go 1.20 到 `tool\go1.20.14`。
+
+`build-win7-lite.cmd` 构建后调用 `test\verify-client-lite-identity.ps1` 检查 EXE 内部名称和原始文件名。校验工具统一放在 `test`，无需手动调用。
 
 ## App 分发脚本
 

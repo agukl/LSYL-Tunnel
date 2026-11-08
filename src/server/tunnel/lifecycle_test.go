@@ -212,7 +212,7 @@ func TestReversePendingTimeoutIsOwnedByWorker(t *testing.T) {
 		t.Fatalf("expired pending connections = %d", pending)
 	}
 	closeLifecycleServer(t, server)
-	path := datedJSONLPath(server.cfg.Runtime.FlowTrafficLogFile, time.Now().Format("2006-01-02"))
+	path := datedJSONLPath(server.cfg.Runtime.BusinessLogFile, time.Now().Format("2006-01-02"))
 	data, err := os.ReadFile(path)
 	if err != nil || strings.Count(string(data), "client_stream_timeout") != 1 {
 		t.Fatalf("timeout log = %s, error = %v", data, err)
@@ -273,18 +273,18 @@ func TestServerShutdownClosesStreamsPendingConnectionsAndLogs(t *testing.T) {
 			if got := server.activeStreams.Load(); got != 0 {
 				t.Fatalf("active streams after shutdown = %d", got)
 			}
-			path := datedJSONLPath(server.cfg.Runtime.FlowTrafficLogFile, time.Now().Format("2006-01-02"))
+			path := datedJSONLPath(server.cfg.Runtime.BusinessLogFile, time.Now().Format("2006-01-02"))
 			data, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := strings.Count(string(data), `"event":"stream_closed"`); got != 2 {
+			if got := strings.Count(string(data), `"kind":"open","result":"closed"`) + strings.Count(string(data), `"kind":"reverse_stream","result":"closed"`); got != 2 {
 				t.Fatalf("closed stream log count = %d, want 2: %s", got, data)
 			}
 			if strings.Contains(string(data), "client_stream_timeout") {
 				t.Fatalf("shutdown was logged as a reverse timeout: %s", data)
 			}
-			for _, log := range []*jsonlLog{server.requestLog, server.businessLog, server.entryTrafficLog, server.flowTrafficLog} {
+			for _, log := range []*jsonlLog{server.requestLog, server.businessLog, server.entryTrafficLog} {
 				log.mu.Lock()
 				open := log.file != nil
 				log.mu.Unlock()
@@ -382,7 +382,6 @@ func startLifecycleServer(t *testing.T, ctx context.Context, configure func(*Con
 			RequestLogFile:      filepath.Join(dir, "request.jsonl"),
 			BusinessLogFile:     filepath.Join(dir, "business.jsonl"),
 			EntryTrafficLogFile: filepath.Join(dir, "entry.jsonl"),
-			FlowTrafficLogFile:  filepath.Join(dir, "flow.jsonl"),
 		},
 	}
 	if configure != nil {

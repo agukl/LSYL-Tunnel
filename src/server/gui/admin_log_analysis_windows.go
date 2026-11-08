@@ -3,14 +3,10 @@
 package gui
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -80,22 +76,6 @@ type logAnalysisIPSource struct {
 	Messages               []string `json:"messages,omitempty"`
 
 	seen map[string]bool `json:"-"`
-}
-
-type ipAPIEntry struct {
-	Status     string `json:"status"`
-	Message    string `json:"message"`
-	Query      string `json:"query"`
-	Country    string `json:"country"`
-	RegionName string `json:"regionName"`
-	City       string `json:"city"`
-	ISP        string `json:"isp"`
-	Org        string `json:"org"`
-	AS         string `json:"as"`
-	ASName     string `json:"asname"`
-	Hosting    bool   `json:"hosting"`
-	Proxy      bool   `json:"proxy"`
-	Mobile     bool   `json:"mobile"`
 }
 
 func (a *App) handleAdminLogAnalysis(w http.ResponseWriter, r *http.Request) {
@@ -274,105 +254,6 @@ func (a *App) buildLogAnalysis(ctx context.Context, cfg tunnel.Config, start, en
 		}
 	}
 	return result, nil
-}
-
-func readBusinessLogsInRange(basePath string, start, end time.Time, visit func(tunnel.BusinessLogEntry, time.Time)) (int, error) {
-	total := 0
-	err := readJSONLRange(basePath, start, end, func(line []byte, t time.Time) {
-		var entry tunnel.BusinessLogEntry
-		if err := json.Unmarshal(line, &entry); err != nil {
-			return
-		}
-		total++
-		visit(entry, t)
-	})
-	return total, err
-}
-
-func readRequestLogsInRange(basePath string, start, end time.Time, visit func(tunnel.RequestLogEntry, time.Time)) (int, error) {
-	total := 0
-	err := readJSONLRange(basePath, start, end, func(line []byte, t time.Time) {
-		var entry tunnel.RequestLogEntry
-		if err := json.Unmarshal(line, &entry); err != nil {
-			return
-		}
-		total++
-		visit(entry, t)
-	})
-	return total, err
-}
-
-func readJSONLRange(basePath string, start, end time.Time, visit func([]byte, time.Time)) error {
-	for _, path := range jsonlRangeCandidates(basePath, start, end) {
-		if err := readJSONLRangeFile(path, start, end, visit); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func readJSONLRangeFile(path string, start, end time.Time, visit func([]byte, time.Time)) error {
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
-		}
-		var stamp struct {
-			Time string `json:"time"`
-		}
-		if err := json.Unmarshal(line, &stamp); err != nil {
-			continue
-		}
-		t, err := time.Parse(time.RFC3339, stamp.Time)
-		if err != nil {
-			continue
-		}
-		if t.Before(start) || t.After(end) {
-			continue
-		}
-		copied := append([]byte(nil), line...)
-		visit(copied, t)
-	}
-	return scanner.Err()
-}
-
-func jsonlRangeCandidates(basePath string, start, end time.Time) []string {
-	basePath = filepath.Clean(basePath)
-	ext := filepath.Ext(basePath)
-	name := strings.TrimSuffix(filepath.Base(basePath), ext)
-	if ext == "" {
-		ext = ".jsonl"
-	}
-	dir := filepath.Dir(basePath)
-	out := []string{}
-	seen := map[string]bool{}
-	for day := midnight(start); !day.After(midnight(end)); day = day.AddDate(0, 0, 1) {
-		path := filepath.Join(dir, name+"-"+day.Format("2006-01-02")+ext)
-		if fileExists(path) && !seen[path] {
-			out = append(out, path)
-			seen[path] = true
-		}
-	}
-	if fileExists(basePath) && !seen[basePath] {
-		out = append(out, basePath)
-	}
-	return out
-}
-
-func midnight(t time.Time) time.Time {
-	y, m, d := t.In(time.Local).Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.Local)
 }
 
 func isSuccessfulBusinessLog(entry tunnel.BusinessLogEntry) bool {
@@ -564,122 +445,4 @@ func analysisIPs(items []logAnalysisIPSource) []string {
 		}
 	}
 	return out
-}
-
-func isPublicIP(text string) bool {
-	ip := net.ParseIP(strings.TrimSpace(text))
-	if ip == nil {
-		return false
-	}
-	return !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsUnspecified() && !ip.IsMulticast()
-}
-
-func uniqueStrings(items []string) []string {
-	out := []string{}
-	seen := map[string]bool{}
-	for _, item := range items {
-		item = strings.TrimSpace(item)
-		if item == "" || seen[item] {
-			continue
-		}
-		seen[item] = true
-		out = append(out, item)
-	}
-	return out
-}
-
-func lookupIPAPIBatch(ctx context.Context, ips []string) (map[string]ipAPIEntry, error) {
-	out := map[string]ipAPIEntry{}
-	if len(ips) == 0 {
-		return out, nil
-	}
-	client := &http.Client{Timeout: 5 * time.Second}
-	const batchSize = 100
-	for start := 0; start < len(ips); start += batchSize {
-		end := start + batchSize
-		if end > len(ips) {
-			end = len(ips)
-		}
-		body, err := json.Marshal(ips[start:end])
-		if err != nil {
-			return out, err
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://ip-api.com/batch?fields=status,message,query,country,regionName,city,isp,org,as,asname,hosting,proxy,mobile&lang=zh-CN", bytes.NewReader(body))
-		if err != nil {
-			return out, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
-			return out, err
-		}
-		func() {
-			defer resp.Body.Close()
-			var entries []ipAPIEntry
-			if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
-				out[""] = ipAPIEntry{Status: "fail", Message: err.Error()}
-				return
-			}
-			for _, entry := range entries {
-				out[entry.Query] = entry
-			}
-		}()
-		if failure, ok := out[""]; ok {
-			delete(out, "")
-			return out, fmt.Errorf("归属地查询失败: %s", failure.Message)
-		}
-	}
-	return out, nil
-}
-
-func attachAnalysisGeo(items []logAnalysisIPSource, geo map[string]ipAPIEntry) {
-	for i := range items {
-		entry, ok := geo[items[i].IP]
-		if !ok || entry.Status != "success" {
-			continue
-		}
-		items[i].Country = entry.Country
-		items[i].Region = entry.RegionName
-		items[i].City = entry.City
-		items[i].ISP = entry.ISP
-		items[i].Org = entry.Org
-		items[i].AS = entry.AS
-		items[i].ASName = entry.ASName
-		items[i].Hosting = entry.Hosting
-		items[i].Proxy = entry.Proxy
-		items[i].Mobile = entry.Mobile
-		items[i].Location = joinNonEmpty(" ", entry.Country, entry.RegionName, entry.City)
-		items[i].Network = joinNonEmpty(" / ", entry.ISP, entry.Org)
-		if items[i].Network == "" {
-			items[i].Network = entry.ASName
-		}
-		items[i].NetworkType = analysisNetworkType(entry)
-	}
-}
-
-func analysisNetworkType(entry ipAPIEntry) string {
-	if entry.Proxy {
-		return "代理"
-	}
-	if entry.Hosting {
-		return "云主机"
-	}
-	if entry.Mobile {
-		return "移动网络"
-	}
-	return "普通网络"
-}
-
-func joinNonEmpty(sep string, values ...string) string {
-	out := []string{}
-	seen := map[string]bool{}
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" || seen[value] {
-			continue
-		}
-		seen[value] = true
-		out = append(out, value)
-	}
-	return strings.Join(out, sep)
 }

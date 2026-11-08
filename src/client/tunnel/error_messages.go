@@ -39,15 +39,17 @@ func classifyHealthError(err error) (string, string) {
 		return HealthAuthError, "服务端地址格式不正确，请填写 地址:端口"
 	case containsAny(text, "no such host"):
 		return HealthServerUnavailable, "服务端地址无法解析，请检查域名或网络"
+	case IsNetworkTimeoutText(text):
+		return HealthServerUnavailable, "连接超时，请检查网络或服务端防火墙"
 	case containsAny(text, "connection refused", "actively refused", "connectex"):
 		return HealthServerUnavailable, "连接不上服务端，请检查服务端是否启动或地址端口是否正确"
-	case containsAny(text, "timeout", "deadline", "i/o timeout"):
-		return HealthServerUnavailable, "连接超时，请检查网络或服务端防火墙"
 	case containsAny(text, "network is unreachable", "no route to host"):
 		return HealthServerUnavailable, "网络不可达，请检查本机网络"
-	case containsAny(text, "connection reset", "forcibly closed", "wsarecv", "eof"):
-		return HealthServerUnavailable, "连接被服务端断开，请稍后重试或联系管理员"
-	case containsAny(text, "connection aborted", "broken pipe", "closed network connection"):
+	case containsAny(text, "connection reset", "forcibly closed"):
+		return HealthServerUnavailable, "连接被重置，请检查网络链路或服务端状态"
+	case containsAny(text, "eof"):
+		return HealthServerUnavailable, "连接意外结束，请检查网络链路；若持续出现请查看两端日志"
+	case containsAny(text, "wsarecv", "connection aborted", "broken pipe", "closed network connection"):
 		return HealthServerUnavailable, "连接已中断，请稍后重试或联系管理员"
 	case containsAny(text, "x509"):
 		return HealthAuthError, "服务端证书校验失败，请联系管理员检查证书"
@@ -108,15 +110,17 @@ func ForwardErrorMessage(err error) string {
 		return "客户端目标服务不可达，请确认对应服务已启动并监听配置端口"
 	case containsAny(text, "target_unreachable", "target service is unreachable"):
 		return "服务端无法访问目标服务，请联系管理员检查目标服务或防火墙"
+	case IsNetworkTimeoutText(text):
+		return "连接超时，客户端会自动重试"
 	case containsAny(text, "connection refused", "actively refused", "connectex"):
 		return "服务端暂时不可达，客户端会自动重试"
-	case containsAny(text, "timeout", "deadline", "i/o timeout"):
-		return "连接超时，客户端会自动重试"
 	case containsAny(text, "network is unreachable", "no route to host", "no such host"):
 		return "网络不可达，请检查本机网络或服务端地址"
-	case containsAny(text, "connection reset", "forcibly closed", "wsarecv", "eof"):
-		return "连接被断开，客户端会自动重试"
-	case containsAny(text, "connection aborted", "broken pipe", "closed network connection"):
+	case containsAny(text, "connection reset", "forcibly closed"):
+		return "连接被重置，客户端会自动重试"
+	case containsAny(text, "eof"):
+		return "连接意外结束，客户端会自动重试"
+	case containsAny(text, "wsarecv", "connection aborted", "broken pipe", "closed network connection"):
 		return "连接已中断，客户端会自动重试"
 	case containsAny(text, "x509"):
 		return "服务端证书校验失败，请联系管理员检查证书"
@@ -189,6 +193,15 @@ func containsAny(text string, needles ...string) bool {
 		}
 	}
 	return false
+}
+
+// IsNetworkTimeoutText recognizes Windows socket timeouts that do not include "timeout".
+func IsNetworkTimeoutText(raw string) bool {
+	text := strings.ToLower(raw)
+	return containsAny(text,
+		"timeout", "timed out", "deadline", "wsaetimedout", "10060", "超时",
+		"did not properly respond after a period of time", "failed to respond",
+	)
 }
 
 func isTemporaryAuthBlockText(text string) bool {

@@ -49,7 +49,7 @@ certs\server.key
 build\bin\server\lsyl-tunnel-passwd.exe -password "强密码"
 ```
 
-把输出写入 `src/server/conf/server.yaml`：
+此命令属于开发构建工具，不随服务端安装包交付。把输出写入 `src/server/conf/server.yaml`：
 
 ```yaml
 auth:

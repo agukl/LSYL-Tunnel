@@ -71,7 +71,7 @@ try {
     Invoke-Check 'Go tests' $go @('test', '-count=1', '-timeout=90s', './src/...')
     Invoke-Check 'Go vet' $go @('vet', './src/...')
     if ($Full) {
-        Invoke-Check 'Frontend pure-function tests' $node @('--test', 'src/server/front/tests/format.test.mjs')
+        Invoke-Check 'Frontend module tests' $node @('--test', 'src/server/front/tests/api.test.mjs', 'src/server/front/tests/format.test.mjs')
         $env:GOOS = 'windows'
         $env:GOARCH = '386'
         $env:CGO_ENABLED = '0'
