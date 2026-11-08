@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [switch]$Full,
-    [switch]$Offline
+    [switch]$Offline,
+    [switch]$NoAndroid
 )
 
 $ErrorActionPreference = 'Stop'
@@ -58,13 +59,15 @@ try {
         if ($LASTEXITCODE -ne 0 -or "$go120Version" -notmatch '\bgo1\.20(?:\.|\s)') {
             throw 'Win7 checks require the Go 1.20 toolchain.'
         }
-        $gradle = Resolve-CheckTool -Override $env:GRADLE_EXE -Names @('gradle.bat') -Fallbacks @('tool\gradle-8.9\bin\gradle.bat', 'tool\gradle\bin\gradle.bat') -Hint 'Set GRADLE_EXE or install Gradle in PATH or tool\gradle-8.9.'
-        $javaOverride = ''
-        if ($env:JAVA_HOME) { $javaOverride = Join-Path $env:JAVA_HOME 'bin\java.exe' }
-        $java = Resolve-CheckTool -Override $javaOverride -Names @('java.exe') -Fallbacks @('tool\jdk17\bin\java.exe') -Hint 'Set JAVA_HOME or install JDK 17+ in PATH or tool\jdk17.'
-        $env:JAVA_HOME = Split-Path (Split-Path $java -Parent) -Parent
-        if (-not $env:ANDROID_HOME -and -not $env:ANDROID_SDK_ROOT -and (Test-Path -LiteralPath (Join-Path $Workspace 'tool\android-sdk') -PathType Container)) {
-            $env:ANDROID_HOME = Join-Path $Workspace 'tool\android-sdk'
+        if (-not $NoAndroid) {
+            $gradle = Resolve-CheckTool -Override $env:GRADLE_EXE -Names @('gradle.bat') -Fallbacks @('tool\gradle-8.9\bin\gradle.bat', 'tool\gradle\bin\gradle.bat') -Hint 'Set GRADLE_EXE or install Gradle in PATH or tool\gradle-8.9.'
+            $javaOverride = ''
+            if ($env:JAVA_HOME) { $javaOverride = Join-Path $env:JAVA_HOME 'bin\java.exe' }
+            $java = Resolve-CheckTool -Override $javaOverride -Names @('java.exe') -Fallbacks @('tool\jdk17\bin\java.exe') -Hint 'Set JAVA_HOME or install JDK 17+ in PATH or tool\jdk17.'
+            $env:JAVA_HOME = Split-Path (Split-Path $java -Parent) -Parent
+            if (-not $env:ANDROID_HOME -and -not $env:ANDROID_SDK_ROOT -and (Test-Path -LiteralPath (Join-Path $Workspace 'tool\android-sdk') -PathType Container)) {
+                $env:ANDROID_HOME = Join-Path $Workspace 'tool\android-sdk'
+            }
         }
     }
 
@@ -84,14 +87,16 @@ try {
                 [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
             }
         }
-        Push-Location (Join-Path $Workspace 'mobile\android')
-        try {
-            $gradleArgs = @('--no-daemon', '--console=plain')
-            if ($Offline -or $env:ANDROID_OFFLINE -eq '1') { $gradleArgs += '--offline' }
-            $gradleArgs += @(':app:testDebugUnitTest', '--rerun')
-            Invoke-Check 'Android JVM tests' $gradle $gradleArgs
+        if (-not $NoAndroid) {
+            Push-Location (Join-Path $Workspace 'mobile\android')
+            try {
+                $gradleArgs = @('--no-daemon', '--console=plain')
+                if ($Offline -or $env:ANDROID_OFFLINE -eq '1') { $gradleArgs += '--offline' }
+                $gradleArgs += @(':app:testDebugUnitTest', '--rerun')
+                Invoke-Check 'Android JVM tests' $gradle $gradleArgs
+            }
+            finally { Pop-Location }
         }
-        finally { Pop-Location }
         Write-Host '[PASS] Full source checks completed. No distribution package was generated.'
     }
     else {

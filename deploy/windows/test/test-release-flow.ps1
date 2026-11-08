@@ -18,6 +18,8 @@ try {
     Assert-True $packageTarget.Success 'The client-package build target is missing.'
     Assert-True ($packageTarget.Value -notmatch 'WinDivert(?:64\.sys|\.dll)') 'Release builds must not overwrite the development WinDivert runtime.'
     $packageScript = Get-Content -LiteralPath (Join-Path $workspace 'deploy\windows\app\package-client.cmd') -Raw
+    $releaseScript = Get-Content -LiteralPath (Join-Path $workspace 'release.cmd') -Raw
+    Assert-True ($releaseScript.Contains('call check.cmd -Full')) 'Release must run full source checks.'
     foreach ($name in @('WinDivert.dll', 'WinDivert64.sys')) {
         $copy = 'copy /y ".\third_party\windivert\2.2.2\x64\' + $name + '" "%PACKAGE_DIR%\bin\' + $name + '"'
         Assert-True ($packageScript.Contains($copy)) "The client package must obtain $name directly from third_party."
@@ -29,6 +31,7 @@ try {
     Write-FixtureFile 'dist\previous-release.txt' 'keep the previous successful release'
     Write-FixtureFile 'build\tmp\release-result.txt' 'Status: SUCCESS'
     Write-FixtureFile 'deploy\windows\go-env.cmd' "@echo off`r`nexit /b 7`r`n"
+    Write-FixtureFile 'check.cmd' "@echo off`r`nexit /b 0`r`n"
     Push-Location $fixture
     try {
         $output = & $env:ComSpec /d /c 'release.cmd /skip-test' 2>&1
@@ -41,7 +44,7 @@ try {
 
         Write-FixtureFile 'deploy\windows\go-env.cmd' "@echo off`r`nexit /b 0`r`n"
         Write-FixtureFile 'deploy\windows\app\package-client.cmd' "@echo off`r`necho Simulated locked build dependency`r`nexit /b 9`r`n"
-        $output = & $env:ComSpec /d /c 'release.cmd /skip-test' 2>&1
+        $output = & $env:ComSpec /d /c 'release.cmd' 2>&1
         $code = $LASTEXITCODE
         Assert-True ($code -eq 9) 'Package failure must preserve the command exit code.'
         Assert-True (($output -join "`n").Contains('Existing dist files belong to an earlier release')) 'Failure must clearly distinguish old dist files from this run.'

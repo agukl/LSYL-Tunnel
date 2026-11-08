@@ -1,6 +1,7 @@
 package mobileprofile
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -12,6 +13,7 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +84,46 @@ func TestImportBytesRejectsNonMobileForward(t *testing.T) {
 	_, err := ImportBytes(profileZip(t, profile, validImportCert(t)))
 	if err == nil || !strings.Contains(err.Error(), "client_to_server") {
 		t.Fatalf("expected direction rejection, got %v", err)
+	}
+}
+
+func TestImportRejectsOversizedArchiveAndEntry(t *testing.T) {
+	tooLarge := make([]byte, maxProfileArchiveBytes+1)
+	if _, err := ImportBytes(tooLarge); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized archive accepted: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "large.lsylprofile")
+	if err := os.WriteFile(path, tooLarge, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ImportFile(path); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized file accepted: %v", err)
+	}
+	archive := profileZip(t, validImportProfile(t), strings.Repeat("x", maxProfileEntryBytes+1))
+	if _, err := ImportBytes(archive); err == nil || !strings.Contains(err.Error(), "server.crt exceeds") {
+		t.Fatalf("oversized entry accepted: %v", err)
+	}
+}
+
+func TestImportRejectsUnknownAndDuplicateEntries(t *testing.T) {
+	for _, names := range [][]string{{"profile.json", "extra.txt"}, {"profile.json", "nested/profile.json"}} {
+		var out bytes.Buffer
+		archive := zip.NewWriter(&out)
+		for _, name := range names {
+			entry, err := archive.Create(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := entry.Write([]byte("{}")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := archive.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ImportBytes(out.Bytes()); err == nil || !(strings.Contains(err.Error(), "unexpected entry") || strings.Contains(err.Error(), "duplicate")) {
+			t.Fatalf("entries %v were accepted: %v", names, err)
+		}
 	}
 }
 

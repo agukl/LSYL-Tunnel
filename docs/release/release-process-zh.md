@@ -60,6 +60,8 @@ Win7 Lite 的两份资源 `rsrc_windows_386.syso`、`rsrc_windows_amd64.syso` �
 cmd /c release.cmd
 ```
 
+发布前默认运行 Go、前端、Win7 和 Android 源码检查；指定预制 `MOBILE_APK` 时跳过 Android 源码测试。`/skip-test` 会跳过全部源码检查，仅用于已在相同源码上完成验证的重打包。
+
 常用变体：
 
 ```cmd

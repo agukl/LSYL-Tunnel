@@ -5,11 +5,15 @@ import android.net.Uri
 import com.lsyl.tunnel.mobile.security.CertificatePins
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.time.OffsetDateTime
 import java.util.zip.ZipInputStream
 
 private const val PROFILE_JSON = "profile.json"
 private const val SERVER_CERT = "server.crt"
+private const val MAX_PROFILE_ARCHIVE_BYTES = 16 * 1024 * 1024
+private const val MAX_PROFILE_ENTRY_BYTES = 8 * 1024 * 1024
+private const val MAX_PROFILE_ENTRIES = 32
 
 data class ImportedProfile(
     val profile: MobileProfile,
@@ -24,22 +28,31 @@ object ProfileImporter {
     fun importFromUri(context: Context, uri: Uri): ImportedProfile {
         context.contentResolver.openInputStream(uri).use { input ->
             requireNotNull(input) { "cannot open profile file" }
-            return importFromZip(input.readBytes())
+            return importFromZip(input.readLimitedBytes(MAX_PROFILE_ARCHIVE_BYTES, "配置包"))
         }
     }
 
     fun importFromZip(zipBytes: ByteArray): ImportedProfile {
+        if (zipBytes.size > MAX_PROFILE_ARCHIVE_BYTES) throw ProfileImportException("配置包超过大小限制")
         var profileBytes: ByteArray? = null
         var certBytes: ByteArray? = null
+        var entryCount = 0
         ZipInputStream(zipBytes.inputStream()).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
+                if (++entryCount > MAX_PROFILE_ENTRIES) throw ProfileImportException("配置包条目过多")
                 if (entry.isDirectory) continue
                 val name = entry.name.substringAfterLast('/').substringAfterLast('\\')
-                val data = zip.readCurrentEntry()
                 when (name) {
-                    PROFILE_JSON -> profileBytes = data
-                    SERVER_CERT -> certBytes = data
+                    PROFILE_JSON -> {
+                        if (profileBytes != null) throw ProfileImportException("配置包包含重复的 $name")
+                        profileBytes = zip.readLimitedBytes(MAX_PROFILE_ENTRY_BYTES, name)
+                    }
+                    SERVER_CERT -> {
+                        if (certBytes != null) throw ProfileImportException("配置包包含重复的 $name")
+                        certBytes = zip.readLimitedBytes(MAX_PROFILE_ENTRY_BYTES, name)
+                    }
+                    else -> throw ProfileImportException("配置包包含未知文件: $name")
                 }
             }
         }
@@ -58,12 +71,14 @@ object ProfileImporter {
         )
     }
 
-    private fun ZipInputStream.readCurrentEntry(): ByteArray {
+    private fun InputStream.readLimitedBytes(limit: Int, label: String): ByteArray {
         val out = ByteArrayOutputStream()
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         while (true) {
             val n = read(buffer)
-            if (n <= 0) break
+            if (n < 0) break
+            if (n == 0) continue
+            if (out.size() + n > limit) throw ProfileImportException("$label 超过大小限制")
             out.write(buffer, 0, n)
         }
         return out.toByteArray()

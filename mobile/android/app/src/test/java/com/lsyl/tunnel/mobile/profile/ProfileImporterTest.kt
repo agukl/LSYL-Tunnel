@@ -50,6 +50,51 @@ class ProfileImporterTest {
         assertImportRejected(profile, "移动端仅支持正向代理")
     }
 
+    @Test
+    fun rejectsOversizedArchiveAndEntry() {
+        try {
+            ProfileImporter.importFromZip(ByteArray(16 * 1024 * 1024 + 1))
+            fail("expected oversized archive to fail")
+        } catch (err: ProfileImportException) {
+            assertTrue(err.message?.contains("配置包超过大小限制") == true)
+        }
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(ZipEntry("profile.json"))
+            zip.write(ByteArray(8 * 1024 * 1024 + 1))
+            zip.closeEntry()
+        }
+        try {
+            ProfileImporter.importFromZip(output.toByteArray())
+            fail("expected oversized entry to fail")
+        } catch (err: ProfileImportException) {
+            assertTrue(err.message?.contains("profile.json 超过大小限制") == true)
+        }
+    }
+
+    @Test
+    fun rejectsUnknownAndDuplicateEntries() {
+        listOf(
+            listOf("profile.json", "extra.txt") to "未知文件",
+            listOf("profile.json", "nested/profile.json") to "重复的 profile.json"
+        ).forEach { (entries, expected) ->
+            val output = ByteArrayOutputStream()
+            ZipOutputStream(output).use { zip ->
+                entries.forEach { name ->
+                    zip.putNextEntry(ZipEntry(name))
+                    zip.write("{}".toByteArray(Charsets.UTF_8))
+                    zip.closeEntry()
+                }
+            }
+            try {
+                ProfileImporter.importFromZip(output.toByteArray())
+                fail("expected entry validation to fail")
+            } catch (err: ProfileImportException) {
+                assertTrue("unexpected message: ${err.message}", err.message?.contains(expected) == true)
+            }
+        }
+    }
+
     private fun assertImportRejected(profile: JSONObject, expectedMessage: String) {
         try {
             ProfileImporter.importFromZip(profileZip(profile))

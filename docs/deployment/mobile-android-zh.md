@@ -51,6 +51,8 @@ profile.json
 server.crt
 ```
 
+Android 和 Win7 Lite 导入时只接受这两个文件各一份；压缩包上限 16 MiB，单个文件上限 8 MiB，超限、额外或重复条目都会拒绝。
+
 该文件由 Windows 客户端侧生成，不建议手工编辑 zip。用户先在客户端 GUI 成功连接一次，让本机 `conf/client.yaml` 写入未过期的 `saved_credential`。右键点击窗口左上角图标，选择“导出移动端配置”，确认后自动导出到当前用户系统“下载”目录，文件名格式为：
 
 ```text

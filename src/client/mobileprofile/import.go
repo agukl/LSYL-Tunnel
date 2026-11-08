@@ -17,8 +17,11 @@ import (
 )
 
 const (
-	profileJSONEntry = "profile.json"
-	serverCertEntry  = "server.crt"
+	profileJSONEntry       = "profile.json"
+	serverCertEntry        = "server.crt"
+	maxProfileArchiveBytes = 16 << 20
+	maxProfileEntryBytes   = 8 << 20
+	maxProfileEntries      = 32
 )
 
 type ImportedProfile struct {
@@ -32,9 +35,17 @@ func ImportFile(path string) (ImportedProfile, error) {
 	if err := requireFile(path); err != nil {
 		return ImportedProfile{}, fmt.Errorf("invalid profile file: %w", err)
 	}
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return ImportedProfile{}, fmt.Errorf("read profile file: %w", err)
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxProfileArchiveBytes+1))
+	if err != nil {
+		return ImportedProfile{}, fmt.Errorf("read profile file: %w", err)
+	}
+	if len(data) > maxProfileArchiveBytes {
+		return ImportedProfile{}, fmt.Errorf("profile package exceeds %d bytes", maxProfileArchiveBytes)
 	}
 	return ImportBytes(data)
 }
@@ -55,9 +66,15 @@ func ImportBytes(data []byte) (ImportedProfile, error) {
 }
 
 func readProfileZip(data []byte) ([]byte, []byte, error) {
+	if len(data) > maxProfileArchiveBytes {
+		return nil, nil, fmt.Errorf("profile package exceeds %d bytes", maxProfileArchiveBytes)
+	}
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, nil, fmt.Errorf("open .lsylprofile: %w", err)
+	}
+	if len(zr.File) > maxProfileEntries {
+		return nil, nil, fmt.Errorf("profile package contains too many entries")
 	}
 	var profileJSON []byte
 	var certPEM []byte
@@ -68,6 +85,9 @@ func readProfileZip(data []byte) ([]byte, []byte, error) {
 		name := normalizedZipEntryName(f.Name)
 		switch name {
 		case profileJSONEntry, serverCertEntry:
+			if (name == profileJSONEntry && profileJSON != nil) || (name == serverCertEntry && certPEM != nil) {
+				return nil, nil, fmt.Errorf("profile package contains duplicate %s", name)
+			}
 			data, err := readZipEntryBytes(f)
 			if err != nil {
 				return nil, nil, err
@@ -77,6 +97,8 @@ func readProfileZip(data []byte) ([]byte, []byte, error) {
 			} else {
 				certPEM = data
 			}
+		default:
+			return nil, nil, fmt.Errorf("profile package contains unexpected entry %s", f.Name)
 		}
 	}
 	if len(profileJSON) == 0 {
@@ -102,9 +124,12 @@ func readZipEntryBytes(f *zip.File) ([]byte, error) {
 		return nil, fmt.Errorf("open zip entry %s: %w", f.Name, err)
 	}
 	defer rc.Close()
-	data, err := io.ReadAll(io.LimitReader(rc, 8<<20))
+	data, err := io.ReadAll(io.LimitReader(rc, maxProfileEntryBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read zip entry %s: %w", f.Name, err)
+	}
+	if len(data) > maxProfileEntryBytes {
+		return nil, fmt.Errorf("zip entry %s exceeds %d bytes", f.Name, maxProfileEntryBytes)
 	}
 	return data, nil
 }

@@ -111,12 +111,16 @@ if defined HOSTS (
   )
 )
 
-set "RELEASE_STEP=Go tests"
+set "RELEASE_STEP=Source checks"
 if "%SKIP_TEST%"=="1" (
   echo [3/8] Tests skipped
 ) else (
-  echo [3/8] Run Go tests
-  "%GOEXE%" test ./src/... || goto fail
+  echo [3/8] Run full source checks
+  if defined MOBILE_APK (
+    call check.cmd -Full -NoAndroid || goto fail
+  ) else (
+    call check.cmd -Full || goto fail
+  )
 )
 
 echo [4/8] Recreate temporary release work directories
