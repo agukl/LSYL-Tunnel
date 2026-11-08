@@ -11,6 +11,8 @@ import (
 	"time"
 
 	frontassets "lsyltunnel/src/client/front"
+	"lsyltunnel/src/internal/atomicfile"
+	"lsyltunnel/src/internal/localapi"
 )
 
 func (a *App) registerAdminRoutes(mux *http.ServeMux) {
@@ -44,11 +46,26 @@ func (a *App) startAdminServer() (*http.Server, error) {
 		return nil, err
 	}
 	a.panelURL = "http://" + ln.Addr().String() + "/"
+	a.panelGate, err = localapi.New(a.panelURL)
+	if err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
 	tmpDir := filepath.Join(appTmpDir(a.workspace), "gui")
-	_ = os.MkdirAll(tmpDir, 0o755)
-	_ = os.WriteFile(filepath.Join(tmpDir, "client-gui.url"), []byte(a.panelURL), 0o644)
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	if err := atomicfile.WriteFile(filepath.Join(tmpDir, "client-gui.token"), []byte(a.panelGate.Token()), 0o600); err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	if err := atomicfile.WriteFile(filepath.Join(tmpDir, "client-gui.url"), []byte(a.panelURL), 0o644); err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
 
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Handler: a.panelGate.Protect(mux), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if serveErr := srv.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
 			log.Print("界面服务异常: " + serveErr.Error())

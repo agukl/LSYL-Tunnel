@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"lsyltunnel/src/internal/localapi"
 	frontassets "lsyltunnel/src/server/front"
 )
 
@@ -41,11 +42,16 @@ func (a *App) startAdminServer() (*http.Server, error) {
 		return nil, err
 	}
 	a.panelURL = "http://" + ln.Addr().String() + "/"
+	a.panelGate, err = localapi.New(a.panelURL)
+	if err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
 	tmpDir := filepath.Join(appTmpDir(a.workspace), "gui")
 	_ = os.MkdirAll(tmpDir, 0o755)
 	_ = os.WriteFile(filepath.Join(tmpDir, "server-gui.url"), []byte(a.panelURL), 0o644)
 
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Handler: a.panelGate.Protect(mux), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if serveErr := srv.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
 			log.Print("管理台服务异常: " + serveErr.Error())

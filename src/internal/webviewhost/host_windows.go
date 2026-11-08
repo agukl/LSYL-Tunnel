@@ -21,6 +21,8 @@ type Host struct {
 type Options struct {
 	// Transparent requires an alpha-composited native host window.
 	Transparent bool
+	// InitScript runs in matching documents before their page scripts.
+	InitScript string
 }
 
 func CheckRuntime() error {
@@ -90,6 +92,9 @@ func NewWithOptions(parent uintptr, url, profile string, onNavigationCompleted f
 	}
 	if err := settings.PutIsStatusBarEnabled(false); err != nil {
 		return nil, fmt.Errorf("设置 WebView2 状态栏失败: %w", err)
+	}
+	if options.InitScript != "" {
+		view.Init(options.InitScript)
 	}
 	view.Resize()
 	view.Navigate(url)

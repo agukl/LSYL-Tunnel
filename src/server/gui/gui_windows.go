@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"lsyltunnel/src/internal/localapi"
 	"lsyltunnel/src/internal/webviewhost"
 
 	"github.com/lxn/walk"
@@ -27,6 +28,7 @@ type App struct {
 	logService  string
 	crashLog    string
 	panelURL    string
+	panelGate   *localapi.Gate
 
 	mw  *walk.MainWindow
 	web *webviewhost.Host
@@ -129,7 +131,7 @@ func (a *App) runUI() error {
 	}
 	a.mw.ToolBar().SetVisible(false)
 	a.mw.StatusBar().SetVisible(false)
-	a.web, err = webviewhost.New(uintptr(browserPanel.Handle()), a.panelURL, "Server", a.showInitialWindow)
+	a.web, err = webviewhost.NewWithOptions(uintptr(browserPanel.Handle()), a.panelURL, "Server", a.showInitialWindow, webviewhost.Options{InitScript: a.panelGate.Script()})
 	if err != nil {
 		a.mw.Dispose()
 		return err

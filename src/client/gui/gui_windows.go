@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"lsyltunnel/src/client/tunnel"
+	"lsyltunnel/src/internal/localapi"
 	"lsyltunnel/src/internal/webviewhost"
 
 	"github.com/lxn/walk"
@@ -30,6 +31,7 @@ type App struct {
 	configPath string
 	crashLog   string
 	panelURL   string
+	panelGate  *localapi.Gate
 
 	mw  *walk.MainWindow
 	web *webviewhost.Host
@@ -193,7 +195,7 @@ func (a *App) run() error {
 		a.mw.Dispose()
 		return err
 	}
-	a.web, err = webviewhost.NewWithOptions(uintptr(a.mw.Handle()), a.panelURL, "Client", a.showInitialWindow, webviewhost.Options{Transparent: true})
+	a.web, err = webviewhost.NewWithOptions(uintptr(a.mw.Handle()), a.panelURL, "Client", a.showInitialWindow, webviewhost.Options{Transparent: true, InitScript: a.panelGate.Script()})
 	if err != nil {
 		a.mw.Dispose()
 		return err

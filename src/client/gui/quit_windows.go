@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+	"lsyltunnel/src/internal/localapi"
 )
 
 const clientQuitTimeout = 5 * time.Second
@@ -30,7 +31,11 @@ func requestQuitRunningInstance() error {
 		}
 		return fmt.Errorf("客户端正在运行，但无法定位退出接口，请先从托盘退出后重试")
 	}
-	if err := postClientQuit(panelURL); err != nil {
+	token, err := readClientPanelToken(app.workspace)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("客户端正在运行，但无法读取退出授权，请先从托盘退出后重试: %w", err)
+	}
+	if err := postClientQuit(panelURL, token); err != nil {
 		if !clientSingleInstanceRunning() {
 			return nil
 		}
@@ -68,11 +73,26 @@ func readClientPanelURL(workspace string) (string, error) {
 	return u.String(), nil
 }
 
-func postClientQuit(panelQuitURL string) error {
+func readClientPanelToken(workspace string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(appTmpDir(workspace), "gui", "client-gui.token"))
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimSpace(string(data))
+	if len(token) != 64 {
+		return "", fmt.Errorf("invalid client gui token")
+	}
+	return token, nil
+}
+
+func postClientQuit(panelQuitURL, token string) error {
 	client := &http.Client{Timeout: 2 * time.Second}
 	req, err := http.NewRequest(http.MethodPost, panelQuitURL, nil)
 	if err != nil {
 		return err
+	}
+	if token != "" {
+		req.Header.Set(localapi.TokenHeader, token)
 	}
 	resp, err := client.Do(req)
 	if err != nil {

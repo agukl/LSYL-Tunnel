@@ -98,7 +98,7 @@ Android 不复用 Go 二进制，必须独立维护协议、前置门、Profile 
 
 服务端隧道核心位于 `src/server/tunnel`：
 
-- `config.go`：配置类型、加载保存和路径解析；`config_defaults.go`：默认值与反向端口归一化；`config_validation.go`：运行配置与版本校验；`config_forward.go`：转发字段约束；`config_compat.go`：安装前 YAML 结构检查。
+- `config.go`：配置类型、严格读取、保存和路径解析；`config_defaults.go`：默认值与反向端口归一化；`config_validation.go`：运行配置与版本校验；`config_forward.go`：转发字段约束；`config_compat.go`：启动与安装共用的 YAML 结构解码。
 - `server.go`：构造服务、启动后台任务；`entry.go`：入口准入、前置门和 TLS 握手。
 - `request.go`：请求上下文、协议读取和分发；`authentication.go`：凭据校验与失败计数；`compatibility.go`：协议与客户端版本检查。
 - `forward.go`：正向业务流；`request_reverse.go`：反向请求响应与连接移交；`reverse.go`：反向监听和待回连流。
@@ -123,7 +123,9 @@ Android 不复用 Go 二进制，必须独立维护协议、前置门、Profile 
 
 服务端拒绝响应转换为 `protocol.ResponseError`，保留 `Code`、`Message` 和原日志文本格式，可通过 `errors.As` 穿透包装读取。已知错误码优先决定重试策略，不受诊断文案中的 timeout 等词干扰；`reverse_failed` 尚未细分原因，未知码和无结构错误仍使用兼容分类。这不新增协议字段。
 
-服务端管理台后端位于 `src/server/gui`：`http_windows.go` 负责本地 HTTP 服务和路由，`admin_api_windows.go` 负责请求处理和状态组装，`admin_config_mapping_windows.go` 负责 GUI 与核心配置互转，`admin_forward_mapping_windows.go` 负责转发字段转换，`admin_monitor_client_windows.go` 负责访问服务端本地监控接口。
+服务端管理台后端位于 `src/server/gui`：`http_windows.go` 负责本地 HTTP 服务和路由，`admin_api_windows.go` 负责请求处理和状态组装，`admin_config_mapping_windows.go` 负责 GUI 与核心配置互转，`admin_forward_mapping_windows.go` 负责转发字段转换，`admin_monitor_client_windows.go` 负责访问服务端本地监控接口。安全配置直接复用核心 `SecurityConfig` 的 JSON 字段定义，避免两套字段映射漂移。
+
+双端 WebView2 页面经 `internal/localapi` 的会话令牌访问本地 API；令牌由宿主注入页面，不由 HTTP 页面资源返回。客户端安装器退出命令通过本机临时令牌文件请求正在运行的客户端，服务端管理台令牌不落盘。
 
 日志归属分析由 `admin_log_analysis_windows.go` 编排并聚合事件，`admin_log_analysis_reader_windows.go` 按日期读取请求和业务 JSONL，`admin_log_analysis_geo_windows.go` 处理可选的 IP 归属查询。三者同属管理台，不进入转发核心或新增业务日志。
 
@@ -154,7 +156,7 @@ Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令�
 
 - Go 地址范围与回环写法由 `internal/netaddr` 统一，客户端预检不替代服务端最终授权。
 - YAML 字段与版本结构、配置语义、运行时授权是不同检查阶段，不应在 GUI 中隐式修正规则来代替校验。
-- 服务端安装前使用严格 YAML 结构校验；普通运行读取仍与安装检查分开，转发条目通过自定义解码拒绝未知字段。不能把安装检查当作整个运行配置解析器的替代品。
+- 服务端启动、安装检查及管理台读取共用按 `config_version` 选择的严格 YAML 解码；管理台使用不解析运行路径的原始读取入口，保存前仍以核心语义校验为最终门槛。
 - `forwards[].name` 是客户端内唯一的运行标识和日志标签，不是服务端授权依据；两端可以不同。
 - 配置归属、旧字段兼容和三种方向的地址矩阵集中维护在[配置参考](../system/config-reference-zh.md)，本页不再复制完整字段规则。
 

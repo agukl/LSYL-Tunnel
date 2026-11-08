@@ -1,7 +1,7 @@
 export async function api(method, path, body, cb) {
   let data;
   try {
-    const headers = { Accept: 'application/json' };
+    const headers = { Accept: 'application/json', 'X-LSYL-Panel-Token': globalThis.__lsylPanelToken || '' };
     if (body != null) { headers['Content-Type'] = 'application/json; charset=utf-8'; }
     const response = await fetch(path, {
       method,

@@ -2,7 +2,47 @@
 
 package gui
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"lsyltunnel/src/internal/localapi"
+)
+
+func TestClientQuitRequiresPanelToken(t *testing.T) {
+	var gate *localapi.Gate
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gate.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})).ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	var err error
+	gate, err = localapi.New(server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := postClientQuit(server.URL+"/api/quit", gate.Token()); err != nil {
+		t.Fatalf("authorized quit failed: %v", err)
+	}
+	if err := postClientQuit(server.URL+"/api/quit", "invalid"); err == nil {
+		t.Fatal("unauthorized quit succeeded")
+	}
+}
+
+func TestClientQuitSupportsLegacyInstanceWithoutToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(localapi.TokenHeader) != "" {
+			t.Error("legacy quit request unexpectedly included a token")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	if err := postClientQuit(server.URL+"/api/quit", ""); err != nil {
+		t.Fatalf("legacy quit failed: %v", err)
+	}
+}
 
 func TestClientQuitArgs(t *testing.T) {
 	for _, arg := range []string{"/quit", "-quit", "--quit", "/exit", "-exit", "--exit", "  /QUIT  "} {

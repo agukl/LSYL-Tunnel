@@ -74,6 +74,7 @@ function api(path, body, cb, onError){
   var method = body ? 'POST' : 'GET';
   xhr.open(method, path + (!body ? '?_=' + now() : ''), true);
   xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.setRequestHeader('X-LSYL-Panel-Token', window.__lsylPanelToken || '');
   xhr.onreadystatechange = function(){
     if(xhr.readyState !== 4) return;
     try { cb(JSON.parse(xhr.responseText)); }
