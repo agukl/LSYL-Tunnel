@@ -13,7 +13,7 @@ import (
 )
 
 // legacyServerConfigV0 is the unversioned schema shipped before config_version.
-// It remains installation-compatible, but only its known fields are accepted.
+// It remains load-compatible, but only its known fields are accepted.
 type legacyServerConfigV0 struct {
 	ConfigVersion  int                  `yaml:"config_version"`
 	ListenAddr     string               `yaml:"listen_addr"`
@@ -40,10 +40,21 @@ func CheckConfigUpgradeCompatible(path string) error {
 	if err != nil {
 		return fmt.Errorf("read installed server config: %w", err)
 	}
+	cfg, err := decodeServerConfig(data)
+	if err != nil {
+		return fmt.Errorf("installed server config is not compatible with this server version: %w", err)
+	}
+	ApplyDefaults(&cfg)
+	if err := ValidateConfig(cfg); err != nil {
+		return fmt.Errorf("installed server config is not valid for this server version: %w", err)
+	}
+	return nil
+}
 
+func decodeServerConfig(data []byte) (Config, error) {
 	version, hasVersion, err := serverConfigSchemaVersion(data)
 	if err != nil {
-		return fmt.Errorf("parse installed server config structure: %w", err)
+		return Config{}, fmt.Errorf("parse server config structure: %w", err)
 	}
 
 	var cfg Config
@@ -59,14 +70,9 @@ func CheckConfigUpgradeCompatible(path string) error {
 		err = ValidateConfigVersion(cfg)
 	}
 	if err != nil {
-		return fmt.Errorf("installed server config is not compatible with this server version: %w", err)
+		return Config{}, err
 	}
-
-	ApplyDefaults(&cfg)
-	if err := ValidateConfig(cfg); err != nil {
-		return fmt.Errorf("installed server config is not valid for this server version: %w", err)
-	}
-	return nil
+	return cfg, nil
 }
 
 func decodeLegacyServerConfigV0(data []byte) (Config, error) {

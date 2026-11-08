@@ -34,6 +34,52 @@ func TestCheckConfigUpgradeCompatibleAcceptsCompleteV1Config(t *testing.T) {
 	}
 }
 
+func TestServerConfigLoadAndUpgradeUseSameSchema(t *testing.T) {
+	v1 := validServerConfigV1YAML("")
+	tests := []struct {
+		name    string
+		content string
+		wantErr string
+	}{
+		{name: "legacy", content: "tls:\n  cert_file: server.crt\n  key_file: server.key\nauth:\n  users: []\n"},
+		{name: "current", content: v1},
+		{name: "unknown legacy field", content: "tls:\n  cert_file: server.crt\n  key_file: server.key\nunknown_setting: true\n", wantErr: "field unknown_setting not found"},
+		{name: "unknown current field", content: strings.Replace(v1, "  min_version: \"1.3\"", "  min_version: \"1.3\"\n  extra: true", 1), wantErr: "field extra not found"},
+		{name: "missing current structure", content: strings.Replace(v1, "auth:\n  users: []", "", 1), wantErr: "missing required field auth"},
+		{name: "wrong current layer", content: strings.Replace(v1, "auth:\n  users: []", "auth: []", 1), wantErr: "cannot unmarshal"},
+		{name: "future version", content: "config_version: 99\n", wantErr: "requires a newer server"},
+		{name: "multiple documents", content: v1 + "\n---\nlisten_addr: 127.0.0.1:3443\n", wantErr: "exactly one YAML document"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeTestConfig(t, t.TempDir(), "server.yaml", tt.content)
+			_, loadErr := LoadConfig(path)
+			upgradeErr := CheckConfigUpgradeCompatible(path)
+			if (loadErr == nil) != (upgradeErr == nil) {
+				t.Fatalf("load error = %v, upgrade error = %v", loadErr, upgradeErr)
+			}
+			if tt.wantErr != "" && (loadErr == nil || !strings.Contains(loadErr.Error(), tt.wantErr) || !strings.Contains(upgradeErr.Error(), tt.wantErr)) {
+				t.Fatalf("load error = %v, upgrade error = %v; want %q", loadErr, upgradeErr, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoadConfigRawKeepsRelativePathsAndRejectsUnknownFields(t *testing.T) {
+	path := writeTestConfig(t, t.TempDir(), "server.yaml", validServerConfigV1YAML(""))
+	cfg, err := LoadConfigRaw(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.IsAbs(cfg.TLS.CertFile) || filepath.IsAbs(cfg.Runtime.StateFile) {
+		t.Fatalf("raw config resolved paths: cert=%q state=%q", cfg.TLS.CertFile, cfg.Runtime.StateFile)
+	}
+	path = writeTestConfig(t, t.TempDir(), "invalid.yaml", strings.Replace(validServerConfigV1YAML(""), "  min_version: \"1.3\"", "  min_version: \"1.3\"\n  extra: true", 1))
+	if _, err := LoadConfigRaw(path); err == nil || !strings.Contains(err.Error(), "field extra not found") {
+		t.Fatalf("unknown field was accepted: %v", err)
+	}
+}
+
 func TestCheckConfigUpgradeCompatibleAcceptsV1WithoutDeprecatedLogLevel(t *testing.T) {
 	path := writeTestConfig(t, t.TempDir(), "server.yaml", strings.Replace(validServerConfigV1YAML(""), "log_level: info\n", "", 1))
 	if err := CheckConfigUpgradeCompatible(path); err != nil {

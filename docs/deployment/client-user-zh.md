@@ -145,7 +145,7 @@ forwards:
 
 GUI 只会改写 `server_addr`、`username` 和登录凭据。登录成功后会清空 `password`，并写入 `saved_credential`，不会改写端口映射、TLS 信任文件等高级配置。
 
-用于分发的安装包不会携带本机 `saved_credential`。默认打包会自动清理登录密文，并把 `client_id` 留空；现场从 `dist\LSYL Tunnel Client` 重新生成安装器时，也会先把该目录原始 `conf\client.yaml` 中的 `client_id` 清空并保存。客户端首次成功登录保存配置时会使用目标机器的本机名作为 `client_id`。
+用于分发的安装包不会携带本机 `saved_credential`。默认打包会自动清理登录密文，并把 `client_id` 留空；现场从 `dist\LSYL Tunnel Client` 重新生成安装器时，也会先把该目录原始 `conf\client.yaml` 中的 `client_id` 清空并保存。客户端使用密码成功登录并保存凭据时，会检查 `client_id` 并修正为目标机器的本机名。
 
 ## 6. 本地密码保存
 

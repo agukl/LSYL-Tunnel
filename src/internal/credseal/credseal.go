@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"lsyltunnel/src/internal/atomicfile"
 	"lsyltunnel/src/internal/protocol"
 )
 
@@ -242,5 +243,5 @@ func writeFileSecure(path string, data []byte, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, perm)
+	return atomicfile.WriteFile(path, data, perm)
 }

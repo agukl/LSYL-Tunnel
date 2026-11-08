@@ -11,13 +11,13 @@ import (
 )
 
 type adminConfig struct {
-	ListenAddr     string          `json:"listen_addr"`
-	MonitorAddr    string          `json:"monitor_addr"`
-	TLS            adminTLS        `json:"tls"`
-	Users          []adminUser     `json:"users"`
-	Forwards       []adminForward  `json:"forwards"`
-	Security       adminSecurity   `json:"security"`
-	CredentialSeal adminCredential `json:"credential_seal"`
+	ListenAddr     string                `json:"listen_addr"`
+	MonitorAddr    string                `json:"monitor_addr"`
+	TLS            adminTLS              `json:"tls"`
+	Users          []adminUser           `json:"users"`
+	Forwards       []adminForward        `json:"forwards"`
+	Security       tunnel.SecurityConfig `json:"security"`
+	CredentialSeal adminCredential       `json:"credential_seal"`
 }
 
 type adminTLS struct {
@@ -30,27 +30,6 @@ type adminUser struct {
 	Username     string `json:"username"`
 	PasswordHash string `json:"password_hash"`
 	Disabled     bool   `json:"disabled"`
-}
-
-type adminSecurity struct {
-	HandshakeTimeoutSec           int `json:"handshake_timeout_sec"`
-	DialTimeoutSec                int `json:"dial_timeout_sec"`
-	MaxHandshakeBytes             int `json:"max_handshake_bytes"`
-	MaxConcurrentConnections      int `json:"max_concurrent_connections"`
-	MaxConcurrentConnectionsPerIP int `json:"max_concurrent_connections_per_ip"`
-	ConnectionRateWindowSec       int `json:"connection_rate_window_sec"`
-	MaxNewConnectionsPerIPWindow  int `json:"max_new_connections_per_ip_window"`
-	MaxConnectionsPerIPPerWindow  int `json:"max_connections_per_ip_per_window,omitempty"`
-	MaxTrackedConnectionIPs       int `json:"max_tracked_connection_ips"`
-	ConnectionLimiterCleanupSec   int `json:"connection_limiter_cleanup_sec"`
-	MaxTrackedFailureIPs          int `json:"max_tracked_failure_ips"`
-	FailureTrackerCleanupSec      int `json:"failure_tracker_cleanup_sec"`
-	EntryTrafficLogQueueSize      int `json:"entry_traffic_log_queue_size"`
-	MaxConcurrentStreamsPerUser   int `json:"max_concurrent_streams_per_user"`
-	StreamRateLimitBytesPerSec    int `json:"stream_rate_limit_bytes_per_sec"`
-	AuthFailWindowSec             int `json:"auth_fail_window_sec"`
-	AuthFailThreshold             int `json:"auth_fail_threshold"`
-	AuthFailBlockSec              int `json:"auth_fail_block_sec"`
 }
 
 type adminCredential struct {
@@ -92,27 +71,9 @@ func adminConfigFromTunnel(cfg tunnel.Config) adminConfig {
 			KeyFile:    cfg.TLS.KeyFile,
 			MinVersion: cfg.TLS.MinVersion,
 		},
-		Users:    users,
-		Forwards: forwards,
-		Security: adminSecurity{
-			HandshakeTimeoutSec:           cfg.Security.HandshakeTimeoutSec,
-			DialTimeoutSec:                cfg.Security.DialTimeoutSec,
-			MaxHandshakeBytes:             cfg.Security.MaxHandshakeBytes,
-			MaxConcurrentConnections:      cfg.Security.MaxConcurrentConnections,
-			MaxConcurrentConnectionsPerIP: cfg.Security.MaxConcurrentConnectionsPerIP,
-			ConnectionRateWindowSec:       cfg.Security.ConnectionRateWindowSec,
-			MaxNewConnectionsPerIPWindow:  cfg.Security.MaxNewConnectionsPerIPWindow,
-			MaxTrackedConnectionIPs:       cfg.Security.MaxTrackedConnectionIPs,
-			ConnectionLimiterCleanupSec:   cfg.Security.ConnectionLimiterCleanupSec,
-			MaxTrackedFailureIPs:          cfg.Security.MaxTrackedFailureIPs,
-			FailureTrackerCleanupSec:      cfg.Security.FailureTrackerCleanupSec,
-			EntryTrafficLogQueueSize:      cfg.Security.EntryTrafficLogQueueSize,
-			MaxConcurrentStreamsPerUser:   cfg.Security.MaxConcurrentStreamsPerUser,
-			StreamRateLimitBytesPerSec:    cfg.Security.StreamRateLimitBytesPerSec,
-			AuthFailWindowSec:             cfg.Security.AuthFailWindowSec,
-			AuthFailThreshold:             cfg.Security.AuthFailThreshold,
-			AuthFailBlockSec:              cfg.Security.AuthFailBlockSec,
-		},
+		Users:          users,
+		Forwards:       forwards,
+		Security:       cfg.Security,
 		CredentialSeal: activeCredential(cfg.CredentialSeal),
 	}
 }
@@ -150,26 +111,7 @@ func adminConfigToTunnel(form adminConfig, existing tunnel.Config) (tunnel.Confi
 		fwd.AllowedUsers = cleanAllowedUsers(append(item.AllowedUsers, item.Owner))
 		cfg.Forwards = append(cfg.Forwards, fwd)
 	}
-	cfg.Security = tunnel.SecurityConfig{
-		HandshakeTimeoutSec:           form.Security.HandshakeTimeoutSec,
-		DialTimeoutSec:                form.Security.DialTimeoutSec,
-		MaxHandshakeBytes:             form.Security.MaxHandshakeBytes,
-		MaxConcurrentConnections:      form.Security.MaxConcurrentConnections,
-		MaxConcurrentConnectionsPerIP: form.Security.MaxConcurrentConnectionsPerIP,
-		ConnectionRateWindowSec:       form.Security.ConnectionRateWindowSec,
-		MaxNewConnectionsPerIPWindow:  form.Security.MaxNewConnectionsPerIPWindow,
-		MaxConnectionsPerIPPerWindow:  form.Security.MaxConnectionsPerIPPerWindow,
-		MaxTrackedConnectionIPs:       form.Security.MaxTrackedConnectionIPs,
-		ConnectionLimiterCleanupSec:   form.Security.ConnectionLimiterCleanupSec,
-		MaxTrackedFailureIPs:          form.Security.MaxTrackedFailureIPs,
-		FailureTrackerCleanupSec:      form.Security.FailureTrackerCleanupSec,
-		EntryTrafficLogQueueSize:      form.Security.EntryTrafficLogQueueSize,
-		MaxConcurrentStreamsPerUser:   form.Security.MaxConcurrentStreamsPerUser,
-		StreamRateLimitBytesPerSec:    form.Security.StreamRateLimitBytesPerSec,
-		AuthFailWindowSec:             form.Security.AuthFailWindowSec,
-		AuthFailThreshold:             form.Security.AuthFailThreshold,
-		AuthFailBlockSec:              form.Security.AuthFailBlockSec,
-	}
+	cfg.Security = form.Security
 	credentialSeal, err := credentialSealFromAdmin(form.CredentialSeal, existing.CredentialSeal)
 	if err != nil {
 		return cfg, err

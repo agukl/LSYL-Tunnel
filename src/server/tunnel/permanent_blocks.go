@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"bufio"
+	"lsyltunnel/src/internal/atomicfile"
 	"net"
 	"os"
 	"path/filepath"
@@ -118,7 +119,7 @@ func removePermanentBlockedIPs(path string, ips map[string]struct{}) (map[string
 	if hasTrailingNewline && len(kept) > 0 {
 		out += "\n"
 	}
-	if err := os.WriteFile(path, []byte(out), 0o600); err != nil {
+	if err := atomicfile.WriteFile(path, []byte(out), 0o600); err != nil {
 		return nil, err
 	}
 	return removed, nil

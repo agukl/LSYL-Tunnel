@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"lsyltunnel/src/internal/atomicfile"
 )
 
 type RequiresConfig struct {
@@ -26,24 +27,24 @@ type TLSConfig struct {
 }
 
 type SecurityConfig struct {
-	HandshakeTimeoutSec           int `yaml:"handshake_timeout_sec"`
-	DialTimeoutSec                int `yaml:"dial_timeout_sec"`
-	MaxHandshakeBytes             int `yaml:"max_handshake_bytes"`
-	MaxConcurrentConnections      int `yaml:"max_concurrent_connections"`
-	MaxConcurrentConnectionsPerIP int `yaml:"max_concurrent_connections_per_ip"`
-	ConnectionRateWindowSec       int `yaml:"connection_rate_window_sec"`
-	MaxNewConnectionsPerIPWindow  int `yaml:"max_new_connections_per_ip_window"`
-	MaxConnectionsPerIPPerWindow  int `yaml:"max_connections_per_ip_per_window,omitempty"`
-	MaxTrackedConnectionIPs       int `yaml:"max_tracked_connection_ips"`
-	ConnectionLimiterCleanupSec   int `yaml:"connection_limiter_cleanup_sec"`
-	MaxTrackedFailureIPs          int `yaml:"max_tracked_failure_ips"`
-	FailureTrackerCleanupSec      int `yaml:"failure_tracker_cleanup_sec"`
-	EntryTrafficLogQueueSize      int `yaml:"entry_traffic_log_queue_size"`
-	MaxConcurrentStreamsPerUser   int `yaml:"max_concurrent_streams_per_user"`
-	StreamRateLimitBytesPerSec    int `yaml:"stream_rate_limit_bytes_per_sec"`
-	AuthFailWindowSec             int `yaml:"auth_fail_window_sec"`
-	AuthFailThreshold             int `yaml:"auth_fail_threshold"`
-	AuthFailBlockSec              int `yaml:"auth_fail_block_sec"`
+	HandshakeTimeoutSec           int `yaml:"handshake_timeout_sec" json:"handshake_timeout_sec"`
+	DialTimeoutSec                int `yaml:"dial_timeout_sec" json:"dial_timeout_sec"`
+	MaxHandshakeBytes             int `yaml:"max_handshake_bytes" json:"max_handshake_bytes"`
+	MaxConcurrentConnections      int `yaml:"max_concurrent_connections" json:"max_concurrent_connections"`
+	MaxConcurrentConnectionsPerIP int `yaml:"max_concurrent_connections_per_ip" json:"max_concurrent_connections_per_ip"`
+	ConnectionRateWindowSec       int `yaml:"connection_rate_window_sec" json:"connection_rate_window_sec"`
+	MaxNewConnectionsPerIPWindow  int `yaml:"max_new_connections_per_ip_window" json:"max_new_connections_per_ip_window"`
+	MaxConnectionsPerIPPerWindow  int `yaml:"max_connections_per_ip_per_window,omitempty" json:"max_connections_per_ip_per_window,omitempty"`
+	MaxTrackedConnectionIPs       int `yaml:"max_tracked_connection_ips" json:"max_tracked_connection_ips"`
+	ConnectionLimiterCleanupSec   int `yaml:"connection_limiter_cleanup_sec" json:"connection_limiter_cleanup_sec"`
+	MaxTrackedFailureIPs          int `yaml:"max_tracked_failure_ips" json:"max_tracked_failure_ips"`
+	FailureTrackerCleanupSec      int `yaml:"failure_tracker_cleanup_sec" json:"failure_tracker_cleanup_sec"`
+	EntryTrafficLogQueueSize      int `yaml:"entry_traffic_log_queue_size" json:"entry_traffic_log_queue_size"`
+	MaxConcurrentStreamsPerUser   int `yaml:"max_concurrent_streams_per_user" json:"max_concurrent_streams_per_user"`
+	StreamRateLimitBytesPerSec    int `yaml:"stream_rate_limit_bytes_per_sec" json:"stream_rate_limit_bytes_per_sec"`
+	AuthFailWindowSec             int `yaml:"auth_fail_window_sec" json:"auth_fail_window_sec"`
+	AuthFailThreshold             int `yaml:"auth_fail_threshold" json:"auth_fail_threshold"`
+	AuthFailBlockSec              int `yaml:"auth_fail_block_sec" json:"auth_fail_block_sec"`
 }
 
 type CredentialSealKeyConfig struct {
@@ -112,12 +113,8 @@ type Config struct {
 }
 
 func LoadConfig(path string) (Config, error) {
-	var cfg Config
-	data, err := os.ReadFile(path)
+	cfg, err := LoadConfigRaw(path)
 	if err != nil {
-		return cfg, err
-	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, err
 	}
 	if abs, err := filepath.Abs(path); err == nil {
@@ -126,7 +123,6 @@ func LoadConfig(path string) (Config, error) {
 		cfg.ConfigPath = path
 	}
 	base := filepath.Dir(path)
-	ApplyDefaults(&cfg)
 	if strings.TrimSpace(cfg.Runtime.StateFile) == "" {
 		cfg.Runtime.StateFile = defaultRuntimePath(base, "data", "server-state.json")
 	} else {
@@ -161,6 +157,22 @@ func LoadConfig(path string) (Config, error) {
 	return cfg, ValidateConfig(cfg)
 }
 
+// LoadConfigRaw keeps configured paths relative for editors while enforcing
+// the same versioned YAML schema used at startup and during installation.
+func LoadConfigRaw(path string) (Config, error) {
+	var cfg Config
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return cfg, err
+	}
+	cfg, err = decodeServerConfig(data)
+	if err != nil {
+		return cfg, err
+	}
+	ApplyDefaults(&cfg)
+	return cfg, nil
+}
+
 func SaveConfig(path string, cfg Config) error {
 	if err := validateLoopbackAddresses(cfg); err != nil {
 		return err
@@ -176,10 +188,7 @@ func SaveConfig(path string, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
+	return atomicfile.WriteFile(path, data, 0o644)
 }
 
 // PrepareFreshInstallConfig replaces machine-local credential sealing metadata
@@ -189,8 +198,8 @@ func PrepareFreshInstallConfig(path string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	cfg, err := decodeServerConfig(data)
+	if err != nil {
 		return err
 	}
 	ApplyDefaults(&cfg)

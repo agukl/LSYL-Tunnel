@@ -123,18 +123,21 @@ func validateVersionedClientConfigStructure(data []byte) error {
 	}
 	for _, name := range []string{
 		"config_version", "requires", "server_addr", "username", "password", "password_env",
-		"password_file", "saved_credential", "client_id", "log_level", "tls", "connection", "forwards",
+		"password_file", "saved_credential", "client_id", "tls", "connection", "forwards",
 	} {
 		if _, err := clientYAMLRequiredField(top, "client config", name); err != nil {
 			return err
 		}
 	}
 	for _, name := range []string{
-		"config_version", "server_addr", "username", "password", "password_env", "password_file", "client_id", "log_level",
+		"config_version", "server_addr", "username", "password", "password_env", "password_file", "client_id",
 	} {
 		if err := clientYAMLRequireScalar(top, "client config", name); err != nil {
 			return err
 		}
+	}
+	if err := clientYAMLRequireOptionalScalar(top, "client config", "log_level"); err != nil {
+		return err
 	}
 	if err := clientYAMLRequireOptionalScalar(top, "client config", "remark"); err != nil {
 		return err

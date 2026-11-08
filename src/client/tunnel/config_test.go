@@ -344,7 +344,29 @@ forwards:
 			if err := CheckConfigUpgradeCompatible(path); err != nil {
 				t.Fatalf("CheckConfigUpgradeCompatible() rejected empty saved credential: %v", err)
 			}
+			withoutLogLevel := strings.ReplaceAll(string(data), "log_level: info\n", "")
+			if err := os.WriteFile(path, []byte(withoutLogLevel), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := CheckConfigUpgradeCompatible(path); err != nil {
+				t.Fatalf("CheckConfigUpgradeCompatible() requires unused log_level: %v", err)
+			}
 		})
+	}
+}
+
+func TestSaveConfigRetainsLogLevelForOlderV2Clients(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client.yaml")
+	cfg := Config{LogLevel: "info"}
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "log_level: info") {
+		t.Fatalf("saved client config omitted legacy V2 field: %s", data)
 	}
 }
 

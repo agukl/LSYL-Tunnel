@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"lsyltunnel/src/client/tunnel"
 	"lsyltunnel/src/internal/protocol"
 )
@@ -40,20 +39,23 @@ func (a *App) prepareLoginConfig(form loginForm) (tunnel.Config, error) {
 		cfg.PasswordFile = ""
 		cfg.SavedCredential = protocol.SealedCredential{}
 	}
+	if cfg.Password != "" {
+		hostname, err := os.Hostname()
+		if err != nil {
+			return cfg, fmt.Errorf("读取本机名失败: %w", err)
+		}
+		hostname = strings.TrimSpace(hostname)
+		if hostname == "" {
+			return cfg, fmt.Errorf("本机名为空，无法更新客户端标识")
+		}
+		cfg.ClientID = hostname
+	}
 	tunnel.ApplyDefaults(&cfg)
 	return cfg, nil
 }
 
 func (a *App) saveClientConfig(cfg tunnel.Config) error {
-	tunnel.ApplyDefaults(&cfg)
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(a.configPath), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(a.configPath, data, 0o644); err != nil {
+	if err := tunnel.SaveConfig(a.configPath, cfg); err != nil {
 		return err
 	}
 	a.invalidateClientProfiles()

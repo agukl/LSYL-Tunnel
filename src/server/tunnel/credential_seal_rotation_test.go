@@ -127,6 +127,30 @@ func TestExpiredCredentialSealKeyActivatesPreparedFutureKey(t *testing.T) {
 	}
 }
 
+func TestCredentialSealRotationDoesNotActivateUnpersistedKey(t *testing.T) {
+	oldID := "login-key-old"
+	configPath := writeCredentialSealRotationConfig(t, []CredentialSealKeyConfig{{
+		KeyID:          oldID,
+		PrivateKeyFile: "../certs/" + oldID + ".key",
+		PublicKeyFile:  "../certs/" + oldID + ".pub",
+		ExpiresAt:      time.Now().Add(-time.Hour).Format(time.RFC3339),
+		Active:         true,
+	}})
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConfigPath = filepath.Join(t.TempDir(), "missing.yaml")
+	oldKey := &credentialSealKey{id: oldID, expiresAt: time.Now().Add(-time.Hour), active: true}
+	srv := &Server{cfg: cfg, activeCredentialKey: oldKey, credentialKeys: map[string]*credentialSealKey{oldID: oldKey}, logf: t.Logf}
+	if err := srv.rotateExpiredCredentialSealKeyLocked(time.Now()); err == nil {
+		t.Fatal("rotation succeeded without persisting config")
+	}
+	if srv.activeCredentialKey != oldKey || len(srv.credentialKeys) != 1 || len(srv.cfg.CredentialSeal.Keys) != 1 || !srv.cfg.CredentialSeal.Keys[0].Active {
+		t.Fatalf("unpersisted key changed runtime state: active=%v keys=%d config=%v", srv.activeCredentialKey, len(srv.credentialKeys), srv.cfg.CredentialSeal.Keys)
+	}
+}
+
 func writeCredentialSealRotationConfig(t *testing.T, keys []CredentialSealKeyConfig) string {
 	t.Helper()
 	root := t.TempDir()
@@ -136,8 +160,9 @@ func writeCredentialSealRotationConfig(t *testing.T, keys []CredentialSealKeyCon
 	}
 	configPath := filepath.Join(confDir, "server.yaml")
 	data, err := yaml.Marshal(Config{
-		ListenAddr:  "127.0.0.1:0",
-		MonitorAddr: "",
+		ConfigVersion: 1,
+		ListenAddr:    "127.0.0.1:0",
+		MonitorAddr:   "",
 		TLS: TLSConfig{
 			CertFile:   "../certs/server.crt",
 			KeyFile:    "../certs/server.key",

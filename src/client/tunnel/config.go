@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"lsyltunnel/src/internal/atomicfile"
 	"lsyltunnel/src/internal/protocol"
 	appversion "lsyltunnel/src/internal/version"
 
@@ -90,10 +91,7 @@ func SaveConfig(path string, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
+	return atomicfile.WriteFile(path, data, 0o644)
 }
 
 func ApplyDefaults(cfg *Config) {

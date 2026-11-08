@@ -16,7 +16,6 @@ import (
 	"lsyltunnel/src/server/tunnel"
 
 	"golang.org/x/sys/windows/svc"
-	"gopkg.in/yaml.v3"
 )
 
 type adminState struct {
@@ -97,16 +96,19 @@ func (a *App) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if issues := validateAdminForwardsForSaveWithOptions(form, adminForwardValidationOptions{
-		Existing:                       existing,
-		ServiceRunning:                 a.isServerServiceRunning(),
-		CheckForwardTargetReachability: false,
-		CheckPassivePortAvailability:   true,
+		Existing:                     existing,
+		ServiceRunning:               a.isServerServiceRunning(),
+		CheckPassivePortAvailability: true,
 	}); issues.hasErrors() {
 		writeJSON(w, http.StatusOK, apiResult{OK: false, Message: issues.summary(), Issues: issues, State: a.buildAdminState("config validation failed")})
 		return
 	}
 	cfg, err := adminConfigToTunnel(form, existing)
 	if err != nil {
+		writeJSON(w, http.StatusOK, apiResult{OK: false, Message: friendlyError(err), State: a.buildAdminState("config validation failed")})
+		return
+	}
+	if err := tunnel.ValidateConfig(cfg); err != nil {
 		writeJSON(w, http.StatusOK, apiResult{OK: false, Message: friendlyError(err), State: a.buildAdminState("config validation failed")})
 		return
 	}
@@ -270,6 +272,8 @@ func (a *App) buildAdminState(message string) *adminState {
 	validation := ""
 	if cfgErr != nil {
 		validation = friendlyError(cfgErr)
+	} else if err := tunnel.ValidateConfig(cfg); err != nil {
+		validation = friendlyError(err)
 	}
 
 	var monitor *monitorStatus
@@ -370,16 +374,7 @@ func isPermissionError(err error) bool {
 }
 
 func readRawServerConfig(path string) (tunnel.Config, error) {
-	var cfg tunnel.Config
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return cfg, err
-	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return cfg, err
-	}
-	tunnel.ApplyDefaults(&cfg)
-	return cfg, nil
+	return tunnel.LoadConfigRaw(path)
 }
 
 func (a *App) loadPersistedBlockedIPs(cfg tunnel.Config) []tunnel.BlockedIPState {

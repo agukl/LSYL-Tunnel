@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"time"
 
 	"lsyltunnel/src/internal/netaddr"
 	"lsyltunnel/src/server/tunnel"
@@ -26,11 +25,9 @@ type adminConfigIssue struct {
 type adminConfigIssues []adminConfigIssue
 
 type adminForwardValidationOptions struct {
-	Existing                       tunnel.Config
-	ServiceRunning                 bool
-	CheckForwardTargetReachability bool
-	CheckPassivePortAvailability   bool
-	DialTimeout                    time.Duration
+	Existing                     tunnel.Config
+	ServiceRunning               bool
+	CheckPassivePortAvailability bool
 }
 
 func (issues adminConfigIssues) hasErrors() bool {
@@ -73,10 +70,6 @@ func validateAdminForwardsForSaveWithOptions(form adminConfig, opts adminForward
 	users := adminUserSet(form.Users)
 	passiveOwners := map[string]string{}
 	existingPassivePorts := existingPassiveForwardPorts(opts.Existing)
-	dialTimeout := opts.DialTimeout
-	if dialTimeout <= 0 {
-		dialTimeout = 800 * time.Millisecond
-	}
 	for i, item := range form.Forwards {
 		if adminForwardIsEmpty(item) {
 			continue
@@ -112,8 +105,8 @@ func validateAdminForwardsForSaveWithOptions(form adminConfig, opts adminForward
 			} else {
 				owner := allowedUsers[0]
 				normalized := normalizeAdminHostPort(listenAddr)
-				if previousOwner, ok := passiveOwners[normalized]; ok && previousOwner != owner {
-					issues.addError(fieldPrefix+".allowed_users", "passive port is already assigned to "+previousOwner)
+				if previousOwner, ok := passiveOwners[normalized]; ok {
+					issues.addError(fieldPrefix+".port", "passive port is already assigned to "+previousOwner)
 				} else {
 					passiveOwners[normalized] = owner
 				}
@@ -134,11 +127,6 @@ func validateAdminForwardsForSaveWithOptions(form adminConfig, opts adminForward
 		if !netaddr.IsForwardTargetHost(host) {
 			issues.addError(fieldPrefix+".server_target", "目标地址必须使用 127.0.0.1 或私有 IP")
 			continue
-		}
-		if direction == tunnel.DirectionClientToServer && opts.CheckForwardTargetReachability {
-			if err := canConnectTCP(target, dialTimeout); err != nil {
-				issues.addError(fieldPrefix+".server_target", "forward target is not reachable: "+err.Error())
-			}
 		}
 	}
 	return issues
@@ -225,14 +213,6 @@ func canListenOnTCP(addr string) error {
 		return err
 	}
 	return ln.Close()
-}
-
-func canConnectTCP(addr string, timeout time.Duration) error {
-	conn, err := net.DialTimeout("tcp", addr, timeout)
-	if err != nil {
-		return err
-	}
-	return conn.Close()
 }
 
 func normalizeAdminHostPort(addr string) string {

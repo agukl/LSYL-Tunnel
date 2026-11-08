@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"lsyltunnel/src/internal/atomicfile"
 	"lsyltunnel/src/internal/credseal"
 	"lsyltunnel/src/internal/protocol"
 
@@ -144,6 +145,9 @@ func (s *Server) rotateExpiredCredentialSealKeyLocked(now time.Time) error {
 	if err != nil {
 		return fmt.Errorf("rotate credential seal key %s: %w", newCfg.KeyID, err)
 	}
+	if err := s.persistCredentialSealRotationLocked(newCfg); err != nil {
+		return fmt.Errorf("persist credential seal key rotation: %w", err)
+	}
 	for i := range s.cfg.CredentialSeal.Keys {
 		s.cfg.CredentialSeal.Keys[i].Active = false
 	}
@@ -164,9 +168,6 @@ func (s *Server) rotateExpiredCredentialSealKeyLocked(now time.Time) error {
 	}
 	s.credentialKeys[key.id] = key
 	s.activeCredentialKey = key
-	if err := s.persistCredentialSealRotationLocked(newCfg); err != nil {
-		s.log("persist credential seal key rotation failed: %v", err)
-	}
 	s.log("credential seal key rotated: %s -> %s", current.id, key.id)
 	return nil
 }
@@ -233,10 +234,11 @@ func (s *Server) persistCredentialSealRotationLocked(newCfg CredentialSealKeyCon
 	if err != nil {
 		return err
 	}
-	var raw Config
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	raw, err := decodeServerConfig(data)
+	if err != nil {
 		return err
 	}
+	ApplyDefaults(&raw)
 	rawNew := newCfg
 	rawNew.PrivateKeyFile = relativeCredentialPath(configPath, newCfg.PrivateKeyFile)
 	rawNew.PublicKeyFile = relativeCredentialPath(configPath, newCfg.PublicKeyFile)
@@ -256,11 +258,14 @@ func (s *Server) persistCredentialSealRotationLocked(newCfg CredentialSealKeyCon
 	if !found {
 		raw.CredentialSeal.Keys = append(raw.CredentialSeal.Keys, rawNew)
 	}
+	if err := ValidateConfig(raw); err != nil {
+		return err
+	}
 	out, err := yaml.Marshal(raw)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configPath, out, 0o644)
+	return atomicfile.WriteFile(configPath, out, 0o644)
 }
 
 func rawCredentialPathTemplate(keys []CredentialSealKeyConfig) CredentialSealKeyConfig {

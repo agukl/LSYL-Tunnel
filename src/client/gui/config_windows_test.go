@@ -95,6 +95,53 @@ func TestPrepareLoginConfigPreservesForwardTargets(t *testing.T) {
 	}
 }
 
+func TestPrepareLoginConfigRefreshesClientIDForPasswordLogin(t *testing.T) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		t.Fatal("local hostname is empty")
+	}
+	for _, tt := range []struct {
+		name            string
+		storedPassword  string
+		formPassword    string
+		savedCredential bool
+		wantClientID    string
+	}{
+		{name: "new password", formPassword: "new-secret", wantClientID: hostname},
+		{name: "existing plain password", storedPassword: "old-secret", wantClientID: hostname},
+		{name: "saved credential only", savedCredential: true, wantClientID: "other-machine"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			app := &App{configPath: filepath.Join(t.TempDir(), "client.yaml")}
+			cfg := tunnel.Config{ClientID: "other-machine", Password: tt.storedPassword}
+			if tt.savedCredential {
+				cfg.SavedCredential = protocol.SealedCredential{Type: "server_sealed", Ciphertext: "sealed"}
+			}
+			if err := app.saveClientConfig(cfg); err != nil {
+				t.Fatal(err)
+			}
+			got, err := app.prepareLoginConfig(loginForm{Password: tt.formPassword})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.ClientID != tt.wantClientID {
+				t.Fatalf("ClientID = %q, want %q", got.ClientID, tt.wantClientID)
+			}
+			stored, err := readClientConfigRaw(app.configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored.ClientID != "other-machine" {
+				t.Fatalf("client_id changed before login succeeded: %q", stored.ClientID)
+			}
+		})
+	}
+}
+
 func TestPrepareLoginConfigDoesNotReplaceInvalidExistingConfig(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "conf", "client.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {

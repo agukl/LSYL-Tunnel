@@ -34,6 +34,63 @@ func TestAdminPathsOnlyReportRuntimeLocations(t *testing.T) {
 	}
 }
 
+func TestAdminSecurityConfigJSONRoundTrip(t *testing.T) {
+	cfg := tunnel.Config{Security: tunnel.SecurityConfig{
+		HandshakeTimeoutSec:           11,
+		DialTimeoutSec:                12,
+		MaxHandshakeBytes:             13,
+		MaxConcurrentConnections:      14,
+		MaxConcurrentConnectionsPerIP: 15,
+		ConnectionRateWindowSec:       16,
+		MaxConnectionsPerIPPerWindow:  17,
+		MaxTrackedConnectionIPs:       18,
+		ConnectionLimiterCleanupSec:   19,
+		MaxTrackedFailureIPs:          20,
+		FailureTrackerCleanupSec:      21,
+		EntryTrafficLogQueueSize:      22,
+		MaxConcurrentStreamsPerUser:   23,
+		StreamRateLimitBytesPerSec:    24,
+		AuthFailWindowSec:             25,
+		AuthFailThreshold:             26,
+		AuthFailBlockSec:              27,
+	}}
+	form := adminConfigFromTunnel(cfg)
+	data, err := json.Marshal(form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Security map[string]int `json:"security"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{
+		"handshake_timeout_sec": 11, "dial_timeout_sec": 12, "max_handshake_bytes": 13,
+		"max_concurrent_connections": 14, "max_concurrent_connections_per_ip": 15,
+		"connection_rate_window_sec": 16, "max_new_connections_per_ip_window": 17,
+		"max_tracked_connection_ips": 18, "connection_limiter_cleanup_sec": 19,
+		"max_tracked_failure_ips": 20, "failure_tracker_cleanup_sec": 21,
+		"entry_traffic_log_queue_size": 22, "max_concurrent_streams_per_user": 23,
+		"stream_rate_limit_bytes_per_sec": 24, "auth_fail_window_sec": 25,
+		"auth_fail_threshold": 26, "auth_fail_block_sec": 27,
+	}
+	if !reflect.DeepEqual(wire.Security, want) {
+		t.Fatalf("security JSON = %#v, want %#v", wire.Security, want)
+	}
+	var decoded adminConfig
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	got, err := adminConfigToTunnel(decoded, tunnel.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Security != form.Security {
+		t.Fatalf("security changed after GUI round trip: got %+v, want %+v", got.Security, form.Security)
+	}
+}
+
 func TestAdminConfigToTunnelWritesForwardAllowedUsers(t *testing.T) {
 	cfg, err := adminConfigToTunnel(adminConfig{
 		ListenAddr:  "127.0.0.1:9443",
@@ -287,6 +344,54 @@ func TestValidateAdminForwardsForSaveRejectsPassivePortAssignedToDifferentUsers(
 	}
 }
 
+func TestValidateAdminForwardsForSaveRejectsDuplicatePassivePortForSameUser(t *testing.T) {
+	issues := validateAdminForwardsForSave(adminConfig{
+		Users: []adminUser{{Username: "alice"}},
+		Forwards: []adminForward{
+			{Name: "web-a", Direction: tunnel.DirectionServerToClient, Port: "18080", Owner: "alice"},
+			{Name: "web-b", Direction: tunnel.DirectionServerToClient, Port: "18080", Owner: "alice"},
+		},
+	})
+	if !issues.hasErrors() || issues[0].Field != "forwards[1].port" {
+		t.Fatalf("duplicate reverse port was accepted: %#v", issues)
+	}
+}
+
+func TestHandleAdminConfigRejectsCoreInvalidUser(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.yaml")
+	if err := tunnel.SaveConfig(path, tunnel.Config{TLS: tunnel.TLSConfig{CertFile: "server.crt", KeyFile: "server.key"}}); err != nil {
+		t.Fatal(err)
+	}
+	app := newAdminTestApp(t)
+	app.configPath = path
+	app.serviceName = "LSYL Tunnel Test Missing Service"
+	form := adminConfig{
+		ListenAddr: "127.0.0.1:9443",
+		TLS:        adminTLS{CertFile: "server.crt", KeyFile: "server.key", MinVersion: "1.3"},
+		Users:      []adminUser{{Username: "alice"}},
+	}
+	if res := postAdminConfig(t, app, form); res.OK || !strings.Contains(res.Message, "密码哈希") {
+		t.Fatalf("core-invalid config was saved: %#v", res)
+	}
+}
+
+func TestAdminStateReportsCoreInvalidConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.yaml")
+	if err := tunnel.SaveConfig(path, tunnel.Config{
+		TLS:  tunnel.TLSConfig{CertFile: "server.crt", KeyFile: "server.key"},
+		Auth: tunnel.AuthConfig{Users: []tunnel.UserConfig{{Username: "alice"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	app := newAdminTestApp(t)
+	app.configPath = path
+	app.serviceName = "LSYL Tunnel Test Missing Service"
+	state := app.buildAdminState("")
+	if state.OK || !strings.Contains(state.Validation, "密码哈希") || len(state.Config.Users) != 1 {
+		t.Fatalf("invalid config state = %#v", state)
+	}
+}
+
 func TestValidateAdminForwardsForSaveAllowsMultiplePassivePortsForOneUser(t *testing.T) {
 	issues := validateAdminForwardsForSave(adminConfig{
 		Users: []adminUser{{Username: "alice"}},
@@ -336,27 +441,6 @@ func TestValidateAdminForwardsForSaveSkipsCurrentPassivePortWhenServiceRunning(t
 		}}},
 		ServiceRunning:               true,
 		CheckPassivePortAvailability: true,
-	})
-	if issues.hasErrors() {
-		t.Fatalf("validateAdminForwardsForSaveWithOptions returned issues: %#v", issues)
-	}
-}
-
-func TestValidateAdminForwardsForSaveChecksForwardTargetReachability(t *testing.T) {
-	ln, port := listenLocalTCP(t)
-	defer ln.Close()
-	go acceptOneTCP(ln)
-
-	issues := validateAdminForwardsForSaveWithOptions(adminConfig{
-		Users: []adminUser{{Username: "alice"}},
-		Forwards: []adminForward{{
-			Direction: tunnel.DirectionClientToServer,
-			Port:      port,
-			Owner:     "alice",
-		}},
-	}, adminForwardValidationOptions{
-		CheckForwardTargetReachability: true,
-		DialTimeout:                    500 * time.Millisecond,
 	})
 	if issues.hasErrors() {
 		t.Fatalf("validateAdminForwardsForSaveWithOptions returned issues: %#v", issues)
@@ -654,11 +738,4 @@ func postAdminConfig(t *testing.T, app *App, form adminConfig) apiResult {
 		t.Fatal(err)
 	}
 	return res
-}
-
-func acceptOneTCP(ln net.Listener) {
-	conn, err := ln.Accept()
-	if err == nil {
-		_ = conn.Close()
-	}
 }
