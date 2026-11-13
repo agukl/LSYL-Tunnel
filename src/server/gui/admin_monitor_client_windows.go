@@ -37,6 +37,7 @@ type monitorStatus struct {
 	EntryTrafficLog         *tunnel.EntryTrafficLogStatus      `json:"entry_traffic_log,omitempty"`
 	BlockedIPs              []tunnel.BlockedIPState            `json:"blocked_ips,omitempty"`
 	RecentEvents            []tunnel.RuntimeEvent              `json:"recent_events,omitempty"`
+	EntryQuality            []tunnel.EntryQualityClientStatus  `json:"entry_quality,omitempty"`
 }
 
 type unblockIPRequest struct {
@@ -84,6 +85,7 @@ func loadMonitorStatus(addr string) (*monitorStatus, error) {
 		BytesDown:               status.BytesDown,
 		BlockedIPs:              status.BlockedIPs,
 		RecentEvents:            status.RecentEvents,
+		EntryQuality:            status.EntryQuality,
 	}, nil
 }
 

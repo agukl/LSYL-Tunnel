@@ -19,6 +19,7 @@ type configCompatOptions struct {
 	Apply         bool
 	Rollback      bool
 	ConfigPath    string
+	TemplatePath  string
 	ResultFile    string
 	SourceVersion string
 	BackupFile    string
@@ -43,6 +44,7 @@ func parseConfigCompatArgs(args []string) (configCompatOptions, bool, error) {
 	fs.BoolVar(&opts.Apply, "apply", false, "apply config migration")
 	fs.BoolVar(&opts.Rollback, "rollback", false, "restore config migration")
 	fs.StringVar(&opts.ConfigPath, "config", "", "installed server config")
+	fs.StringVar(&opts.TemplatePath, "template", "", "new server config template")
 	fs.StringVar(&opts.ResultFile, "result-file", "", "write compatibility error to file")
 	fs.StringVar(&opts.SourceVersion, "source-version", "", "installed executable file version")
 	fs.StringVar(&opts.BackupFile, "backup-file", "", "config migration backup")
@@ -54,6 +56,9 @@ func parseConfigCompatArgs(args []string) (configCompatOptions, bool, error) {
 	}
 	if (opts.Apply || opts.Rollback) && strings.TrimSpace(opts.BackupFile) == "" {
 		return opts, true, fmt.Errorf("missing -backup-file")
+	}
+	if (opts.Apply || opts.SourceVersion != "") && !opts.Rollback && strings.TrimSpace(opts.TemplatePath) == "" {
+		return opts, true, fmt.Errorf("missing -template")
 	}
 	return opts, true, nil
 }
@@ -68,7 +73,7 @@ func runConfigCompatCheck(opts configCompatOptions) error {
 	if err := configupgrade.CheckInstalledVersion(opts.SourceVersion); err != nil {
 		return err
 	}
-	file, err := tunnel.PrepareConfigMigration(opts.ConfigPath)
+	file, err := tunnel.PrepareConfigMigration(opts.ConfigPath, opts.TemplatePath)
 	if err != nil || !opts.Apply {
 		return err
 	}

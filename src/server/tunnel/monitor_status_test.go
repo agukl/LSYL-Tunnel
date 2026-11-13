@@ -84,7 +84,8 @@ func TestMonitorStatusJSONContract(t *testing.T) {
   "bytes_up": 0,
   "bytes_down": 0,
   "blocked_ips": null,
-  "recent_events": []
+  "recent_events": [],
+  "entry_quality": []
 }`
 	var gotValue, wantValue any
 	if err := json.Unmarshal(data, &gotValue); err != nil {

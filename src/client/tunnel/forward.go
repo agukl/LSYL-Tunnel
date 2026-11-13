@@ -118,7 +118,7 @@ func (c *Client) handleLocal(local net.Conn, name string, fwd ForwardConfig) {
 		return
 	}
 	timeout := time.Duration(c.cfg.Connection.DialTimeoutSec) * time.Second
-	remote, err := transport.DialTLSWithCertificateGate(c.ctx, &net.Dialer{Timeout: timeout}, "tcp", c.cfg.ServerAddr, tlsCfg, c.certificateGateKey, timeout)
+	remote, err := transport.DialTLSWithCertificateGate(c.ctx, c.businessDialer(timeout), "tcp", c.cfg.ServerAddr, tlsCfg, c.certificateGateKey, timeout)
 	if err != nil {
 		c.recordForwardError(name, err)
 		c.log("connect server failed: %v", err)

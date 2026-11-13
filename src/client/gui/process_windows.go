@@ -10,7 +10,7 @@ import (
 	"lsyltunnel/src/client/tunnel"
 )
 
-func (a *App) startClient(cfg tunnel.Config, serverVersion string) error {
+func (a *App) startClient(cfg tunnel.Config, serverVersion string, entries []string) error {
 	a.mu.Lock()
 	if a.closing.Load() {
 		a.mu.Unlock()
@@ -23,7 +23,7 @@ func (a *App) startClient(cfg tunnel.Config, serverVersion string) error {
 	a.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	client, err := tunnel.StartVerified(ctx, cfg, serverVersion, log.Printf)
+	client, err := tunnel.StartVerifiedWithEntries(ctx, cfg, serverVersion, entries, log.Printf)
 	if err != nil {
 		cancel()
 		return err

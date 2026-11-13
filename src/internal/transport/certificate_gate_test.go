@@ -238,6 +238,14 @@ func certificateGateTestCertificate(t *testing.T) ([]byte, []byte) {
 	return certPEM, certDER
 }
 
+func TestTLSConfigForAddressPreservesIPv6Identity(t *testing.T) {
+	base := &tls.Config{}
+	selected := tlsConfigForAddress(base, "[2001:db8::10]:50000")
+	if selected.ServerName != "2001:db8::10" || base.ServerName != "" {
+		t.Fatalf("selected name = %q, base name = %q", selected.ServerName, base.ServerName)
+	}
+}
+
 func certificateGateTestIdentity(t *testing.T) ([]byte, []byte, []byte) {
 	t.Helper()
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

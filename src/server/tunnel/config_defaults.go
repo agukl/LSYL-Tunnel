@@ -2,10 +2,21 @@ package tunnel
 
 import (
 	"net"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	appversion "lsyltunnel/src/internal/version"
+)
+
+const (
+	defaultMaxHandshakeBytes           = 32768
+	defaultConnectionRateWindowSec     = 1
+	defaultMaxTrackedConnectionIPs     = 8192
+	defaultConnectionLimiterCleanupSec = 60
+	defaultMaxTrackedFailureIPs        = 8192
+	defaultFailureTrackerCleanupSec    = 60
+	defaultEntryTrafficLogQueueSize    = 2048
 )
 
 func ApplyDefaults(cfg *Config) {
@@ -41,7 +52,7 @@ func ApplyDefaults(cfg *Config) {
 		cfg.Security.DialTimeoutSec = 5
 	}
 	if cfg.Security.MaxHandshakeBytes <= 0 {
-		cfg.Security.MaxHandshakeBytes = 32768
+		cfg.Security.MaxHandshakeBytes = defaultMaxHandshakeBytes
 	}
 	if cfg.Security.MaxConcurrentConnections <= 0 {
 		cfg.Security.MaxConcurrentConnections = 2048
@@ -50,7 +61,7 @@ func ApplyDefaults(cfg *Config) {
 		cfg.Security.MaxConcurrentConnectionsPerIP = 128
 	}
 	if cfg.Security.ConnectionRateWindowSec <= 0 {
-		cfg.Security.ConnectionRateWindowSec = 1
+		cfg.Security.ConnectionRateWindowSec = defaultConnectionRateWindowSec
 	}
 	if cfg.Security.MaxNewConnectionsPerIPWindow <= 0 && cfg.Security.MaxConnectionsPerIPPerWindow > 0 {
 		cfg.Security.MaxNewConnectionsPerIPWindow = cfg.Security.MaxConnectionsPerIPPerWindow
@@ -60,19 +71,19 @@ func ApplyDefaults(cfg *Config) {
 	}
 	cfg.Security.MaxConnectionsPerIPPerWindow = 0
 	if cfg.Security.MaxTrackedConnectionIPs <= 0 {
-		cfg.Security.MaxTrackedConnectionIPs = 8192
+		cfg.Security.MaxTrackedConnectionIPs = defaultMaxTrackedConnectionIPs
 	}
 	if cfg.Security.ConnectionLimiterCleanupSec <= 0 {
-		cfg.Security.ConnectionLimiterCleanupSec = 60
+		cfg.Security.ConnectionLimiterCleanupSec = defaultConnectionLimiterCleanupSec
 	}
 	if cfg.Security.MaxTrackedFailureIPs <= 0 {
-		cfg.Security.MaxTrackedFailureIPs = 8192
+		cfg.Security.MaxTrackedFailureIPs = defaultMaxTrackedFailureIPs
 	}
 	if cfg.Security.FailureTrackerCleanupSec <= 0 {
-		cfg.Security.FailureTrackerCleanupSec = 60
+		cfg.Security.FailureTrackerCleanupSec = defaultFailureTrackerCleanupSec
 	}
 	if cfg.Security.EntryTrafficLogQueueSize <= 0 {
-		cfg.Security.EntryTrafficLogQueueSize = 2048
+		cfg.Security.EntryTrafficLogQueueSize = defaultEntryTrafficLogQueueSize
 	}
 	if cfg.Security.AuthFailWindowSec <= 0 {
 		cfg.Security.AuthFailWindowSec = 300
@@ -84,19 +95,62 @@ func ApplyDefaults(cfg *Config) {
 		cfg.Security.AuthFailBlockSec = 1800
 	}
 	if cfg.Runtime.RecentEvents <= 0 {
-		cfg.Runtime.RecentEvents = 500
+		cfg.Runtime.RecentEvents = defaultRecentEvents
 	}
 }
 
-func configForSave(cfg Config) Config {
+func configForSave(cfg Config, path string) Config {
 	cfg.LogLevel = ""
+	if cfg.Requires.MinServerVersion == appversion.ServerConfigRequiresServerVersion {
+		cfg.Requires.MinServerVersion = ""
+	}
+	if cfg.Compatibility.ProtocolVersion == appversion.ProtocolVersion {
+		cfg.Compatibility.ProtocolVersion = 0
+	}
+	if cfg.Security.MaxHandshakeBytes == defaultMaxHandshakeBytes {
+		cfg.Security.MaxHandshakeBytes = 0
+	}
+	if cfg.Security.ConnectionRateWindowSec == defaultConnectionRateWindowSec {
+		cfg.Security.ConnectionRateWindowSec = 0
+	}
+	if cfg.Security.MaxTrackedConnectionIPs == defaultMaxTrackedConnectionIPs {
+		cfg.Security.MaxTrackedConnectionIPs = 0
+	}
+	if cfg.Security.ConnectionLimiterCleanupSec == defaultConnectionLimiterCleanupSec {
+		cfg.Security.ConnectionLimiterCleanupSec = 0
+	}
+	if cfg.Security.MaxTrackedFailureIPs == defaultMaxTrackedFailureIPs {
+		cfg.Security.MaxTrackedFailureIPs = 0
+	}
+	if cfg.Security.FailureTrackerCleanupSec == defaultFailureTrackerCleanupSec {
+		cfg.Security.FailureTrackerCleanupSec = 0
+	}
+	if cfg.Security.EntryTrafficLogQueueSize == defaultEntryTrafficLogQueueSize {
+		cfg.Security.EntryTrafficLogQueueSize = 0
+	}
+	base := filepath.Dir(path)
+	cfg.Runtime.StateFile = omitDefaultRuntimePath(base, cfg.Runtime.StateFile, "data", "server-state.json")
+	cfg.Runtime.PermanentBlockFile = omitDefaultRuntimePath(base, cfg.Runtime.PermanentBlockFile, "data", "server-permanent-block.txt")
+	cfg.Runtime.RequestLogFile = omitDefaultRuntimePath(base, cfg.Runtime.RequestLogFile, "logs", filepath.Join("request", "request.jsonl"))
+	cfg.Runtime.BusinessLogFile = omitDefaultRuntimePath(base, cfg.Runtime.BusinessLogFile, "logs", filepath.Join("business", "business.jsonl"))
+	cfg.Runtime.EntryTrafficLogFile = omitDefaultRuntimePath(base, cfg.Runtime.EntryTrafficLogFile, "logs", filepath.Join("entry-traffic", "entry-traffic.jsonl"))
 	cfg.Runtime.FlowTrafficLogFile = ""
+	if cfg.Runtime.RecentEvents == defaultRecentEvents {
+		cfg.Runtime.RecentEvents = 0
+	}
 	for i := range cfg.Forwards {
 		if cfg.Forwards[i].Direction == DirectionServerToClient && cfg.Forwards[i].ListenPort > 0 {
 			cfg.Forwards[i].ListenAddr = ""
 		}
 	}
 	return cfg
+}
+
+func omitDefaultRuntimePath(base, value, category, name string) string {
+	if value != "" && filepath.Clean(resolveConfigPath(base, value)) == filepath.Clean(defaultRuntimePath(base, category, name)) {
+		return ""
+	}
+	return value
 }
 
 func normalizeReverseListenPort(forward *ForwardConfig) {

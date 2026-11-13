@@ -111,7 +111,17 @@ func adminConfigToTunnel(form adminConfig, existing tunnel.Config) (tunnel.Confi
 		fwd.AllowedUsers = cleanAllowedUsers(append(item.AllowedUsers, item.Owner))
 		cfg.Forwards = append(cfg.Forwards, fwd)
 	}
-	cfg.Security = form.Security
+	cfg.Security = existing.Security
+	cfg.Security.HandshakeTimeoutSec = form.Security.HandshakeTimeoutSec
+	cfg.Security.DialTimeoutSec = form.Security.DialTimeoutSec
+	cfg.Security.MaxConcurrentConnections = form.Security.MaxConcurrentConnections
+	cfg.Security.MaxConcurrentConnectionsPerIP = form.Security.MaxConcurrentConnectionsPerIP
+	cfg.Security.MaxNewConnectionsPerIPWindow = form.Security.MaxNewConnectionsPerIPWindow
+	cfg.Security.MaxConcurrentStreamsPerUser = form.Security.MaxConcurrentStreamsPerUser
+	cfg.Security.StreamRateLimitBytesPerSec = form.Security.StreamRateLimitBytesPerSec
+	cfg.Security.AuthFailWindowSec = form.Security.AuthFailWindowSec
+	cfg.Security.AuthFailThreshold = form.Security.AuthFailThreshold
+	cfg.Security.AuthFailBlockSec = form.Security.AuthFailBlockSec
 	credentialSeal, err := credentialSealFromAdmin(form.CredentialSeal, existing.CredentialSeal)
 	if err != nil {
 		return cfg, err

@@ -38,7 +38,7 @@ func main() {
 	if ctx.Err() != nil {
 		return
 	}
-	client, err := tunnel.StartVerified(ctx, cfg, resp.ServerVersion, logf)
+	client, err := tunnel.StartVerifiedWithEntries(ctx, cfg, resp.ServerVersion, resp.BusinessEntries, logf)
 	if err != nil {
 		if ctx.Err() != nil {
 			return

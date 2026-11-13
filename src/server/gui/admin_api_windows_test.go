@@ -83,12 +83,39 @@ func TestAdminSecurityConfigJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	got, err := adminConfigToTunnel(decoded, tunnel.Config{})
+	got, err := adminConfigToTunnel(decoded, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Security != form.Security {
 		t.Fatalf("security changed after GUI round trip: got %+v, want %+v", got.Security, form.Security)
+	}
+}
+
+func TestAdminSecurityConfigPreservesHiddenSettings(t *testing.T) {
+	existing := tunnel.Config{Security: tunnel.SecurityConfig{
+		MaxHandshakeBytes:           65536,
+		ConnectionRateWindowSec:     2,
+		MaxTrackedConnectionIPs:     4096,
+		ConnectionLimiterCleanupSec: 30,
+		MaxTrackedFailureIPs:        4096,
+		FailureTrackerCleanupSec:    30,
+		EntryTrafficLogQueueSize:    1024,
+	}}
+	form := adminConfig{Security: tunnel.SecurityConfig{MaxConcurrentConnections: 512}}
+	got, err := adminConfigToTunnel(form, existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Security.MaxConcurrentConnections != 512 ||
+		got.Security.MaxHandshakeBytes != existing.Security.MaxHandshakeBytes ||
+		got.Security.ConnectionRateWindowSec != existing.Security.ConnectionRateWindowSec ||
+		got.Security.MaxTrackedConnectionIPs != existing.Security.MaxTrackedConnectionIPs ||
+		got.Security.ConnectionLimiterCleanupSec != existing.Security.ConnectionLimiterCleanupSec ||
+		got.Security.MaxTrackedFailureIPs != existing.Security.MaxTrackedFailureIPs ||
+		got.Security.FailureTrackerCleanupSec != existing.Security.FailureTrackerCleanupSec ||
+		got.Security.EntryTrafficLogQueueSize != existing.Security.EntryTrafficLogQueueSize {
+		t.Fatalf("hidden settings changed after GUI save: %+v", got.Security)
 	}
 }
 

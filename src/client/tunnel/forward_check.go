@@ -3,7 +3,6 @@ package tunnel
 import (
 	"context"
 	"fmt"
-	"net"
 	"strings"
 	"sync"
 	"time"
@@ -132,7 +131,7 @@ func (c *Client) checkForwardResponse(ctx context.Context, name string, fwd Forw
 	}
 	conn, err := transport.DialTLSWithCertificateGate(
 		ctx,
-		&net.Dialer{Timeout: timeout},
+		c.businessDialer(timeout),
 		"tcp",
 		c.cfg.ServerAddr,
 		tlsCfg,

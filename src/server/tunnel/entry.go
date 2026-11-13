@@ -10,9 +10,9 @@ import (
 	"lsyltunnel/src/internal/transport"
 )
 
-func (s *Server) acceptLoop(ctx context.Context) {
+func (s *Server) acceptLoop(ctx context.Context, listener net.Listener) {
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
 			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
 				return

@@ -87,7 +87,7 @@ func (c *Client) CheckHealthNow(ctx context.Context) HealthStatus {
 		state, message := classifyHealthError(err)
 		return c.finalizeHealthStatus(c.setHealth(state, message, err, state == HealthAuthError))
 	}
-	resp, err := checkServerResponseWithTLS(checkCtx, c.cfg, "health", tlsCfg, c.certificateGateKey)
+	resp, err := checkServerResponseWithTLSAndDialer(checkCtx, c.cfg, "health", tlsCfg, c.certificateGateKey, c.businessDialer(time.Duration(c.cfg.Connection.DialTimeoutSec)*time.Second), c.businessPool.qualitySnapshot)
 	if err != nil {
 		state, message := classifyHealthError(err)
 		return c.finalizeHealthStatus(c.setHealth(state, message, err, state == HealthAuthError))

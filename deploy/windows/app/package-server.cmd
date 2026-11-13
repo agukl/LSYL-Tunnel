@@ -36,7 +36,6 @@ copy /y ".\build\bin\server\lsyl-tunnel-server-svc.exe" "%PACKAGE_DIR%\bin\" >nu
 copy /y ".\build\bin\server\lsyl-tunnel-server-gui.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\build\bin\server\lsyl-tunnel-cert.exe" "%PACKAGE_DIR%\bin\" >nul || exit /b 1
 copy /y ".\src\server\conf\server.yaml" "%PACKAGE_DIR%\conf\server.yaml" >nul || exit /b 1
-".\build\bin\server\lsyl-tunnel-server.exe" -prepare-fresh-install-config -config "%PACKAGE_DIR%\conf\server.yaml" || exit /b 1
 if exist ".\src\server\assets\server.ico" copy /y ".\src\server\assets\server.ico" "%PACKAGE_DIR%\assets\server.ico" >nul || exit /b 1
 if exist ".\src\server\assets\server.svg" copy /y ".\src\server\assets\server.svg" "%PACKAGE_DIR%\assets\server.svg" >nul
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -53,6 +52,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$t=$t.Replace('../../../logs/','../logs/').Replace('..\..\..\logs\','..\logs\');" ^
   "$t=$t.Replace('../../logs/','../logs/').Replace('..\..\logs\','..\logs\');" ^
   "[IO.File]::WriteAllText($p,$t,[Text.UTF8Encoding]::new($false))" || exit /b 1
+".\build\bin\server\lsyl-tunnel-server.exe" -prepare-fresh-install-config -config "%PACKAGE_DIR%\conf\server.yaml" || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\make-server-installer.cmd" "%PACKAGE_DIR%\make-installer.cmd" >nul || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\verify-installer-version.ps1" "%PACKAGE_DIR%\verify-installer-version.ps1" >nul || exit /b 1
 copy /y "%SCRIPT_DIR%..\inno\package-server.iss" "%PACKAGE_DIR%\installer\server.iss" >nul || exit /b 1

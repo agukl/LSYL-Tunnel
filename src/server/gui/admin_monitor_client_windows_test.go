@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"lsyltunnel/src/internal/protocol"
 	"lsyltunnel/src/server/tunnel"
 )
 
@@ -26,6 +27,7 @@ func TestMonitorGUIProjectionPreservesJSON(t *testing.T) {
 		UserStreamLimitRejected: 7, ActiveStreams: 8, TotalStreams: 9,
 		AuthOK: 10, AuthFailed: 11, PolicyRejected: 12, DialFailed: 13, BytesUp: 14, BytesDown: 15,
 		BlockedIPs: []tunnel.BlockedIPState{}, RecentEvents: []tunnel.RuntimeEvent{},
+		EntryQuality: []tunnel.EntryQualityClientStatus{{Username: "alice", ClientID: "workstation", Entries: []protocol.EntryQuality{{Endpoint: "bootstrap", Attempts: 1, Successes: 1}}}},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/status" {

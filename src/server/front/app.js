@@ -21,10 +21,8 @@ let activeLogView = 'business';
 let resetPasswordRow = null;
 let pendingConfirmAction = null;
 const editableSecurityIds = [
-  'handshakeTimeout', 'dialTimeout', 'maxHandshakeBytes', 'maxConcurrentConnections',
-  'maxConcurrentConnectionsPerIP', 'connectionRateWindow', 'maxNewConnectionsPerIPWindow',
-  'maxTrackedConnectionIPs', 'connectionLimiterCleanupSec', 'maxTrackedFailureIPs',
-  'failureTrackerCleanupSec', 'entryTrafficLogQueueSize', 'maxConcurrentStreamsPerUser',
+  'handshakeTimeout', 'dialTimeout', 'maxConcurrentConnections',
+  'maxConcurrentConnectionsPerIP', 'maxNewConnectionsPerIPWindow', 'maxConcurrentStreamsPerUser',
   'streamRateLimitBytesPerSec', 'authFailWindow', 'authFailThreshold', 'authFailBlock',
 ];
 
@@ -238,16 +236,9 @@ function fillSecurity(cfg) {
   var sec = cfg.security || {};
   $('handshakeTimeout').value = sec.handshake_timeout_sec || '';
   $('dialTimeout').value = sec.dial_timeout_sec || '';
-  $('maxHandshakeBytes').value = sec.max_handshake_bytes || '';
   $('maxConcurrentConnections').value = sec.max_concurrent_connections || '';
   $('maxConcurrentConnectionsPerIP').value = sec.max_concurrent_connections_per_ip || '';
-  $('connectionRateWindow').value = sec.connection_rate_window_sec || '';
   $('maxNewConnectionsPerIPWindow').value = sec.max_new_connections_per_ip_window || sec.max_connections_per_ip_per_window || '';
-  $('maxTrackedConnectionIPs').value = sec.max_tracked_connection_ips || '';
-  $('connectionLimiterCleanupSec').value = sec.connection_limiter_cleanup_sec || '';
-  $('maxTrackedFailureIPs').value = sec.max_tracked_failure_ips || '';
-  $('failureTrackerCleanupSec').value = sec.failure_tracker_cleanup_sec || '';
-  $('entryTrafficLogQueueSize').value = sec.entry_traffic_log_queue_size || '';
   $('maxConcurrentStreamsPerUser').value = sec.max_concurrent_streams_per_user || '';
   $('streamRateLimitBytesPerSec').value = sec.stream_rate_limit_bytes_per_sec || '';
   $('authFailWindow').value = sec.auth_fail_window_sec || '';
@@ -750,16 +741,9 @@ function collectConfig() {
     security: {
       handshake_timeout_sec: toInt($('handshakeTimeout').value),
       dial_timeout_sec: toInt($('dialTimeout').value),
-      max_handshake_bytes: toInt($('maxHandshakeBytes').value),
       max_concurrent_connections: toInt($('maxConcurrentConnections').value),
       max_concurrent_connections_per_ip: toInt($('maxConcurrentConnectionsPerIP').value),
-      connection_rate_window_sec: toInt($('connectionRateWindow').value),
       max_new_connections_per_ip_window: toInt($('maxNewConnectionsPerIPWindow').value),
-      max_tracked_connection_ips: toInt($('maxTrackedConnectionIPs').value),
-      connection_limiter_cleanup_sec: toInt($('connectionLimiterCleanupSec').value),
-      max_tracked_failure_ips: toInt($('maxTrackedFailureIPs').value),
-      failure_tracker_cleanup_sec: toInt($('failureTrackerCleanupSec').value),
-      entry_traffic_log_queue_size: toInt($('entryTrafficLogQueueSize').value),
       max_concurrent_streams_per_user: toInt($('maxConcurrentStreamsPerUser').value),
       stream_rate_limit_bytes_per_sec: toInt($('streamRateLimitBytesPerSec').value),
       auth_fail_window_sec: toInt($('authFailWindow').value),

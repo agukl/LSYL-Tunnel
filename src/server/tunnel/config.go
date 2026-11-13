@@ -11,13 +11,13 @@ import (
 )
 
 type RequiresConfig struct {
-	MinServerVersion string `yaml:"min_server_version"`
+	MinServerVersion string `yaml:"min_server_version,omitempty"`
 }
 
 type CompatibilityConfig struct {
 	MinClientVersion string `yaml:"min_client_version"`
 	MaxClientVersion string `yaml:"max_client_version"`
-	ProtocolVersion  int    `yaml:"protocol_version"`
+	ProtocolVersion  int    `yaml:"protocol_version,omitempty"`
 }
 
 type TLSConfig struct {
@@ -29,17 +29,17 @@ type TLSConfig struct {
 type SecurityConfig struct {
 	HandshakeTimeoutSec           int `yaml:"handshake_timeout_sec" json:"handshake_timeout_sec"`
 	DialTimeoutSec                int `yaml:"dial_timeout_sec" json:"dial_timeout_sec"`
-	MaxHandshakeBytes             int `yaml:"max_handshake_bytes" json:"max_handshake_bytes"`
+	MaxHandshakeBytes             int `yaml:"max_handshake_bytes,omitempty" json:"max_handshake_bytes"`
 	MaxConcurrentConnections      int `yaml:"max_concurrent_connections" json:"max_concurrent_connections"`
 	MaxConcurrentConnectionsPerIP int `yaml:"max_concurrent_connections_per_ip" json:"max_concurrent_connections_per_ip"`
-	ConnectionRateWindowSec       int `yaml:"connection_rate_window_sec" json:"connection_rate_window_sec"`
+	ConnectionRateWindowSec       int `yaml:"connection_rate_window_sec,omitempty" json:"connection_rate_window_sec"`
 	MaxNewConnectionsPerIPWindow  int `yaml:"max_new_connections_per_ip_window" json:"max_new_connections_per_ip_window"`
 	MaxConnectionsPerIPPerWindow  int `yaml:"max_connections_per_ip_per_window,omitempty" json:"max_connections_per_ip_per_window,omitempty"`
-	MaxTrackedConnectionIPs       int `yaml:"max_tracked_connection_ips" json:"max_tracked_connection_ips"`
-	ConnectionLimiterCleanupSec   int `yaml:"connection_limiter_cleanup_sec" json:"connection_limiter_cleanup_sec"`
-	MaxTrackedFailureIPs          int `yaml:"max_tracked_failure_ips" json:"max_tracked_failure_ips"`
-	FailureTrackerCleanupSec      int `yaml:"failure_tracker_cleanup_sec" json:"failure_tracker_cleanup_sec"`
-	EntryTrafficLogQueueSize      int `yaml:"entry_traffic_log_queue_size" json:"entry_traffic_log_queue_size"`
+	MaxTrackedConnectionIPs       int `yaml:"max_tracked_connection_ips,omitempty" json:"max_tracked_connection_ips"`
+	ConnectionLimiterCleanupSec   int `yaml:"connection_limiter_cleanup_sec,omitempty" json:"connection_limiter_cleanup_sec"`
+	MaxTrackedFailureIPs          int `yaml:"max_tracked_failure_ips,omitempty" json:"max_tracked_failure_ips"`
+	FailureTrackerCleanupSec      int `yaml:"failure_tracker_cleanup_sec,omitempty" json:"failure_tracker_cleanup_sec"`
+	EntryTrafficLogQueueSize      int `yaml:"entry_traffic_log_queue_size,omitempty" json:"entry_traffic_log_queue_size"`
 	MaxConcurrentStreamsPerUser   int `yaml:"max_concurrent_streams_per_user" json:"max_concurrent_streams_per_user"`
 	StreamRateLimitBytesPerSec    int `yaml:"stream_rate_limit_bytes_per_sec" json:"stream_rate_limit_bytes_per_sec"`
 	AuthFailWindowSec             int `yaml:"auth_fail_window_sec" json:"auth_fail_window_sec"`
@@ -60,14 +60,14 @@ type CredentialSealConfig struct {
 }
 
 type RuntimeConfig struct {
-	StateFile           string `yaml:"state_file"`
-	PermanentBlockFile  string `yaml:"permanent_block_file"`
-	RequestLogFile      string `yaml:"request_log_file"`
-	BusinessLogFile     string `yaml:"business_log_file"`
-	EntryTrafficLogFile string `yaml:"entry_traffic_log_file"`
+	StateFile           string `yaml:"state_file,omitempty"`
+	PermanentBlockFile  string `yaml:"permanent_block_file,omitempty"`
+	RequestLogFile      string `yaml:"request_log_file,omitempty"`
+	BusinessLogFile     string `yaml:"business_log_file,omitempty"`
+	EntryTrafficLogFile string `yaml:"entry_traffic_log_file,omitempty"`
 	// FlowTrafficLogFile is accepted from older configs; flow events now use BusinessLogFile.
 	FlowTrafficLogFile string `yaml:"flow_traffic_log_file,omitempty"`
-	RecentEvents       int    `yaml:"recent_events"`
+	RecentEvents       int    `yaml:"recent_events,omitempty"`
 }
 
 type ForwardConfig struct {
@@ -77,6 +77,11 @@ type ForwardConfig struct {
 	ListenAddr   string   `yaml:"listen_addr,omitempty"`
 	ServerTarget string   `yaml:"server_target"`
 	AllowedUsers []string `yaml:"allowed_users,omitempty"`
+}
+
+type BusinessEntryConfig struct {
+	ListenAddr    string `yaml:"listen_addr"`
+	AdvertiseAddr string `yaml:"advertise_addr"`
 }
 
 const (
@@ -96,12 +101,13 @@ type AuthConfig struct {
 }
 
 type Config struct {
-	ConfigPath    string              `yaml:"-"`
-	ConfigVersion int                 `yaml:"config_version"`
-	Requires      RequiresConfig      `yaml:"requires"`
-	Compatibility CompatibilityConfig `yaml:"compatibility"`
-	ListenAddr    string              `yaml:"listen_addr"`
-	MonitorAddr   string              `yaml:"monitor_addr"`
+	ConfigPath      string                `yaml:"-"`
+	ConfigVersion   int                   `yaml:"config_version"`
+	Requires        RequiresConfig        `yaml:"requires,omitempty"`
+	Compatibility   CompatibilityConfig   `yaml:"compatibility"`
+	ListenAddr      string                `yaml:"listen_addr"`
+	BusinessEntries []BusinessEntryConfig `yaml:"business_entries,omitempty"`
+	MonitorAddr     string                `yaml:"monitor_addr"`
 	// LogLevel is accepted from older configs but has no runtime effect.
 	LogLevel       string               `yaml:"log_level,omitempty"`
 	TLS            TLSConfig            `yaml:"tls"`
@@ -109,7 +115,7 @@ type Config struct {
 	Forwards       []ForwardConfig      `yaml:"forwards"`
 	Security       SecurityConfig       `yaml:"security"`
 	CredentialSeal CredentialSealConfig `yaml:"credential_seal"`
-	Runtime        RuntimeConfig        `yaml:"runtime"`
+	Runtime        RuntimeConfig        `yaml:"runtime,omitempty"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -184,7 +190,7 @@ func SaveConfig(path string, cfg Config) error {
 	}
 	cfg.Forwards = append([]ForwardConfig(nil), cfg.Forwards...)
 	ApplyDefaults(&cfg)
-	data, err := yaml.Marshal(configForSave(cfg))
+	data, err := yaml.Marshal(configForSave(cfg, path))
 	if err != nil {
 		return err
 	}

@@ -131,7 +131,7 @@ func (a *App) login(parent context.Context, form *loginForm) apiResult {
 	if ctx.Err() != nil {
 		return apiResult{Message: "连接已取消"}
 	}
-	if err := a.startClient(cfg, resp.ServerVersion); err != nil {
+	if err := a.startClient(cfg, resp.ServerVersion, resp.BusinessEntries); err != nil {
 		log.Print("启动连接失败: " + err.Error())
 		return apiResult{Message: friendlyError(err)}
 	}

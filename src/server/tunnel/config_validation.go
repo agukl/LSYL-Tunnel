@@ -16,6 +16,9 @@ func ValidateConfig(cfg Config) error {
 	if err := validateLoopbackAddresses(cfg); err != nil {
 		return err
 	}
+	if err := validateBusinessEntries(cfg); err != nil {
+		return err
+	}
 	if strings.TrimSpace(cfg.TLS.CertFile) == "" || strings.TrimSpace(cfg.TLS.KeyFile) == "" {
 		return fmt.Errorf("server TLS identity cert_file and key_file are required")
 	}

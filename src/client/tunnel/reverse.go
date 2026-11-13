@@ -128,7 +128,7 @@ func (c *Client) openReverseStream(ctx context.Context, name string, fwd Forward
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	remote, err := transport.DialTLSWithCertificateGate(ctx, &net.Dialer{Timeout: timeout}, "tcp", c.cfg.ServerAddr, tlsCfg, c.certificateGateKey, timeout)
+	remote, err := transport.DialTLSWithCertificateGate(ctx, c.businessDialer(timeout), "tcp", c.cfg.ServerAddr, tlsCfg, c.certificateGateKey, timeout)
 	if err != nil {
 		c.recordForwardError(name, err)
 		c.log("reverse stream %s connect server failed: %v", name, err)

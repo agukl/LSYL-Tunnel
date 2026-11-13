@@ -28,51 +28,82 @@ func CheckConfigUpgradeCompatible(path string) error {
 	return nil
 }
 
-// PrepareConfigMigration accepts only the current 3.x schema family. Missing
-// defaultable fields are materialized; unknown fields remain fatal.
-func PrepareConfigMigration(path string) (configupgrade.File, error) {
+// PrepareConfigMigration keeps only the installed business configuration and
+// takes all other settings from the new installer's template.
+func PrepareConfigMigration(path, templatePath string) (configupgrade.File, error) {
+	cfg, err := LoadConfigRaw(templatePath)
+	if err != nil {
+		return configupgrade.File{}, fmt.Errorf("read new server config template: %w", err)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return configupgrade.File{}, err
 	}
-	version, present, err := configyaml.SchemaVersion(data, "server config")
+	var document yaml.Node
+	if err := configyaml.DecodeStrict(data, &document, "installed server config"); err != nil {
+		return configupgrade.File{}, err
+	}
+	if document.Kind != yaml.DocumentNode || len(document.Content) != 1 {
+		return configupgrade.File{}, fmt.Errorf("installed server config must be a mapping")
+	}
+	fields, err := configyaml.MappingFields(document.Content[0], "installed server config")
 	if err != nil {
 		return configupgrade.File{}, err
 	}
-	if !present || version != appversion.ServerConfigVersion {
-		return configupgrade.File{}, fmt.Errorf("server config_version %d cannot be migrated from an installed 3.x version", version)
-	}
-	root, err := configyaml.RootMapping(data, "server config")
+	listen, err := configyaml.RequiredScalar(fields, "installed server config", "listen_addr")
 	if err != nil {
 		return configupgrade.File{}, err
 	}
-	fields, err := configyaml.MappingFields(root, "server config")
+	if _, _, err := splitHostPort(listen.Value); err != nil {
+		return configupgrade.File{}, fmt.Errorf("installed server listen_addr: %w", err)
+	}
+	authNode, err := configyaml.RequiredField(fields, "installed server config", "auth")
 	if err != nil {
 		return configupgrade.File{}, err
 	}
-	for _, name := range []string{"requires", "compatibility", "tls", "auth", "security", "credential_seal", "runtime"} {
-		if node, ok := fields[name]; ok && node.Kind != yaml.MappingNode {
-			return configupgrade.File{}, fmt.Errorf("server config.%s must be a mapping", name)
+	authFields, err := configyaml.MappingFields(authNode, "installed server config.auth")
+	if err != nil {
+		return configupgrade.File{}, err
+	}
+	if _, err := configyaml.RequireSequence(authFields, "installed server config.auth", "users"); err != nil {
+		return configupgrade.File{}, err
+	}
+	authData, err := yaml.Marshal(authNode)
+	if err != nil {
+		return configupgrade.File{}, err
+	}
+	if err := configyaml.DecodeStrict(authData, &cfg.Auth, "installed server users"); err != nil {
+		return configupgrade.File{}, err
+	}
+	forwardsNode, err := configyaml.RequireSequence(fields, "installed server config", "forwards")
+	if err != nil {
+		return configupgrade.File{}, err
+	}
+	forwardsData, err := yaml.Marshal(forwardsNode)
+	if err != nil {
+		return configupgrade.File{}, err
+	}
+	if err := configyaml.DecodeStrict(forwardsData, &cfg.Forwards, "installed server forwards"); err != nil {
+		return configupgrade.File{}, err
+	}
+	if entriesNode, ok := fields["business_entries"]; ok {
+		if entriesNode.Kind != yaml.SequenceNode {
+			return configupgrade.File{}, fmt.Errorf("installed server business_entries must be a list")
+		}
+		entriesData, err := yaml.Marshal(entriesNode)
+		if err != nil {
+			return configupgrade.File{}, err
+		}
+		if err := configyaml.DecodeStrict(entriesData, &cfg.BusinessEntries, "installed server business entries"); err != nil {
+			return configupgrade.File{}, err
 		}
 	}
-	if node, ok := fields["forwards"]; ok && node.Kind != yaml.SequenceNode {
-		return configupgrade.File{}, fmt.Errorf("server config.forwards must be a list")
-	}
-	var cfg Config
-	if err := configyaml.DecodeStrict(data, &cfg, "server config"); err != nil {
-		return configupgrade.File{}, err
-	}
+	cfg.ListenAddr = listen.Value
 	ApplyDefaults(&cfg)
-	if cfg.Forwards == nil {
-		cfg.Forwards = []ForwardConfig{}
-	}
-	if cfg.CredentialSeal.Keys == nil {
-		cfg.CredentialSeal.Keys = []CredentialSealKeyConfig{}
-	}
 	if err := ValidateConfig(cfg); err != nil {
 		return configupgrade.File{}, err
 	}
-	output, err := yaml.Marshal(configForSave(cfg))
+	output, err := yaml.Marshal(configForSave(cfg, path))
 	if err != nil {
 		return configupgrade.File{}, err
 	}
@@ -113,8 +144,8 @@ func validateServerConfigV1Structure(data []byte) error {
 		return err
 	}
 	for _, name := range []string{
-		"config_version", "requires", "compatibility", "listen_addr", "monitor_addr",
-		"tls", "auth", "forwards", "security", "credential_seal", "runtime",
+		"config_version", "compatibility", "listen_addr", "monitor_addr",
+		"tls", "auth", "forwards", "security", "credential_seal",
 	} {
 		if _, err := configyaml.RequiredField(top, "server config", name); err != nil {
 			return err
@@ -131,14 +162,26 @@ func validateServerConfigV1Structure(data []byte) error {
 		}
 	}
 
-	if err := configyaml.ScalarMapping(top["requires"], "server config.requires", "min_server_version"); err != nil {
-		return err
+	if requires, ok := top["requires"]; ok {
+		if err := configyaml.ScalarMapping(requires, "server config.requires", "min_server_version"); err != nil {
+			return err
+		}
 	}
-	if err := configyaml.ScalarMapping(top["compatibility"], "server config.compatibility", "min_client_version", "max_client_version", "protocol_version"); err != nil {
+	if err := configyaml.ScalarMapping(top["compatibility"], "server config.compatibility", "min_client_version", "max_client_version"); err != nil {
 		return err
 	}
 	if err := configyaml.ScalarMapping(top["tls"], "server config.tls", "cert_file", "key_file", "min_version"); err != nil {
 		return err
+	}
+	if entries, ok := top["business_entries"]; ok {
+		if entries.Kind != yaml.SequenceNode {
+			return fmt.Errorf("server config.business_entries must be a list")
+		}
+		for i, entry := range entries.Content {
+			if err := configyaml.ScalarMapping(entry, fmt.Sprintf("server config.business_entries[%d]", i), "listen_addr", "advertise_addr"); err != nil {
+				return err
+			}
+		}
 	}
 	if err := validateAuthUsers(top["auth"]); err != nil {
 		return err
@@ -147,9 +190,9 @@ func validateServerConfigV1Structure(data []byte) error {
 		return err
 	}
 	if err := configyaml.ScalarMapping(top["security"], "server config.security",
-		"handshake_timeout_sec", "dial_timeout_sec", "max_handshake_bytes",
+		"handshake_timeout_sec", "dial_timeout_sec",
 		"max_concurrent_connections", "max_concurrent_connections_per_ip",
-		"connection_rate_window_sec", "max_new_connections_per_ip_window",
+		"max_new_connections_per_ip_window",
 		"max_concurrent_streams_per_user", "stream_rate_limit_bytes_per_sec",
 		"auth_fail_window_sec", "auth_fail_threshold", "auth_fail_block_sec"); err != nil {
 		return err
@@ -157,9 +200,11 @@ func validateServerConfigV1Structure(data []byte) error {
 	if err := validateCredentialSealKeys(top["credential_seal"]); err != nil {
 		return err
 	}
-	return configyaml.ScalarMapping(top["runtime"], "server config.runtime",
-		"state_file", "permanent_block_file", "request_log_file", "business_log_file",
-		"entry_traffic_log_file", "recent_events")
+	if runtime, ok := top["runtime"]; ok {
+		_, err := configyaml.MappingFields(runtime, "server config.runtime")
+		return err
+	}
+	return nil
 }
 
 func validateAuthUsers(node *yaml.Node) error {

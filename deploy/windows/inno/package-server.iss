@@ -54,6 +54,7 @@ Source: "{#SourceRoot}\bin\lsyl-tunnel-cert.exe"; DestDir: "{app}\bin"; Flags: i
 Source: "{#SourceRoot}\assets\server.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#SourceRoot}\assets\server.svg"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#SourceRoot}\conf\server.yaml"; DestDir: "{app}\conf"; Flags: ignoreversion onlyifdoesntexist uninsneveruninstall
+Source: "{#SourceRoot}\conf\server.yaml"; DestName: "server-config-template.yaml"; Flags: dontcopy
 Source: "{#SourceRoot}\bin\lsyl-tunnel-server-gui.exe"; DestName: "lsyl-tunnel-server-gui-check.exe"; Flags: dontcopy
 
 [Icons]
@@ -119,6 +120,7 @@ var
   ResultCode: Integer;
   ConfigFile: String;
   CheckerExe: String;
+  TemplateFile: String;
   ResultFile: String;
   Params: String;
   Detail: AnsiString;
@@ -140,13 +142,16 @@ begin
     ServerInstalledVersion := '';
 
   ExtractTemporaryFile('lsyl-tunnel-server-gui-check.exe');
+  ExtractTemporaryFile('server-config-template.yaml');
   CheckerExe := ExpandConstant('{tmp}\lsyl-tunnel-server-gui-check.exe');
+  TemplateFile := ExpandConstant('{tmp}\server-config-template.yaml');
   ResultFile := ExpandConstant('{tmp}\server-config-compat-result.txt');
   DeleteFile(ResultFile);
 
   Params :=
     '-config-compat-check' +
     ' -config "' + ConfigFile + '"' +
+    ' -template "' + TemplateFile + '"' +
     ' -source-version "' + ServerInstalledVersion + '"' +
     ' -backup-file "' + ExpandConstant('{app}\conf\.install-rollback.json') + '"' +
     ' -result-file "' + ResultFile + '"';
@@ -175,16 +180,20 @@ var
   ResultCode: Integer;
   Params: String;
   CheckerExe: String;
+  TemplateFile: String;
 begin
   Result := True;
   ExtractTemporaryFile('lsyl-tunnel-server-gui-check.exe');
+  ExtractTemporaryFile('server-config-template.yaml');
   CheckerExe := ExpandConstant('{tmp}\lsyl-tunnel-server-gui-check.exe');
+  TemplateFile := ExpandConstant('{tmp}\server-config-template.yaml');
   Params := '-config-compat-check -backup-file "' +
     ExpandConstant('{app}\conf\.install-rollback.json') + '"';
   if Rollback then
     Params := Params + ' -rollback'
   else
     Params := Params + ' -apply -config "' + ExpandConstant('{app}\conf\server.yaml') +
+      '" -template "' + TemplateFile +
       '" -source-version "' + ServerInstalledVersion + '"';
   if not Exec(CheckerExe, Params, ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
     Result := False

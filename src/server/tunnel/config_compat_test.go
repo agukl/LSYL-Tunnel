@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"lsyltunnel/src/internal/protocol"
 	appversion "lsyltunnel/src/internal/version"
@@ -35,33 +36,48 @@ func TestCheckConfigUpgradeCompatibleAcceptsCompleteV1Config(t *testing.T) {
 }
 
 func TestPrepareServerConfigMigration(t *testing.T) {
-	path := writeTestConfig(t, t.TempDir(), "server.yaml", `
-config_version: 1
-tls:
-  cert_file: ../certs/server.crt
-  key_file: ../certs/server.key
+	dir := t.TempDir()
+	template := writeTestConfig(t, dir, "template.yaml", validServerConfigV1YAML(""))
+	path := writeTestConfig(t, dir, "server.yaml", `
+config_version: 0
+listen_addr: 0.0.0.0:4555
 auth:
-  users: []
+  users:
+    - username: alice
+      password_hash: plain:secret
+      disabled: false
+forwards:
+  - name: rdp
+    direction: client_to_server
+    server_target: 127.0.0.1:3389
+    allowed_users: [alice]
+  - name: reverse-api
+    direction: server_to_client
+    listen_port: 18080
+    allowed_users: [alice]
 security:
-  max_connections_per_ip_per_window: 27
-runtime:
-  flow_traffic_log_file: old-flow.jsonl
+  obsolete_setting: true
+runtime: []
+credential_seal: []
 log_level: info
 `)
-	file, err := PrepareConfigMigration(path)
+	file, err := PrepareConfigMigration(path, template)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(file.Data), "max_connections_per_ip_per_window:") ||
-		strings.Contains(string(file.Data), "flow_traffic_log_file:") ||
-		strings.Contains(string(file.Data), "log_level:") {
-		t.Fatalf("deprecated fields remain: %s", file.Data)
-	}
-	if !strings.Contains(string(file.Data), "max_new_connections_per_ip_window: 27") {
-		t.Fatalf("known alias was not migrated: %s", file.Data)
-	}
-	if err := validateServerConfigV1Structure(file.Data); err != nil {
+	cfg, err := decodeServerConfig(file.Data)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if cfg.ListenAddr != "0.0.0.0:4555" || len(cfg.Auth.Users) != 1 || cfg.Auth.Users[0].Username != "alice" ||
+		cfg.Auth.Users[0].PasswordHash != "plain:secret" || len(cfg.Forwards) != 2 ||
+		cfg.Forwards[0].ServerTarget != "127.0.0.1:3389" || cfg.Forwards[1].ListenPort != 18080 ||
+		len(cfg.Forwards[1].AllowedUsers) != 1 || cfg.Forwards[1].AllowedUsers[0] != "alice" {
+		t.Fatalf("business settings were not preserved: %+v", cfg)
+	}
+	if cfg.Security.MaxNewConnectionsPerIPWindow != 120 || cfg.Runtime.RequestLogFile != "logs/request/request.jsonl" ||
+		strings.Contains(string(file.Data), "obsolete_setting:") || strings.Contains(string(file.Data), "log_level:") {
+		t.Fatalf("new template settings were not applied: %s", file.Data)
 	}
 	if err := os.WriteFile(path, file.Data, 0o644); err != nil {
 		t.Fatal(err)
@@ -69,17 +85,17 @@ log_level: info
 	if _, err := LoadConfigRaw(path); err != nil {
 		t.Fatalf("migrated server config cannot be loaded: %v", err)
 	}
-	if err := os.WriteFile(path, []byte("config_version: 1\nsecurty: {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("listen_addr: 0.0.0.0:4555\nauth: {users: []}\nforwards:\n  - unknown: true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PrepareConfigMigration(path); err == nil {
-		t.Fatal("unknown field should prevent migration")
+	if _, err := PrepareConfigMigration(path, template); err == nil {
+		t.Fatal("unknown forward field should prevent migration")
 	}
-	if err := os.WriteFile(path, []byte("config_version: 1\ntls: null\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("listen_addr: 0.0.0.0:4555\nauth: []\nforwards: []\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PrepareConfigMigration(path); err == nil {
-		t.Fatal("wrong mapping shape should prevent migration")
+	if _, err := PrepareConfigMigration(path, template); err == nil {
+		t.Fatal("invalid users structure should prevent migration")
 	}
 }
 
@@ -93,6 +109,75 @@ func TestSaveConfigProducesCurrentServerStructure(t *testing.T) {
 	}
 	if err := CheckConfigUpgradeCompatible(path); err != nil {
 		t.Fatalf("saved config does not satisfy the current schema: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"requires:", "protocol_version:", "max_handshake_bytes:", "connection_rate_window_sec:", "max_tracked_failure_ips:", "runtime:"} {
+		if strings.Contains(string(data), field) {
+			t.Fatalf("default field %s was saved: %s", field, data)
+		}
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Security.MaxHandshakeBytes != defaultMaxHandshakeBytes || cfg.Security.MaxTrackedFailureIPs != defaultMaxTrackedFailureIPs ||
+		cfg.Runtime.RecentEvents != defaultRecentEvents || cfg.Runtime.RequestLogFile != defaultRuntimePath(filepath.Dir(path), "logs", filepath.Join("request", "request.jsonl")) {
+		t.Fatalf("omitted defaults were not restored: security=%+v runtime=%+v", cfg.Security, cfg.Runtime)
+	}
+}
+
+func TestSaveConfigKeepsCustomRuntimePath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "conf", "server.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveConfig(path, Config{
+		TLS:     TLSConfig{CertFile: "server.crt", KeyFile: "server.key"},
+		Runtime: RuntimeConfig{RequestLogFile: "../custom/request.jsonl"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "request_log_file: ../custom/request.jsonl") {
+		t.Fatalf("custom runtime path was omitted: %s", data)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Clean(filepath.Join(filepath.Dir(path), "../custom/request.jsonl"))
+	if cfg.Runtime.RequestLogFile != want {
+		t.Fatalf("request log path = %q, want %q", cfg.Runtime.RequestLogFile, want)
+	}
+}
+
+func TestPrepareFreshInstallConfigOmitsDefaultRuntimePaths(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "conf")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	input := strings.ReplaceAll(validServerConfigV1YAML(""), ": data/", ": ../data/")
+	input = strings.ReplaceAll(input, ": logs/", ": ../logs/")
+	input = strings.Replace(input, `min_server_version: "2.0.0"`, `min_server_version: "3.1.0"`, 1)
+	path := writeTestConfig(t, dir, "server.yaml", input)
+	if err := PrepareFreshInstallConfig(path, time.Date(2026, time.November, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "runtime:") || !strings.Contains(string(data), "min_server_version:") {
+		t.Fatalf("fresh install lost explicit requirement or kept default paths: %s", data)
+	}
+	if _, err := LoadConfig(path); err != nil {
+		t.Fatalf("fresh install config cannot be loaded: %v", err)
 	}
 }
 
@@ -211,10 +296,10 @@ compatibility:
 
 func TestCheckConfigUpgradeCompatibleRejectsV1MissingRequiredStructure(t *testing.T) {
 	dir := t.TempDir()
-	path := writeTestConfig(t, dir, "server.yaml", strings.Replace(validServerConfigV1YAML(""), "runtime:\n  state_file: data/server-state.json\n  permanent_block_file: data/server-permanent-block.txt\n  request_log_file: logs/request/request.jsonl\n  business_log_file: logs/business/business.jsonl\n  entry_traffic_log_file: logs/entry-traffic/entry-traffic.jsonl\n  flow_traffic_log_file: logs/flow-traffic/flow-traffic.jsonl\n  recent_events: 500\n", "", 1))
+	path := writeTestConfig(t, dir, "server.yaml", strings.Replace(validServerConfigV1YAML(""), "credential_seal:\n  keys: []\n", "", 1))
 
 	err := CheckConfigUpgradeCompatible(path)
-	if err == nil || !strings.Contains(err.Error(), "missing required field runtime") {
+	if err == nil || !strings.Contains(err.Error(), "missing required field credential_seal") {
 		t.Fatalf("expected missing V1 structure error, got %v", err)
 	}
 }

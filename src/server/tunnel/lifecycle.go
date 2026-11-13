@@ -108,6 +108,11 @@ func (s *Server) Close() error {
 				s.lifecycle.closeErr = err
 			}
 		}
+		for _, listener := range s.businessListeners {
+			if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) && s.lifecycle.closeErr == nil {
+				s.lifecycle.closeErr = err
+			}
+		}
 		// Close raw sockets first to unblock TLS reads/writes before closing reverse controls.
 		for _, conn := range conns {
 			_ = conn.Close()

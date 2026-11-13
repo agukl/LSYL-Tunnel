@@ -14,6 +14,7 @@ type Client struct {
 	cfg                    Config
 	tlsConfig              *tls.Config
 	certificateGateKey     transport.CertificateGateKey
+	businessPool           *businessEndpointPool
 	ctx                    context.Context
 	listeners              map[string]net.Listener
 	virtualAddrs           map[string]string
@@ -43,14 +44,18 @@ func Run(ctx context.Context, cfg Config, logf transport.LogFunc) error {
 }
 
 func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Client, error) {
-	return start(ctx, cfg, "", false, logf)
+	return start(ctx, cfg, "", nil, false, logf)
 }
 
 func StartVerified(ctx context.Context, cfg Config, serverVersion string, logf transport.LogFunc) (*Client, error) {
-	return start(ctx, cfg, serverVersion, true, logf)
+	return StartVerifiedWithEntries(ctx, cfg, serverVersion, nil, logf)
 }
 
-func start(ctx context.Context, cfg Config, serverVersion string, verified bool, logf transport.LogFunc) (*Client, error) {
+func StartVerifiedWithEntries(ctx context.Context, cfg Config, serverVersion string, entries []string, logf transport.LogFunc) (*Client, error) {
+	return start(ctx, cfg, serverVersion, entries, true, logf)
+}
+
+func start(ctx context.Context, cfg Config, serverVersion string, entries []string, verified bool, logf transport.LogFunc) (*Client, error) {
 	ApplyDefaults(&cfg)
 	tlsCfg, certificateGateKey, err := clientTLSMaterials(cfg)
 	if err != nil {
@@ -60,6 +65,7 @@ func start(ctx context.Context, cfg Config, serverVersion string, verified bool,
 		cfg:                    cfg,
 		tlsConfig:              tlsCfg,
 		certificateGateKey:     certificateGateKey,
+		businessPool:           newBusinessEndpointPool(entries, cfg.ServerAddr, cfg.Forwards),
 		ctx:                    ctx,
 		listeners:              map[string]net.Listener{},
 		virtualAddrs:           map[string]string{},

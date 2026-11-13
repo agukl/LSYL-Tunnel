@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
 	"time"
 )
 
@@ -123,9 +122,13 @@ func ClientCertificateGate(conn net.Conn, key CertificateGateKey) error {
 	return nil
 }
 
+type ContextDialer interface {
+	DialContext(context.Context, string, string) (net.Conn, error)
+}
+
 func DialTLSWithCertificateGate(
 	ctx context.Context,
-	dialer *net.Dialer,
+	dialer ContextDialer,
 	network string,
 	address string,
 	tlsConfig *tls.Config,
@@ -179,12 +182,9 @@ func tlsConfigForAddress(config *tls.Config, address string) *tls.Config {
 	if config.ServerName != "" {
 		return config
 	}
-	colonPos := strings.LastIndex(address, ":")
-	if colonPos == -1 {
-		colonPos = len(address)
-	}
+	host, _, _ := net.SplitHostPort(address)
 	clone := config.Clone()
-	clone.ServerName = address[:colonPos]
+	clone.ServerName = host
 	return clone
 }
 

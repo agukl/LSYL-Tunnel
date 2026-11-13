@@ -28,6 +28,7 @@ type MonitorStatus struct {
 	BytesDown               int64                       `json:"bytes_down"`
 	BlockedIPs              []BlockedIPState            `json:"blocked_ips"`
 	RecentEvents            []RuntimeEvent              `json:"recent_events"`
+	EntryQuality            []EntryQualityClientStatus  `json:"entry_quality"`
 }
 
 type ConnectionLimitsStatus struct {
@@ -163,5 +164,6 @@ func (s *Server) status() MonitorStatus {
 		BytesDown:               s.bytesDown.Load(),
 		BlockedIPs:              s.fails.snapshotBlocked(),
 		RecentEvents:            s.recentEventSnapshot(),
+		EntryQuality:            s.entryQuality.snapshot(),
 	}
 }

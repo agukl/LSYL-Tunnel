@@ -23,7 +23,7 @@ func TestStopClientWhenNotRunning(t *testing.T) {
 func TestStartClientAfterShutdown(t *testing.T) {
 	a := &App{}
 	a.closing.Store(true)
-	if err := a.startClient(tunnel.Config{}, ""); !errors.Is(err, context.Canceled) {
+	if err := a.startClient(tunnel.Config{}, "", nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("start after shutdown = %v, want context.Canceled", err)
 	}
 	if a.isRunning() {

@@ -19,6 +19,7 @@ type Server struct {
 	lifecycle           serverLifecycle
 	cfg                 Config
 	listener            net.Listener
+	businessListeners   []net.Listener
 	tlsConfig           *tls.Config
 	certificateGateKey  transport.CertificateGateKey
 	httpSrv             *http.Server
@@ -42,6 +43,7 @@ type Server struct {
 	permanentBlockHits  *permanentBlockHitAggregator
 	connLimiter         *connectionLimiter
 	userStreams         *userStreamLimiter
+	entryQuality        *entryQualityTracker
 
 	activeStreams                   atomic.Int64
 	totalStreams                    atomic.Int64
@@ -100,6 +102,11 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 	if err != nil {
 		return nil, err
 	}
+	businessListeners, err := listenBusinessEntries(cfg.BusinessEntries)
+	if err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
 	tlsCfg := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   transport.TLSMinVersion(cfg.TLS.MinVersion),
@@ -119,6 +126,7 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 		lifecycle:          serverLifecycle{ctx: runCtx, cancel: cancel},
 		cfg:                cfg,
 		listener:           ln,
+		businessListeners:  businessListeners,
 		tlsConfig:          tlsCfg,
 		certificateGateKey: certificateGateKey,
 		users:              make(map[string]UserConfig),
@@ -134,6 +142,7 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 		permanentBlockHits: newPermanentBlockHitAggregator(defaultPermanentBlockHitLogInterval),
 		connLimiter:        newConnectionLimiter(cfg.Security),
 		userStreams:        newUserStreamLimiter(cfg.Security),
+		entryQuality:       newEntryQualityTracker(),
 	}
 	srv.entryTrafficWriter = newAsyncEntryTrafficLog(cfg.Security.EntryTrafficLogQueueSize, srv.writeEntryTrafficLog)
 	for _, user := range cfg.Auth.Users {
@@ -147,7 +156,11 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 		_ = srv.Close()
 		return nil, err
 	}
-	srv.startWorker(func() { srv.acceptLoop(runCtx) })
+	srv.startWorker(func() { srv.acceptLoop(runCtx, ln) })
+	for _, businessListener := range businessListeners {
+		entry := businessListener
+		srv.startWorker(func() { srv.acceptLoop(runCtx, entry) })
+	}
 	srv.startWorker(func() { srv.credentialSealRotationLoop(runCtx.Done()) })
 	srv.startWorker(func() { srv.permanentBlockHitLogLoop(runCtx.Done()) })
 	srv.startWorker(func() { srv.failureTrackerCleanupLoop(runCtx.Done()) })
