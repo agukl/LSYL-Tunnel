@@ -15,13 +15,15 @@ import (
 )
 
 type clientConfigCompatOptions struct {
-	Check         bool
-	Apply         bool
-	Rollback      bool
-	ConfigPath    string
-	ResultFile    string
-	SourceVersion string
-	BackupFile    string
+	Check            bool
+	Apply            bool
+	Rollback         bool
+	PreserveAccount  bool
+	ConfigPath       string
+	SourceConfigPath string
+	ResultFile       string
+	SourceVersion    string
+	BackupFile       string
 }
 
 func parseClientConfigCompatArgs(args []string) (clientConfigCompatOptions, bool, error) {
@@ -42,7 +44,9 @@ func parseClientConfigCompatArgs(args []string) (clientConfigCompatOptions, bool
 	fs.BoolVar(&opts.Check, "config-compat-check", false, "check client config compatibility")
 	fs.BoolVar(&opts.Apply, "apply", false, "apply config migration")
 	fs.BoolVar(&opts.Rollback, "rollback", false, "restore config migration")
+	fs.BoolVar(&opts.PreserveAccount, "preserve-account", false, "keep the installed account name")
 	fs.StringVar(&opts.ConfigPath, "config", "", "installed client config")
+	fs.StringVar(&opts.SourceConfigPath, "source-config", "", "previous client config backup")
 	fs.StringVar(&opts.ResultFile, "result-file", "", "write compatibility error to file")
 	fs.StringVar(&opts.SourceVersion, "source-version", "", "installed executable file version")
 	fs.StringVar(&opts.BackupFile, "backup-file", "", "config migration backup")
@@ -55,12 +59,18 @@ func parseClientConfigCompatArgs(args []string) (clientConfigCompatOptions, bool
 	if (opts.Apply || opts.Rollback) && strings.TrimSpace(opts.BackupFile) == "" {
 		return opts, true, fmt.Errorf("missing -backup-file")
 	}
+	if opts.PreserveAccount && strings.TrimSpace(opts.SourceConfigPath) == "" {
+		return opts, true, fmt.Errorf("missing -source-config")
+	}
 	return opts, true, nil
 }
 
 func runClientConfigCompatCheck(opts clientConfigCompatOptions) error {
 	if opts.Rollback {
 		return configupgrade.Rollback(opts.BackupFile)
+	}
+	if opts.PreserveAccount {
+		return tunnel.PreserveInstalledUsername(opts.SourceConfigPath, opts.ConfigPath)
 	}
 	if opts.SourceVersion == "" && opts.BackupFile == "" && !opts.Apply {
 		return tunnel.CheckConfigUpgradeCompatible(opts.ConfigPath)
@@ -102,7 +112,8 @@ func clientMigrationFiles(activePath string) ([]configupgrade.File, error) {
 		cert := filepath.Join(filepath.Dir(dir), "cert", certName)
 		file, err := tunnel.PrepareConfigMigration(path, cert)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			// Keep incompatible old profiles unchanged; the package supplies the active profile.
+			continue
 		}
 		files = append(files, file)
 	}

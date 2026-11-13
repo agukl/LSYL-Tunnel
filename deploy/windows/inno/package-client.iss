@@ -301,11 +301,11 @@ begin
       LoadStringFromFile(ResultFile, Detail);
     DetailText := Trim(String(Detail));
     if DetailText = '' then
-      DetailText := 'The installed client config requires a different client version.';
+      DetailText := '无法确认已安装客户端版本是否支持升级。';
     Result :=
-      'Installed client config is not compatible with this client installer. Installation stopped.' + #13#10 + #13#10 +
+      '无法确认已安装客户端支持自动升级，安装已停止。' + #13#10 + #13#10 +
       DetailText + #13#10 + #13#10 +
-      'Installed config: ' + ConfigFile;
+      '当前配置：' + ConfigFile;
   end;
   CleanupClientConfigCheckHelper();
 end;
@@ -328,6 +328,67 @@ begin
     Result := False
   else
     Result := ResultCode = 0;
+end;
+
+function PreserveClientInstallAccount: String;
+var
+  ResultCode: Integer;
+  ResultFile: String;
+  Params: String;
+  Detail: AnsiString;
+begin
+  Result := '';
+  if not ClientHadConfigFile then
+    exit;
+  ExtractTemporaryFile('lsyl-tunnel-client-gui-check.exe');
+  ResultFile := ExpandConstant('{tmp}\client-account-preserve-result.txt');
+  DeleteFile(ResultFile);
+  Params := '-config-compat-check -preserve-account' +
+    ' -config "' + ExpandConstant('{app}\conf\client.yaml') + '"' +
+    ' -source-config "' + ClientRollbackConfigFile + '"' +
+    ' -result-file "' + ResultFile + '"';
+  if not Exec(ClientConfigCheckHelperPath(), Params, ExpandConstant('{tmp}'), SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) then begin
+    Result := '无法启动客户端账号迁移程序。';
+    exit;
+  end;
+  if ResultCode <> 0 then begin
+    Detail := '';
+    if FileExists(ResultFile) then
+      LoadStringFromFile(ResultFile, Detail);
+    Result := Trim(String(Detail));
+    if Result = '' then
+      Result := '无法将旧连接账号写入新版客户端配置。';
+  end;
+end;
+
+function CheckInstalledClientConfig: String;
+var
+  ResultCode: Integer;
+  ResultFile: String;
+  Params: String;
+  Detail: AnsiString;
+begin
+  Result := '';
+  ExtractTemporaryFile('lsyl-tunnel-client-gui-check.exe');
+  ResultFile := ExpandConstant('{tmp}\client-installed-config-result.txt');
+  DeleteFile(ResultFile);
+  Params := '-config-compat-check' +
+    ' -config "' + ExpandConstant('{app}\conf\client.yaml') + '"' +
+    ' -result-file "' + ResultFile + '"';
+  if not Exec(ClientConfigCheckHelperPath(), Params, ExpandConstant('{tmp}'), SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) then begin
+    Result := '无法启动新版客户端配置检查程序。';
+    exit;
+  end;
+  if ResultCode <> 0 then begin
+    Detail := '';
+    if FileExists(ResultFile) then
+      LoadStringFromFile(ResultFile, Detail);
+    Result := Trim(String(Detail));
+    if Result = '' then
+      Result := '新版安装包中的客户端配置不可用。';
+  end;
 end;
 
 function TrimClientYamlValue(Value: String): String;
@@ -600,11 +661,27 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  AccountError: String;
 begin
   if (CurStep = ssInstall) and ClientMigrationNeeded then begin
     WizardForm.StatusLabel.Caption := '正在升级客户端配置...';
     if not RunClientConfigMigration(False) then begin
       MsgBox('客户端配置迁移失败，安装已停止；原配置将恢复。', mbError, MB_OK);
+      Abort;
+    end;
+  end;
+  if CurStep = ssPostInstall then begin
+    WizardForm.StatusLabel.Caption := '正在保留客户端连接账号...';
+    AccountError := PreserveClientInstallAccount();
+    if AccountError <> '' then begin
+      MsgBox('客户端连接账号迁移失败，安装已停止；原配置将恢复。' + #13#10 + AccountError, mbError, MB_OK);
+      Abort;
+    end;
+    WizardForm.StatusLabel.Caption := '正在检查新版客户端配置...';
+    AccountError := CheckInstalledClientConfig();
+    if AccountError <> '' then begin
+      MsgBox('新版客户端配置检查失败，安装已停止；原配置将恢复。' + #13#10 + AccountError, mbError, MB_OK);
       Abort;
     end;
   end;
