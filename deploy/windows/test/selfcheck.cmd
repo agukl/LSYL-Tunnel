@@ -53,7 +53,6 @@ findstr /c:"min_client_version" src\client\conf\client.yaml >nul || (echo [ERROR
 powershell -NoProfile -ExecutionPolicy Bypass -Command "if(-not (Select-String -Path 'src\server\conf\server.yaml' -SimpleMatch 'config_version:' -Quiet)){ Write-Host '[ERROR] Server default config is missing config_version'; exit 1 }" || exit /b 1
 findstr /c:"min_server_version" src\server\conf\server.yaml >nul || (echo [ERROR] Server default config is missing requires.min_server_version & exit /b 1)
 findstr /c:"min_client_version" src\server\conf\server.yaml >nul || (echo [ERROR] Server default config is missing compatibility.min_client_version & exit /b 1)
-findstr /c:"protocol_version: 3" src\server\conf\server.yaml >nul || (echo [ERROR] Server default config is missing compatibility.protocol_version & exit /b 1)
 if exist client\conf (echo [ERROR] Obsolete root source path exists: client\conf & exit /b 1)
 if exist server\conf (echo [ERROR] Obsolete root source path exists: server\conf & exit /b 1)
 if exist client\cmd (echo [ERROR] Obsolete root source path exists: client\cmd & exit /b 1)
@@ -277,7 +276,6 @@ findstr /c:"../certs/server.crt" %SELF_TMP%\selfcheck-server-package\conf\server
 powershell -NoProfile -ExecutionPolicy Bypass -Command "if(-not (Select-String -Path '%SELF_TMP%\selfcheck-server-package\conf\server.yaml' -SimpleMatch 'config_version:' -Quiet)){ Write-Host '[ERROR] Server package config is missing config_version'; exit 1 }" || exit /b 1
 findstr /c:"min_server_version" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || (echo [ERROR] Server package config is missing requires.min_server_version & exit /b 1)
 findstr /c:"min_client_version" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || (echo [ERROR] Server package config is missing compatibility.min_client_version & exit /b 1)
-findstr /c:"protocol_version: 3" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || (echo [ERROR] Server package config is missing compatibility.protocol_version & exit /b 1)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%SELF_TMP%\selfcheck-server-package\conf\server.yaml'; $t=Get-Content -Raw -Encoding UTF8 $p; $id='login-key-'+(Get-Date -Format 'yyyy-MM'); $matches=[regex]::Matches($t,'(?m)^\s*- key_id:\s*(\S+)\s*$'); if($matches.Count -ne 1 -or $matches[0].Groups[1].Value -ne $id){ Write-Host '[ERROR] Server package must contain exactly one credential key for the build month.'; exit 1 }" || exit /b 1
 findstr /c:"../data/server-state.json" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1
 findstr /c:"../data/server-permanent-block.txt" %SELF_TMP%\selfcheck-server-package\conf\server.yaml >nul || exit /b 1

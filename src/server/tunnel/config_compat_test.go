@@ -198,6 +198,7 @@ func TestServerConfigLoadAndUpgradeUseSameSchema(t *testing.T) {
 	}{
 		{name: "legacy", content: "tls:\n  cert_file: server.crt\n  key_file: server.key\nauth:\n  users: []\n", wantErr: "config_version 0 is no longer supported"},
 		{name: "current", content: v1},
+		{name: "current without optional protocol version", content: strings.Replace(v1, "  protocol_version: 3\n", "", 1)},
 		{name: "unknown current field", content: strings.Replace(v1, "  min_version: \"1.3\"", "  min_version: \"1.3\"\n  extra: true", 1), wantErr: "field extra not found"},
 		{name: "missing current structure", content: strings.Replace(v1, "auth:\n  users: []", "", 1), wantErr: "missing required field auth"},
 		{name: "wrong current layer", content: strings.Replace(v1, "auth:\n  users: []", "auth: []", 1), wantErr: "cannot unmarshal"},

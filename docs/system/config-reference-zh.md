@@ -70,9 +70,9 @@ Windows 覆盖安装先读取已安装 EXE 的文件版本，仅允许已安装 
 
 `compatibility.min_client_version`：允许连接本服务端的最低客户端版本。当前默认 `"3.0.0"`。
 
-`compatibility.max_client_version`：允许连接本服务端的最高客户端版本，默认留空表示不限制新客户端。只有确认新客户端不能安全连接旧服务端时才填写。
+`compatibility.max_client_version`：当前 V1 配置结构要求保留此字段；留空表示不限制新客户端。只有确认新客户端不能安全连接旧服务端时才填写版本上限。
 
-`compatibility.protocol_version`：可选，默认使用程序内的协议版本，当前为 `3`；客户端握手中的 `protocol_version` 不匹配时会被拒绝。协议 3 在 TLS 前增加证书持有前置门，不兼容协议 2 客户端。
+`compatibility.protocol_version`：仅为读取旧服务端配置保留；新安装包输出和管理台保存结果不写此字段，程序固定使用内置协议版本（当前为 `3`）。旧配置若显式填写，必须与程序内置版本相同。客户端握手中的 `protocol_version` 仍会校验；协议 3 在 TLS 前增加证书持有前置门，不兼容协议 2 客户端。
 
 `listen_addr`：服务端隧道入口监听地址。
 
