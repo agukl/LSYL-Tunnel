@@ -54,7 +54,7 @@ func TestVirtualForwardUsesRandomLocalRedirectListener(t *testing.T) {
 	fwd := ForwardConfig{
 		Name:         "virtual-ssh",
 		Direction:    DirectionVirtual,
-		ListenAddr:   ":22",
+		ListenAddr:   "192.0.2.22:22",
 		ServerTarget: "10.20.30.40:22",
 	}
 	if got := forwardDirection(fwd); got != DirectionClientToServer {
@@ -110,8 +110,8 @@ func TestStartVirtualForwardsUseSharedRedirectSession(t *testing.T) {
 			InsecureSkipVerify: true,
 		},
 		Forwards: []ForwardConfig{
-			{Name: "virtual-ssh", Direction: DirectionVirtual, ListenAddr: ":22", ServerTarget: "10.20.30.40:22"},
-			{Name: "virtual-web", Direction: DirectionVirtual, ListenAddr: ":443", ServerTarget: "10.20.30.41:8443"},
+			{Name: "virtual-ssh", Direction: DirectionVirtual, ListenAddr: "192.0.2.22:22", ServerTarget: "10.20.30.40:22"},
+			{Name: "virtual-web", Direction: DirectionVirtual, ListenAddr: "192.0.2.22:443", ServerTarget: "10.20.30.41:8443"},
 		},
 	}, t.Logf)
 	if err != nil {
@@ -171,8 +171,8 @@ func TestSharedVirtualRedirectSessionFailureStopsAllVirtualRules(t *testing.T) {
 		},
 		Forwards: []ForwardConfig{
 			{Name: "local-web", ListenAddr: "127.0.0.1:0", ServerTarget: "10.20.30.40:80"},
-			{Name: "virtual-ssh", Direction: DirectionVirtual, ListenAddr: ":22", ServerTarget: "10.20.30.40:22"},
-			{Name: "virtual-web", Direction: DirectionVirtual, ListenAddr: ":443", ServerTarget: "10.20.30.41:8443"},
+			{Name: "virtual-ssh", Direction: DirectionVirtual, ListenAddr: "192.0.2.22:22", ServerTarget: "10.20.30.40:22"},
+			{Name: "virtual-web", Direction: DirectionVirtual, ListenAddr: "192.0.2.22:443", ServerTarget: "10.20.30.41:8443"},
 		},
 	}, t.Logf)
 	if err != nil {
@@ -230,8 +230,8 @@ func TestVirtualAuthorizationCancellationDisablesAllVirtualRules(t *testing.T) {
 			InsecureSkipVerify: true,
 		},
 		Forwards: []ForwardConfig{
-			{Name: "virtual-ssh", Direction: DirectionVirtual, ListenAddr: ":22", ServerTarget: "10.20.30.40:22"},
-			{Name: "virtual-web", Direction: DirectionVirtual, ListenAddr: ":443", ServerTarget: "10.20.30.41:8443"},
+			{Name: "virtual-ssh", Direction: DirectionVirtual, ListenAddr: "192.0.2.22:22", ServerTarget: "10.20.30.40:22"},
+			{Name: "virtual-web", Direction: DirectionVirtual, ListenAddr: "192.0.2.22:443", ServerTarget: "10.20.30.41:8443"},
 		},
 	}, t.Logf)
 	if err != nil {
@@ -347,7 +347,7 @@ func TestStartKeepsClientConnectedWhenVirtualAuthorizationIsCancelled(t *testing
 		Forwards: []ForwardConfig{{
 			Name:         "virtual-ssh",
 			Direction:    DirectionVirtual,
-			ListenAddr:   ":22",
+			ListenAddr:   "192.0.2.22:22",
 			ServerTarget: "10.20.30.40:22",
 		}},
 	}, t.Logf)
@@ -396,7 +396,7 @@ func TestVirtualAuthorizationCancellationDoesNotAffectOtherForward(t *testing.T)
 		},
 		Forwards: []ForwardConfig{
 			{Name: "local-web", ListenAddr: "127.0.0.1:0", ServerTarget: "10.20.30.40:80"},
-			{Name: "virtual-ssh", Direction: DirectionVirtual, ListenAddr: ":22", ServerTarget: "10.20.30.40:22"},
+			{Name: "virtual-ssh", Direction: DirectionVirtual, ListenAddr: "192.0.2.22:22", ServerTarget: "10.20.30.40:22"},
 		},
 	}, t.Logf)
 	if err != nil {
@@ -442,7 +442,7 @@ func TestVirtualBatchFailureReleasesPreparedListeners(t *testing.T) {
 				closed:       make(chan struct{}),
 			}
 			defer client.Close()
-			fwd := ForwardConfig{Name: "virtual-ssh", Direction: DirectionVirtual, ListenAddr: ":22", ServerTarget: "10.20.30.40:22"}
+			fwd := ForwardConfig{Name: "virtual-ssh", Direction: DirectionVirtual, ListenAddr: "192.0.2.22:22", ServerTarget: "10.20.30.40:22"}
 			client.initForward(fwd.Name, fwd, ForwardStarting, "")
 			prepared, err := client.prepareVirtualForwardListener(fwd.Name, fwd)
 			if err != nil {
@@ -503,7 +503,7 @@ func TestStartStillFailsForNonAuthorizationVirtualError(t *testing.T) {
 		Forwards: []ForwardConfig{{
 			Name:         "virtual-ssh",
 			Direction:    DirectionVirtual,
-			ListenAddr:   ":22",
+			ListenAddr:   "192.0.2.22:22",
 			ServerTarget: "10.20.30.40:22",
 		}},
 	}, t.Logf)

@@ -1,5 +1,5 @@
 #define AppName "LSYL Tunnel Client"
-#define AppVersion "3.5.0"
+#define AppVersion "3.6.0"
 #define WinDivertDLLSHA256 "c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2"
 #define WinDivertDriverSHA256 "8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2"
 ; This script is copied into the client distributable package:
@@ -330,158 +330,84 @@ begin
     Result := ResultCode = 0;
 end;
 
-function PreserveClientInstallAccount: String;
+function RunClientConfigCommand(Params, ResultFile, StartError, FailureError: String): String;
 var
   ResultCode: Integer;
+  Detail: AnsiString;
+begin
+  Result := '';
+  ExtractTemporaryFile('lsyl-tunnel-client-gui-check.exe');
+  DeleteFile(ResultFile);
+  if not Exec(ClientConfigCheckHelperPath(), Params, ExpandConstant('{tmp}'), SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) then begin
+    Result := StartError;
+    exit;
+  end;
+  if ResultCode <> 0 then begin
+    Detail := '';
+    if FileExists(ResultFile) then
+      LoadStringFromFile(ResultFile, Detail);
+    Result := Trim(String(Detail));
+    if Result = '' then
+      Result := FailureError;
+  end;
+end;
+
+function PreserveClientInstallAccount: String;
+var
   ResultFile: String;
   Params: String;
-  Detail: AnsiString;
 begin
   Result := '';
   if not ClientHadConfigFile then
     exit;
-  ExtractTemporaryFile('lsyl-tunnel-client-gui-check.exe');
   ResultFile := ExpandConstant('{tmp}\client-account-preserve-result.txt');
-  DeleteFile(ResultFile);
   Params := '-config-compat-check -preserve-account' +
     ' -config "' + ExpandConstant('{app}\conf\client.yaml') + '"' +
     ' -source-config "' + ClientRollbackConfigFile + '"' +
     ' -result-file "' + ResultFile + '"';
-  if not Exec(ClientConfigCheckHelperPath(), Params, ExpandConstant('{tmp}'), SW_HIDE,
-    ewWaitUntilTerminated, ResultCode) then begin
-    Result := '无法启动客户端账号迁移程序。';
-    exit;
-  end;
-  if ResultCode <> 0 then begin
-    Detail := '';
-    if FileExists(ResultFile) then
-      LoadStringFromFile(ResultFile, Detail);
-    Result := Trim(String(Detail));
-    if Result = '' then
-      Result := '无法将旧连接账号写入新版客户端配置。';
-  end;
+  Result := RunClientConfigCommand(Params, ResultFile,
+    '无法启动客户端账号迁移程序。', '无法将旧连接账号写入新版客户端配置。');
 end;
 
 function CheckInstalledClientConfig: String;
 var
-  ResultCode: Integer;
   ResultFile: String;
   Params: String;
-  Detail: AnsiString;
 begin
-  Result := '';
-  ExtractTemporaryFile('lsyl-tunnel-client-gui-check.exe');
   ResultFile := ExpandConstant('{tmp}\client-installed-config-result.txt');
-  DeleteFile(ResultFile);
   Params := '-config-compat-check' +
     ' -config "' + ExpandConstant('{app}\conf\client.yaml') + '"' +
     ' -result-file "' + ResultFile + '"';
-  if not Exec(ClientConfigCheckHelperPath(), Params, ExpandConstant('{tmp}'), SW_HIDE,
-    ewWaitUntilTerminated, ResultCode) then begin
-    Result := '无法启动新版客户端配置检查程序。';
-    exit;
-  end;
-  if ResultCode <> 0 then begin
-    Detail := '';
-    if FileExists(ResultFile) then
-      LoadStringFromFile(ResultFile, Detail);
-    Result := Trim(String(Detail));
-    if Result = '' then
-      Result := '新版安装包中的客户端配置不可用。';
-  end;
+  Result := RunClientConfigCommand(Params, ResultFile,
+    '无法启动新版客户端配置检查程序。', '新版安装包中的客户端配置不可用。');
 end;
 
-function TrimClientYamlValue(Value: String): String;
-begin
-  Result := Trim(Value);
-  if Length(Result) >= 2 then begin
-    if ((Copy(Result, 1, 1) = '"') and (Copy(Result, Length(Result), 1) = '"')) or
-       ((Copy(Result, 1, 1) = #39) and (Copy(Result, Length(Result), 1) = #39)) then
-      Result := Copy(Result, 2, Length(Result) - 2);
-  end;
-end;
-
-function ReadClientConfigServerAddr(ConfigFile: String): String;
+function ReadClientArchiveSuffix(ConfigFile: String): String;
 var
-  RawText: AnsiString;
-  Text: String;
-  Line: String;
-  Key: String;
-  Value: String;
-  LineEnd: Integer;
-  P: Integer;
+  ResultCode: Integer;
+  ResultFile: String;
+  Params: String;
+  Value: AnsiString;
 begin
   Result := '';
-  if not LoadStringFromFile(ConfigFile, RawText) then
-    exit;
-  Text := String(RawText);
-  while Text <> '' do begin
-    LineEnd := Pos(#10, Text);
-    if LineEnd > 0 then begin
-      Line := Copy(Text, 1, LineEnd - 1);
-      Delete(Text, 1, LineEnd);
-    end else begin
-      Line := Text;
-      Text := '';
-    end;
-    if (Length(Line) > 0) and (Copy(Line, Length(Line), 1) = #13) then
-      Delete(Line, Length(Line), 1);
-    Line := Trim(Line);
-    if (Line <> '') and (Copy(Line, 1, 1) <> '#') then begin
-      P := Pos(':', Line);
-      if P > 0 then begin
-        Key := Trim(Copy(Line, 1, P - 1));
-        if CompareText(Key, 'server_addr') = 0 then begin
-          Value := Trim(Copy(Line, P + 1, Length(Line)));
-          Result := TrimClientYamlValue(Value);
-          exit;
-        end;
+  CleanupClientConfigCheckHelper();
+  ExtractTemporaryFile('lsyl-tunnel-client-gui-check.exe');
+  ResultFile := ExpandConstant('{tmp}\client-archive-suffix.txt');
+  DeleteFile(ResultFile);
+  Params := '-config-compat-check -archive-suffix' +
+    ' -config "' + ConfigFile + '" -result-file "' + ResultFile + '"';
+  if Exec(ClientConfigCheckHelperPath(), Params, ExpandConstant('{tmp}'), SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) then begin
+    if ResultCode = 0 then begin
+      if LoadStringFromFile(ResultFile, Value) then begin
+        if Trim(String(Value)) <> '' then
+          Result := Trim(String(Value));
       end;
     end;
   end;
-end;
-
-function IsClientArchiveSuffixChar(Ch: String): Boolean;
-begin
-  Result :=
-    ((Ch >= 'a') and (Ch <= 'z')) or
-    ((Ch >= 'A') and (Ch <= 'Z')) or
-    ((Ch >= '0') and (Ch <= '9')) or
-    (Ch = '.') or (Ch = '-') or (Ch = '_');
-end;
-
-function ClientArchiveSuffix(ServerAddr: String): String;
-var
-  I: Integer;
-  Ch: String;
-  LastUnderscore: Boolean;
-begin
-  Result := '';
-  ServerAddr := Trim(ServerAddr);
-  LastUnderscore := False;
-  for I := 1 to Length(ServerAddr) do begin
-    Ch := Copy(ServerAddr, I, 1);
-    if IsClientArchiveSuffixChar(Ch) then begin
-      Result := Result + Ch;
-      LastUnderscore := False;
-    end else if not LastUnderscore then begin
-      Result := Result + '_';
-      LastUnderscore := True;
-    end;
-  end;
-  while (Length(Result) > 0) and
-        ((Copy(Result, 1, 1) = '.') or (Copy(Result, 1, 1) = '_') or (Copy(Result, 1, 1) = '-')) do
-    Delete(Result, 1, 1);
-  while (Length(Result) > 0) and
-        ((Copy(Result, Length(Result), 1) = '.') or (Copy(Result, Length(Result), 1) = '_') or (Copy(Result, Length(Result), 1) = '-')) do
-    Delete(Result, Length(Result), 1);
-  if Length(Result) > 120 then
-    Result := Copy(Result, 1, 120);
-  while (Length(Result) > 0) and
-        ((Copy(Result, Length(Result), 1) = '.') or (Copy(Result, Length(Result), 1) = '_') or (Copy(Result, Length(Result), 1) = '-')) do
-    Delete(Result, Length(Result), 1);
-  if Result = '' then
-    Result := 'unknown';
+  DeleteFile(ResultFile);
+  CleanupClientConfigCheckHelper();
 end;
 
 function BackupClientRuntimeFiles: String;
@@ -527,8 +453,12 @@ begin
       Result := '无法备份当前客户端配置，安装已停止。请检查安装目录权限后重试。';
       exit;
     end;
+    ArchiveSuffix := ReadClientArchiveSuffix(ConfigFile);
+    if ArchiveSuffix = '' then begin
+      Result := '无法读取旧客户端配置的归档名称，请检查安装包中的客户端程序后重试。';
+      exit;
+    end;
     ArchiveStarted := True;
-    ArchiveSuffix := ClientArchiveSuffix(ReadClientConfigServerAddr(ConfigFile));
     ClientArchiveConfigFile := ExpandConstant('{app}\conf\client.' + ArchiveSuffix + '.yaml');
     ClientArchiveCertFile := ExpandConstant('{app}\cert\server.' + ArchiveSuffix + '.crt');
     ClientHadArchiveConfigFile := FileExists(ClientArchiveConfigFile);

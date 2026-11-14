@@ -157,18 +157,18 @@ func TestFriendlyErrorText(t *testing.T) {
 		},
 		{
 			name: "virtual domain name",
-			raw:  "virtual listen_addr does not support domain names; use an IPv4 address from the server certificate SAN",
-			want: "虚拟入口不支持域名，请填写 :端口 或 IPv4:端口；公网 IP 必须在证书中。",
+			raw:  "virtual listen_addr does not support domain names; use IPv4:port",
+			want: "虚拟入口不支持域名，请填写完整的 IPv4:端口。",
 		},
 		{
-			name: "ambiguous virtual IP",
-			raw:  "server certificate has multiple usable IPv4 SANs; specify virtual listen_addr as IPv4:port",
-			want: "服务端证书包含多个可用 IPv4，请将虚拟 listen_addr 填写为完整的 IPv4:端口。",
+			name: "implicit virtual IP",
+			raw:  "forward ssh: virtual listen_addr requires an explicit IPv4 address; use IPv4:port",
+			want: "虚拟入口不能只填端口，请填写完整的 IPv4:端口。",
 		},
 		{
 			name: "invalid virtual format",
-			raw:  "no usable forward is available: virtual listen_addr must use :port or IPv4:port",
-			want: "虚拟入口格式不正确，请填写 :端口 或 IPv4:端口。",
+			raw:  "no usable forward is available: virtual listen_addr must use IPv4:port",
+			want: "虚拟入口格式不正确，请填写完整的 IPv4:端口。",
 		},
 		{
 			name: "invalid virtual port",
@@ -178,7 +178,7 @@ func TestFriendlyErrorText(t *testing.T) {
 		{
 			name: "virtual IPv6",
 			raw:  "virtual listen_addr host must be an IPv4 address",
-			want: "虚拟入口不支持 IPv6，请填写 :端口 或 IPv4:端口；公网 IP 必须在证书中。",
+			want: "虚拟入口不支持 IPv6，请填写完整的 IPv4:端口。",
 		},
 		{
 			name: "virtual local address",
@@ -199,16 +199,6 @@ func TestFriendlyErrorText(t *testing.T) {
 			name: "virtual endpoint limit",
 			raw:  "virtual forwarding supports at most 48 endpoints",
 			want: "虚拟转发最多支持 48 个端点，请减少配置数量。",
-		},
-		{
-			name: "certificate has no IPv4 SAN",
-			raw:  "server certificate has no IPv4 SAN for virtual forwarding",
-			want: "服务端证书没有 IPv4 SAN，请显式填写内网 IPv4 或 127.0.0.1 加端口，或重新下发证书。",
-		},
-		{
-			name: "virtual IP outside certificate",
-			raw:  "virtual listen_addr 203.0.113.10:22 is not authorized by the server certificate IPv4 SAN",
-			want: "填写的公网虚拟 IP 不在服务端证书 IPv4 SAN 中，请修正 listen_addr 或重新下发证书。",
 		},
 		{
 			name: "WinDivert load failure",

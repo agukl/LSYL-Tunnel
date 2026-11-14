@@ -24,18 +24,7 @@ func (c *Client) prepareVirtualForwardListener(name string, fwd ForwardConfig) (
 		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
 		return preparedVirtualForward{}, err
 	}
-	if c.virtualResolver == nil {
-		c.virtualResolver, err = newVirtualAddressResolver(c.cfg)
-		if err != nil {
-			c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
-			return preparedVirtualForward{}, err
-		}
-	}
-	virtualAddr, err := c.virtualResolver.resolve(virtualHost, virtualPort)
-	if err != nil {
-		c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))
-		return preparedVirtualForward{}, err
-	}
+	virtualAddr := net.JoinHostPort(virtualHost, strconv.Itoa(virtualPort))
 	if virtualHost == netaddr.LoopbackIPv4 {
 		if err := c.ensureVirtualLoopbackListener(name, fwd); err != nil {
 			c.setForwardState(name, ForwardListenFailed, ForwardErrorMessage(err))

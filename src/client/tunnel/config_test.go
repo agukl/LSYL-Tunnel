@@ -478,7 +478,7 @@ connection:
 forwards:
   - name: ssh
     direction: virtual
-    listen_addr: ":22"
+    listen_addr: 192.0.2.22:22
     server_target: 127.0.0.1:22
 `)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
@@ -781,12 +781,12 @@ forwards:
 	if got := cfg.Forwards[0].ListenAddr; got != "192.0.2.22:2222" {
 		t.Fatalf("ListenAddr = %q, want 192.0.2.22:2222", got)
 	}
-	if got, err := VirtualForwardAddr(cfg, cfg.Forwards[0]); err != nil || got != "192.0.2.22:2222" {
+	if got, err := VirtualForwardAddr(cfg.Forwards[0]); err != nil || got != "192.0.2.22:2222" {
 		t.Fatalf("VirtualForwardAddr = %q, error = %v", got, err)
 	}
 }
 
-func TestLoadConfigAcceptsAutomaticVirtualAddress(t *testing.T) {
+func TestLoadConfigRejectsImplicitVirtualAddress(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "client.yaml")
 	certPath := filepath.ToSlash(writeTestServerCertificate(t, "127.0.0.1", "192.0.2.22"))
@@ -816,22 +816,15 @@ forwards:
 	if err := os.WriteFile(cfgFile, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := LoadConfig(cfgFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := cfg.Forwards[0].ListenAddr; got != ":2222" {
-		t.Fatalf("ListenAddr = %q, want :2222", got)
-	}
-	if got, err := VirtualForwardAddr(cfg, cfg.Forwards[0]); err != nil || got != "192.0.2.22:2222" {
-		t.Fatalf("VirtualForwardAddr = %q, error = %v", got, err)
+	if _, err := LoadConfig(cfgFile); err == nil || !strings.Contains(err.Error(), "requires an explicit IPv4 address") {
+		t.Fatalf("LoadConfig() = %v, want explicit virtual address error", err)
 	}
 }
 
 func TestSaveConfigPreservesVirtualDirectionAndListenAddress(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.yaml")
 	cfg := validVirtualForwardConfig(t)
-	cfg.Forwards[0].ListenAddr = ":22"
+	cfg.Forwards[0].ListenAddr = "192.0.2.22:22"
 	if err := SaveConfig(path, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -847,8 +840,8 @@ func TestSaveConfigPreservesVirtualDirectionAndListenAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := loaded.Forwards[0].ListenAddr; got != ":22" {
-		t.Fatalf("saved automatic virtual listen_addr = %q, want :22", got)
+	if got := loaded.Forwards[0].ListenAddr; got != "192.0.2.22:22" {
+		t.Fatalf("saved virtual listen_addr = %q, want 192.0.2.22:22", got)
 	}
 }
 
@@ -916,7 +909,14 @@ func TestValidateConfigRejectsInvalidVirtualForwardSettings(t *testing.T) {
 			mutate: func(cfg *Config) {
 				cfg.Forwards[0].ListenAddr = "192.0.2.22"
 			},
-			message: "virtual listen_addr must use :port or IPv4:port",
+			message: "virtual listen_addr must use IPv4:port",
+		},
+		{
+			name: "implicit IP",
+			mutate: func(cfg *Config) {
+				cfg.Forwards[0].ListenAddr = ":22"
+			},
+			message: "requires an explicit IPv4 address",
 		},
 		{
 			name: "invalid port",
@@ -972,30 +972,6 @@ func TestValidateConfigAcceptsSameVirtualIPOnDifferentPorts(t *testing.T) {
 	}
 }
 
-func TestValidateConfigAutomaticVirtualIPUsesServerAddress(t *testing.T) {
-	cfg := validVirtualForwardConfig(t)
-	cfg.ServerAddr = "198.51.100.10:9443"
-	cfg.TLS.CACertFile = writeTestServerCertificate(t, "192.0.2.22", "198.51.100.10")
-	cfg.Forwards[0].ListenAddr = ":22"
-	if err := ValidateConfig(cfg); err != nil {
-		t.Fatalf("ValidateConfig() error = %v", err)
-	}
-	if got, err := VirtualForwardAddr(cfg, cfg.Forwards[0]); err != nil || got != "198.51.100.10:22" {
-		t.Fatalf("VirtualForwardAddr = %q, error = %v", got, err)
-	}
-}
-
-func TestValidateConfigRejectsAmbiguousAutomaticVirtualIP(t *testing.T) {
-	cfg := validVirtualForwardConfig(t)
-	cfg.ServerAddr = "vpn.example.test:9443"
-	cfg.TLS.CACertFile = writeTestServerCertificate(t, "192.0.2.22", "198.51.100.10")
-	cfg.Forwards[0].ListenAddr = ":22"
-	err := ValidateConfig(cfg)
-	if err == nil || !strings.Contains(err.Error(), "multiple usable IPv4 SANs") {
-		t.Fatalf("ValidateConfig() error = %v, want ambiguous IPv4 SAN error", err)
-	}
-}
-
 func TestValidateConfigAcceptsExplicitVirtualIPWithMultipleSANs(t *testing.T) {
 	cfg := validVirtualForwardConfig(t)
 	cfg.ServerAddr = "vpn.example.test:9443"
@@ -1014,12 +990,14 @@ func TestValidateConfigAcceptsCertificateIPMatchingServerAddressOnDifferentPort(
 	}
 }
 
-func TestValidateConfigRejectsVirtualIPOutsideCertificateSAN(t *testing.T) {
+func TestValidateConfigAcceptsExplicitVirtualIPOutsideCertificateSAN(t *testing.T) {
 	cfg := validVirtualForwardConfig(t)
 	cfg.Forwards[0].ListenAddr = "198.51.100.22:22"
-	err := ValidateConfig(cfg)
-	if err == nil || !strings.Contains(err.Error(), "not authorized by the server certificate IPv4 SAN") {
+	if err := ValidateConfig(cfg); err != nil {
 		t.Fatalf("ValidateConfig() error = %v", err)
+	}
+	if got, err := VirtualForwardAddr(cfg.Forwards[0]); err != nil || got != "198.51.100.22:22" {
+		t.Fatalf("VirtualForwardAddr() = %q, %v", got, err)
 	}
 }
 

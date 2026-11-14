@@ -332,6 +332,19 @@ func TestValidateAdminForwardsForSaveRejectsPublicTarget(t *testing.T) {
 	}
 }
 
+func TestValidateAdminForwardsForSaveKeepsEditorRowIndex(t *testing.T) {
+	issues := validateAdminForwardsForSave(adminConfig{
+		Users: []adminUser{{Username: "alice"}},
+		Forwards: []adminForward{
+			{},
+			{Direction: tunnel.DirectionClientToServer, ServerTarget: "203.0.113.20:3389", Owner: "alice"},
+		},
+	})
+	if len(issues) != 1 || issues[0].Field != "forwards[1].server_target" || issues[0].Message != "目标地址必须使用 127.0.0.1 或私有 IP" {
+		t.Fatalf("editor issue lost its row or message: %#v", issues)
+	}
+}
+
 func TestValidateAdminForwardsForSaveRejectsUnknownAllowedUser(t *testing.T) {
 	issues := validateAdminForwardsForSave(adminConfig{
 		Users: []adminUser{{Username: "alice"}},

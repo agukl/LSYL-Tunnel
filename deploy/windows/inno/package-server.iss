@@ -1,5 +1,5 @@
 #define AppName "LSYL Tunnel Server"
-#define AppVersion "3.5.0"
+#define AppVersion "3.6.0"
 ; This script is copied into the server distributable package:
 ;   LSYL Tunnel Server\installer\server.iss
 ; It compiles the files from that package directory, not from source.
@@ -92,8 +92,8 @@ begin
     wpSelectDir,
     '服务端证书',
     '生成自签 TLS 服务端身份',
-    '请输入客户端连接服务端时使用的域名或 IP，多个值用英文逗号分隔。安装时会生成 certs\server.crt 和 certs\server.key；只把 server.crt 发给客户端。');
-  CertPage.Add('证书主机名/IP：', False);
+    '仅填写客户端用于 TLS 校验的名称（tls.server_name，留空则为 server_addr 的主机部分），多个用逗号分隔；虚拟入口 IP 不填。只在缺少证书时生成，已有证书保留。只分发 server.crt。');
+  CertPage.Add('TLS 校验域名/IP：', False);
   CertPage.Values[0] := '127.0.0.1';
 end;
 

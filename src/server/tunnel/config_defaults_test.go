@@ -224,7 +224,7 @@ func TestValidateConfigAllowsMultipleReversePortsPerOwner(t *testing.T) {
 
 func TestLoadConfigRejectsNonLoopbackLegacyReverseAddress(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.yaml")
-	data := []byte(strings.Replace(validServerConfigV1YAML(""), "forwards: []", `forwards:
+	data := []byte(strings.Replace(validServerConfigV2YAML(), "forwards: []", `forwards:
   - name: reverse-web
     direction: server_to_client
     listen_port: 18080

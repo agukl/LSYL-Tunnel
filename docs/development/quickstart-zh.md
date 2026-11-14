@@ -115,7 +115,7 @@ cmd /c release.cmd
 如果要同时重新生成服务端 TLS 证书，并把公开证书同步到客户端打包目录：
 
 ```powershell
-cmd /c release.cmd /hosts "vpn.example.com,203.0.113.10"
+cmd /c release.cmd /hosts "vpn.example.com"
 ```
 
 开发或内部测试需要本机自签代码签名时：
@@ -130,7 +130,7 @@ cmd /c release.cmd /local-sign
 cmd /c release.cmd /no-client-kit
 ```
 
-生产环境服务端安装时会生成自签 TLS 文件。客户端实际连接的域名或 IP 应写入服务端安装向导，或者用于发布前的 `/hosts` 参数。
+生产环境服务端安装时会生成自签 TLS 文件。客户端用于 TLS 校验的域名或 IP 应写入服务端安装向导，或者用于发布前的 `/hosts` 参数；虚拟入口 IP 无需加入。
 
 完整 `release.cmd` 会从源码生成临时工作目录 `build\tmp\dist-work`，再组装 `dist.stage`，所有安装产物生成成功后才替换最终 `dist`。生成过程中会调用 Gradle 构建 Android APK；如果 Gradle 不在 `PATH`，需要设置 `GRADLE_EXE`，把 Gradle 放到 `tool\gradle-8.9`，或设置 `MOBILE_APK` 指向已有 APK。脚本不会默认复用 `mobile\android\app\build` 下残留的旧 APK。默认最终 `dist` 保留三端安装产物、发布清单、`dist\LSYL Tunnel Client` 和 `dist\make-installers.cmd`，用于现场重新生成客户端安装包。服务端和 Android 安装产物以 `dist\installers` 中的文件为准。
 

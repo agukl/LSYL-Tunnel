@@ -14,8 +14,14 @@ func TestVirtualForwardErrorClassification(t *testing.T) {
 	}{
 		{
 			name:      "invalid listen format",
-			raw:       "forward ssh: virtual listen_addr must use :port or IPv4:port",
-			want:      "虚拟入口格式不正确，请填写 :端口 或 IPv4:端口",
+			raw:       "forward ssh: virtual listen_addr must use IPv4:port",
+			want:      "虚拟入口格式不正确，请填写完整的 IPv4:端口",
+			permanent: true,
+		},
+		{
+			name:      "implicit virtual IP",
+			raw:       "virtual listen_addr requires an explicit IPv4 address; use IPv4:port",
+			want:      "虚拟入口不能只填端口，请填写完整的 IPv4:端口",
 			permanent: true,
 		},
 		{
@@ -26,14 +32,14 @@ func TestVirtualForwardErrorClassification(t *testing.T) {
 		},
 		{
 			name:      "domain name",
-			raw:       "virtual listen_addr does not support domain names; use an IPv4 address from the server certificate SAN",
-			want:      "虚拟入口不支持域名，请填写 :端口 或 IPv4:端口；公网 IP 必须在证书中",
+			raw:       "virtual listen_addr does not support domain names; use IPv4:port",
+			want:      "虚拟入口不支持域名，请填写完整的 IPv4:端口",
 			permanent: true,
 		},
 		{
 			name:      "IPv6 address",
 			raw:       "virtual listen_addr host must be an IPv4 address",
-			want:      "虚拟入口不支持 IPv6，请填写 :端口 或 IPv4:端口；公网 IP 必须在证书中",
+			want:      "虚拟入口不支持 IPv6，请填写完整的 IPv4:端口",
 			permanent: true,
 		},
 		{
@@ -64,54 +70,6 @@ func TestVirtualForwardErrorClassification(t *testing.T) {
 			name:      "endpoint limit",
 			raw:       "virtual forwarding supports at most 48 endpoints",
 			want:      "虚拟转发最多支持 48 个端点，请减少配置数量",
-			permanent: true,
-		},
-		{
-			name:      "ambiguous certificate IP",
-			raw:       "server certificate has multiple usable IPv4 SANs; specify virtual listen_addr as IPv4:port",
-			want:      "服务端证书包含多个可用 IPv4，请将虚拟 listen_addr 填写为完整的 IPv4:端口",
-			permanent: true,
-		},
-		{
-			name:      "no usable certificate IP",
-			raw:       "server certificate has no usable non-local IPv4 SAN for automatic virtual forwarding",
-			want:      "服务端证书没有可用于自动选择的 IPv4，请显式填写内网 IPv4 或 127.0.0.1 加端口，或重新下发证书",
-			permanent: true,
-		},
-		{
-			name:      "no certificate IPv4 SAN",
-			raw:       "server certificate has no IPv4 SAN for virtual forwarding",
-			want:      "服务端证书没有 IPv4 SAN，请显式填写内网 IPv4 或 127.0.0.1 加端口，或重新下发证书",
-			permanent: true,
-		},
-		{
-			name:      "IP outside certificate",
-			raw:       "virtual listen_addr 203.0.113.10:22 is not authorized by the server certificate IPv4 SAN",
-			want:      "填写的公网虚拟 IP 不在服务端证书 IPv4 SAN 中，请修正 listen_addr 或重新下发证书",
-			permanent: true,
-		},
-		{
-			name:      "missing certificate policy",
-			raw:       "tls.ca_cert_file is required to authorize virtual forwarding addresses",
-			want:      "缺少服务端信任证书，无法校验虚拟 IP，请重新下发客户端安装包",
-			permanent: true,
-		},
-		{
-			name:      "unreadable certificate policy",
-			raw:       "read virtual forwarding certificate policy: access is denied",
-			want:      "无法读取服务端信任证书，无法校验虚拟 IP，请检查证书文件和权限",
-			permanent: true,
-		},
-		{
-			name:      "certificate policy file missing",
-			raw:       `read virtual forwarding certificate policy: open C:\Program Files\LSYL Tunnel Client\cert\server.crt: The system cannot find the file specified`,
-			want:      "缺少服务端信任证书 server.crt，无法校验虚拟 IP，请重新下发客户端安装包",
-			permanent: true,
-		},
-		{
-			name:      "invalid certificate policy",
-			raw:       "parse virtual forwarding certificate policy: x509: malformed certificate",
-			want:      "服务端信任证书格式无效，无法校验虚拟 IP，请重新下发证书",
 			permanent: true,
 		},
 		{

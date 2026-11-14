@@ -75,7 +75,7 @@ func TestReverseLegacyFieldsRemainCompatibleAndSaveDoesNotMutate(t *testing.T) {
 }
 
 func TestRuntimeRejectsUnknownForwardFields(t *testing.T) {
-	data := strings.Replace(validServerConfigV1YAML(""), "forwards: []", "forwards:\n  - name: bad\n    direction: client_to_server\n    server_target: 127.0.0.1:3389\n    virtual_ip: 192.0.2.10\n    allowed_users: []", 1)
+	data := strings.Replace(validServerConfigV2YAML(), "forwards: []", "forwards:\n  - name: bad\n    direction: client_to_server\n    server_target: 127.0.0.1:3389\n    virtual_ip: 192.0.2.10\n    allowed_users: []", 1)
 	path := filepath.Join(t.TempDir(), "server.yaml")
 	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
 		t.Fatal(err)

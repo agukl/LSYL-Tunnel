@@ -7,7 +7,6 @@ import (
 	"net"
 	"strings"
 
-	"lsyltunnel/src/internal/netaddr"
 	"lsyltunnel/src/server/tunnel"
 )
 
@@ -68,8 +67,8 @@ func validateAdminForwardsForSave(form adminConfig) adminConfigIssues {
 func validateAdminForwardsForSaveWithOptions(form adminConfig, opts adminForwardValidationOptions) adminConfigIssues {
 	issues := adminConfigIssues{}
 	users := adminUserSet(form.Users)
-	passiveOwners := map[int]string{}
-	existingPassivePorts := existingPassiveForwardPorts(opts.Existing)
+	forwards := make([]tunnel.ForwardConfig, 0, len(form.Forwards))
+	indices := make([]int, 0, len(form.Forwards))
 	for i, item := range form.Forwards {
 		if adminForwardIsEmpty(item) {
 			continue
@@ -81,17 +80,7 @@ func validateAdminForwardsForSaveWithOptions(form adminConfig, opts adminForward
 		}
 		if direction != tunnel.DirectionClientToServer && direction != tunnel.DirectionServerToClient {
 			issues.addError(fieldPrefix+".direction", "direction must be client_to_server or server_to_client")
-		}
-
-		allowedUsers := cleanAllowedUsers(append(item.AllowedUsers, item.Owner))
-		if len(allowedUsers) == 0 {
-			issues.addError(fieldPrefix+".allowed_users", "at least one allowed user is required")
 			continue
-		}
-		for _, username := range allowedUsers {
-			if !users[username] {
-				issues.addError(fieldPrefix+".allowed_users", "allowed user "+username+" does not exist")
-			}
 		}
 		fwd, empty, err := adminForwardToTunnel(item)
 		if err != nil || empty {
@@ -102,32 +91,34 @@ func validateAdminForwardsForSaveWithOptions(form adminConfig, opts adminForward
 			}
 			continue
 		}
-		if direction == tunnel.DirectionServerToClient {
-			host, _, _ := net.SplitHostPort(fwd.ListenAddr)
-			if host != serverLocalForwardHost {
-				issues.addError(fieldPrefix+".listen_addr", "反向监听地址必须填写为 127.0.0.1:端口")
+		fwd.AllowedUsers = cleanAllowedUsers(append(item.AllowedUsers, item.Owner))
+		indices = append(indices, i)
+		forwards = append(forwards, fwd)
+	}
+	if issues.hasErrors() {
+		return issues
+	}
+	if issue := tunnel.ValidateForwardRules(forwards, users); issue != nil {
+		field := issue.Field
+		if field == "listen_port" {
+			field = "port"
+		}
+		message := issue.Message
+		if strings.Contains(message, "server_target must be a loopback or private IP") {
+			message = "目标地址必须使用 127.0.0.1 或私有 IP"
+		}
+		issues.addError(fmt.Sprintf("forwards[%d].%s", indices[issue.Index], field), message)
+		return issues
+	}
+	if opts.CheckPassivePortAvailability {
+		existingPassivePorts := existingPassiveForwardPorts(opts.Existing)
+		for j, fwd := range forwards {
+			if fwd.Direction != tunnel.DirectionServerToClient || shouldSkipPassivePortProbe(opts, existingPassivePorts, fwd.ListenPort) {
 				continue
 			}
-			if len(allowedUsers) != 1 {
-				issues.addError(fieldPrefix+".allowed_users", "passive ports must belong to exactly one allowed user")
-			} else {
-				owner := allowedUsers[0]
-				if previousOwner, ok := passiveOwners[fwd.ListenPort]; ok {
-					issues.addError(fieldPrefix+".port", "passive port is already assigned to "+previousOwner)
-				} else {
-					passiveOwners[fwd.ListenPort] = owner
-				}
+			if err := canListenOnTCP(fwd.ListenAddr); err != nil {
+				issues.addError(fmt.Sprintf("forwards[%d].port", indices[j]), "passive port is already in use: "+err.Error())
 			}
-			if opts.CheckPassivePortAvailability && !shouldSkipPassivePortProbe(opts, existingPassivePorts, fwd.ListenPort) {
-				if err := canListenOnTCP(fwd.ListenAddr); err != nil {
-					issues.addError(fieldPrefix+".port", "passive port is already in use: "+err.Error())
-				}
-			}
-			continue
-		}
-		host, _, _ := net.SplitHostPort(fwd.ServerTarget)
-		if !netaddr.IsForwardTargetHost(host) {
-			issues.addError(fieldPrefix+".server_target", "目标地址必须使用 127.0.0.1 或私有 IP")
 		}
 	}
 	return issues

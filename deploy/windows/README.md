@@ -8,7 +8,7 @@
 
 ```cmd
 release.cmd
-release.cmd /hosts "vpn.example.com,203.0.113.10"
+release.cmd /hosts "vpn.example.com"
 release.cmd /local-sign
 release.cmd /skip-test
 release.cmd /bundle-inno
@@ -23,7 +23,7 @@ release.cmd /verify-only
 | `check.cmd` | 源码快速检查：Go 测试、vet，不打包 | 否 |
 | `check.cmd -Full [-Offline] [-NoAndroid]` | 全端源码检查：另含页面纯函数、Win7 Go 1.20、Android JVM 测试；预制 APK 时可跳过 Android 测试 | 否 |
 | `release.cmd` | 完整发布：测试、构建临时包、生成三端安装产物、保留客户端 kit、签名、校验、写清单 | 是 |
-| `release.cmd /hosts "..."` | 发布前重建服务端 TLS 证书，并同步 `src\client\cert\server.crt` | 是 |
+| `release.cmd /hosts "..."` | 按客户端 TLS 校验名称重建服务端证书，并同步 `src\client\cert\server.crt`；虚拟入口 IP 不必加入 | 是 |
 | `release.cmd /local-sign` | 创建或复用本机自签证书后完整发布 | 是 |
 | `release.cmd /skip-test` | 跳过完整源码检查后发布；正常发布运行 `check.cmd -Full`，预制 `MOBILE_APK` 时跳过 Android 测试 | 是 |
 | `release.cmd /bundle-inno` | 在客户端重打包目录旁额外内置 Inno Setup 编译器 | 是 |

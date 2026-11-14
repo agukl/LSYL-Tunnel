@@ -20,7 +20,7 @@ import (
 
 func main() {
 	outDir := flag.String("out", "certs", "output directory for server TLS identity files")
-	hosts := flag.String("hosts", "127.0.0.1", "comma-separated server DNS names or IP addresses")
+	hosts := flag.String("hosts", "127.0.0.1", "comma-separated DNS names or IP addresses used for TLS server verification")
 	days := flag.Int("days", 825, "server TLS identity validity in days")
 	flag.Parse()
 	if *days <= 0 {

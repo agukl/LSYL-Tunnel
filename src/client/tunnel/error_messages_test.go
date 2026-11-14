@@ -117,26 +117,14 @@ func TestForwardErrorMessageAndRetryPolicy(t *testing.T) {
 		},
 		{
 			name:      "virtual domain name",
-			err:       errors.New("virtual listen_addr does not support domain names; use an IPv4 address from the server certificate SAN"),
-			want:      "虚拟入口不支持域名，请填写 :端口 或 IPv4:端口；公网 IP 必须在证书中",
+			err:       errors.New("virtual listen_addr does not support domain names; use IPv4:port"),
+			want:      "虚拟入口不支持域名，请填写完整的 IPv4:端口",
 			permanent: true,
 		},
 		{
-			name:      "ambiguous virtual IP",
-			err:       errors.New("server certificate has multiple usable IPv4 SANs; specify virtual listen_addr as IPv4:port"),
-			want:      "服务端证书包含多个可用 IPv4，请将虚拟 listen_addr 填写为完整的 IPv4:端口",
-			permanent: true,
-		},
-		{
-			name:      "no usable virtual IP",
-			err:       errors.New("server certificate has no usable non-local IPv4 SAN for automatic virtual forwarding"),
-			want:      "服务端证书没有可用于自动选择的 IPv4，请显式填写内网 IPv4 或 127.0.0.1 加端口，或重新下发证书",
-			permanent: true,
-		},
-		{
-			name:      "virtual IP outside certificate SAN",
-			err:       errors.New("virtual listen_addr 192.0.2.22:22 is not authorized by the server certificate IPv4 SAN"),
-			want:      "填写的公网虚拟 IP 不在服务端证书 IPv4 SAN 中，请修正 listen_addr 或重新下发证书",
+			name:      "implicit virtual IP",
+			err:       errors.New("virtual listen_addr requires an explicit IPv4 address; use IPv4:port"),
+			want:      "虚拟入口不能只填端口，请填写完整的 IPv4:端口",
 			permanent: true,
 		},
 	}

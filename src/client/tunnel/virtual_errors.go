@@ -29,14 +29,16 @@ func classifyVirtualForwardError(raw string) (message string, permanent bool, ok
 	switch {
 	case text == "":
 		return "", false, false
-	case containsAny(text, "virtual listen_addr must use :port or ipv4:port"):
-		return "虚拟入口格式不正确，请填写 :端口 或 IPv4:端口", true, true
+	case containsAny(text, "virtual listen_addr requires an explicit ipv4 address"):
+		return "虚拟入口不能只填端口，请填写完整的 IPv4:端口", true, true
+	case containsAny(text, "virtual listen_addr must use ipv4:port"):
+		return "虚拟入口格式不正确，请填写完整的 IPv4:端口", true, true
 	case containsAny(text, "virtual listen_addr port must be between 1 and 65535"):
 		return "虚拟入口端口必须在 1 到 65535 之间", true, true
 	case containsAny(text, "virtual listen_addr does not support domain names"):
-		return "虚拟入口不支持域名，请填写 :端口 或 IPv4:端口；公网 IP 必须在证书中", true, true
+		return "虚拟入口不支持域名，请填写完整的 IPv4:端口", true, true
 	case containsAny(text, "virtual listen_addr host must be an ipv4 address"):
-		return "虚拟入口不支持 IPv6，请填写 :端口 或 IPv4:端口；公网 IP 必须在证书中", true, true
+		return "虚拟入口不支持 IPv6，请填写完整的 IPv4:端口", true, true
 	case containsAny(text, "virtual listen_addr host must be a usable non-local ipv4 address"):
 		return "虚拟入口不能使用链路本地或保留地址；回环入口请填写 127.0.0.1", true, true
 	case containsAny(text, "server_addr must include a valid port before virtual forwarding"):
@@ -47,24 +49,6 @@ func classifyVirtualForwardError(raw string) (message string, permanent bool, ok
 		return "存在重复的虚拟入口 IP:端口，请为每条虚拟转发配置不同端点", true, true
 	case containsAny(text, "virtual forwarding supports at most"):
 		return fmt.Sprintf("虚拟转发最多支持 %d 个端点，请减少配置数量", maxVirtualRedirectEndpoints), true, true
-	case containsAny(text, "multiple usable ipv4 sans"):
-		return "服务端证书包含多个可用 IPv4，请将虚拟 listen_addr 填写为完整的 IPv4:端口", true, true
-	case containsAny(text, "no usable non-local ipv4 san"):
-		return "服务端证书没有可用于自动选择的 IPv4，请显式填写内网 IPv4 或 127.0.0.1 加端口，或重新下发证书", true, true
-	case containsAny(text, "no ipv4 san for virtual forwarding"):
-		return "服务端证书没有 IPv4 SAN，请显式填写内网 IPv4 或 127.0.0.1 加端口，或重新下发证书", true, true
-	case containsAny(text, "not authorized by the server certificate ipv4 san"):
-		return "填写的公网虚拟 IP 不在服务端证书 IPv4 SAN 中，请修正 listen_addr 或重新下发证书", true, true
-	case containsAny(text, "tls.ca_cert_file is required to authorize virtual forwarding"):
-		return "缺少服务端信任证书，无法校验虚拟 IP，请重新下发客户端安装包", true, true
-	case strings.Contains(text, "read virtual forwarding certificate policy") && containsAny(text, "no such file", "cannot find", "找不到", "系统找不到"):
-		return "缺少服务端信任证书 server.crt，无法校验虚拟 IP，请重新下发客户端安装包", true, true
-	case containsAny(text, "read virtual forwarding certificate policy"):
-		return "无法读取服务端信任证书，无法校验虚拟 IP，请检查证书文件和权限", true, true
-	case containsAny(text, "parse virtual forwarding certificate policy", "no certificate found in tls.ca_cert_file for virtual forwarding"):
-		return "服务端信任证书格式无效，无法校验虚拟 IP，请重新下发证书", true, true
-	case containsAny(text, "virtual address resolver is unavailable"):
-		return "虚拟入口地址解析失败，请重新连接；若持续出现请重新安装客户端", true, true
 	case containsAny(text, "virtual forwarding is only supported by the standard 64-bit windows client"):
 		return "虚拟 IP 接管仅支持标准 64 位 Windows 客户端", true, true
 	case containsAny(text, "administrator authorization for virtual forwarding was cancelled"):
@@ -103,7 +87,7 @@ func classifyVirtualForwardError(raw string) (message string, permanent bool, ok
 	case containsAny(text, "windivert"):
 		return "虚拟端点接管异常，请重新连接；若持续出现请检查 WinDivert 组件和驱动状态", false, true
 	case containsAny(text, "virtual listen_addr", "virtual endpoint", "virtual forwarding", "virtual ip", "virtual-ip"):
-		return "虚拟转发配置无效，请检查 listen_addr 和证书配置", true, true
+		return "虚拟转发配置无效，请检查 listen_addr", true, true
 	default:
 		return "", false, false
 	}

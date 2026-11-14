@@ -49,27 +49,9 @@ func writeTestServerCertificate(t *testing.T, values ...string) string {
 	return path
 }
 
-func TestCertificateIPv4SANs(t *testing.T) {
-	path := writeTestServerCertificate(t, "vpn.example.test", "192.0.2.22", "198.51.100.8")
-	values, err := certificateIPv4SANs(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(values) != 2 || values[0] != "192.0.2.22" || values[1] != "198.51.100.8" {
-		t.Fatalf("certificateIPv4SANs() = %v", values)
-	}
-}
-
-func TestCertificateIPv4SANsAllowsDNSOnlyCertificate(t *testing.T) {
-	path := writeTestServerCertificate(t, "vpn.example.test")
-	if values, err := certificateIPv4SANs(path); err != nil || len(values) != 0 {
-		t.Fatalf("certificateIPv4SANs() = %v, %v", values, err)
-	}
-}
-
-func TestVirtualCertificatePolicy(t *testing.T) {
+func TestVirtualExplicitIPv4DoesNotRequireCertificateSAN(t *testing.T) {
 	certificate := writeTestServerCertificate(t, "vpn.example.test", "203.0.113.10")
-	for _, host := range []string{"10.0.0.1", "10.255.255.254", "172.16.0.1", "172.31.255.254", "192.168.0.1", "192.168.255.254", "127.0.0.1", "203.0.113.10"} {
+	for _, host := range []string{"10.0.0.1", "10.255.255.254", "172.16.0.1", "172.31.255.254", "192.168.0.1", "192.168.255.254", "127.0.0.1", "203.0.113.10", "9.255.255.255", "11.0.0.1", "172.15.255.255", "172.32.0.1", "192.167.255.255", "192.169.0.1", "100.64.0.1", "203.0.113.11"} {
 		t.Run(host, func(t *testing.T) {
 			cfg := validVirtualForwardConfig(t)
 			cfg.TLS.CACertFile = certificate
@@ -77,25 +59,15 @@ func TestVirtualCertificatePolicy(t *testing.T) {
 			if err := ValidateConfig(cfg); err != nil {
 				t.Fatal(err)
 			}
-			if got, err := VirtualForwardAddr(cfg, cfg.Forwards[0]); err != nil || got != cfg.Forwards[0].ListenAddr {
+			if got, err := VirtualForwardAddr(cfg.Forwards[0]); err != nil || got != cfg.Forwards[0].ListenAddr {
 				t.Fatalf("VirtualForwardAddr() = %q, %v", got, err)
-			}
-		})
-	}
-	for _, host := range []string{"9.255.255.255", "11.0.0.1", "172.15.255.255", "172.32.0.1", "192.167.255.255", "192.169.0.1", "100.64.0.1", "203.0.113.11"} {
-		t.Run("SAN required "+host, func(t *testing.T) {
-			cfg := validVirtualForwardConfig(t)
-			cfg.TLS.CACertFile = certificate
-			cfg.Forwards[0].ListenAddr = net.JoinHostPort(host, "3389")
-			if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "not authorized") {
-				t.Fatalf("expected certificate policy rejection, got %v", err)
 			}
 		})
 	}
 }
 
-func TestVirtualPrivateAndLoopbackWithDNSOnlyCertificate(t *testing.T) {
-	for _, host := range []string{"10.0.0.7", "172.16.0.7", "192.168.1.7", "127.0.0.1"} {
+func TestVirtualExplicitIPv4WithDNSOnlyCertificate(t *testing.T) {
+	for _, host := range []string{"10.0.0.7", "172.16.0.7", "192.168.1.7", "127.0.0.1", "203.0.113.11"} {
 		t.Run(host, func(t *testing.T) {
 			cfg := validVirtualForwardConfig(t)
 			cfg.ServerAddr = "vpn.example.test:9443"
@@ -109,8 +81,8 @@ func TestVirtualPrivateAndLoopbackWithDNSOnlyCertificate(t *testing.T) {
 				t.Fatalf("tunnel port protection was lost: %v", err)
 			}
 			cfg.Forwards[0].ListenAddr = ":3389"
-			if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "no IPv4 SAN") {
-				t.Fatalf("automatic selection must still require certificate SANs: %v", err)
+			if err := ValidateConfig(cfg); err == nil || !strings.Contains(err.Error(), "requires an explicit IPv4 address") {
+				t.Fatalf("implicit virtual address was accepted: %v", err)
 			}
 			cfg.Forwards[0].ListenAddr = net.JoinHostPort(host, "3389")
 			cfg.TLS.CACertFile = ""
@@ -118,6 +90,12 @@ func TestVirtualPrivateAndLoopbackWithDNSOnlyCertificate(t *testing.T) {
 				t.Fatal("private and loopback endpoints must not remove the certificate requirement")
 			}
 		})
+	}
+}
+
+func TestVirtualForwardAddrRejectsImplicitAddress(t *testing.T) {
+	if _, err := VirtualForwardAddr(ForwardConfig{ListenAddr: ":3389"}); err == nil || !strings.Contains(err.Error(), "requires an explicit IPv4 address") {
+		t.Fatalf("implicit virtual address rejection = %v", err)
 	}
 }
 

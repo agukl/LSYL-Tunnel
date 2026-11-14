@@ -117,8 +117,8 @@ func TestIPv6TunnelFallbackCarriesForward(t *testing.T) {
 
 func TestOldBusinessPortsAreNotMigrated(t *testing.T) {
 	dir := t.TempDir()
-	path := writeTestConfig(t, dir, "server.yaml", validServerConfigV1YAML("")+"business_ports: [50000, 50001]\n")
-	template := writeTestConfig(t, dir, "template.yaml", validServerConfigV1YAML(""))
+	path := writeTestConfig(t, dir, "server.yaml", validServerConfigV2YAML()+"business_ports: [50000, 50001]\n")
+	template := writeTestConfig(t, dir, "template.yaml", validServerConfigV2YAML())
 	file, err := PrepareConfigMigration(path, template)
 	if err != nil {
 		t.Fatal(err)

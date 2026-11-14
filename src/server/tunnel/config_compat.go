@@ -95,7 +95,7 @@ func PrepareConfigMigration(path, templatePath string) (configupgrade.File, erro
 	if err != nil {
 		return configupgrade.File{}, err
 	}
-	if err := validateServerConfigV1Structure(output); err != nil {
+	if err := validateServerConfigV2Structure(output); err != nil {
 		return configupgrade.File{}, err
 	}
 	return configupgrade.File{Path: path, Data: output}, nil
@@ -116,13 +116,13 @@ func decodeServerConfig(data []byte) (Config, error) {
 	if err := configyaml.DecodeStrict(data, &cfg, "config"); err != nil {
 		return Config{}, err
 	}
-	if err := validateServerConfigV1Structure(data); err != nil {
+	if err := validateServerConfigV2Structure(data); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
 }
 
-func validateServerConfigV1Structure(data []byte) error {
+func validateServerConfigV2Structure(data []byte) error {
 	root, err := configyaml.RootMapping(data, "server config")
 	if err != nil {
 		return err
@@ -132,7 +132,7 @@ func validateServerConfigV1Structure(data []byte) error {
 		return err
 	}
 	for _, name := range []string{
-		"config_version", "compatibility", "listen_addr", "monitor_addr",
+		"config_version", "listen_addr", "monitor_addr",
 		"tls", "auth", "forwards", "security", "credential_seal",
 	} {
 		if _, err := configyaml.RequiredField(top, "server config", name); err != nil {
@@ -149,9 +149,6 @@ func validateServerConfigV1Structure(data []byte) error {
 		if err := configyaml.ScalarMapping(requires, "server config.requires", "min_server_version"); err != nil {
 			return err
 		}
-	}
-	if err := configyaml.ScalarMapping(top["compatibility"], "server config.compatibility", "min_client_version", "max_client_version"); err != nil {
-		return err
 	}
 	if err := configyaml.ScalarMapping(top["tls"], "server config.tls", "cert_file", "key_file", "min_version"); err != nil {
 		return err

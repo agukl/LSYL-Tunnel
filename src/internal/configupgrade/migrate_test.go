@@ -8,12 +8,12 @@ import (
 )
 
 func TestCheckInstalledVersion(t *testing.T) {
-	for _, version := range []string{"3.0.0.0", "3.2.5.0", "3.3.0.0", "3.4.0.0", "3.5.0.0"} {
+	for _, version := range []string{"3.0.0.0", "3.2.5.0", "3.3.0.0", "3.4.0.0", "3.5.0.0", "3.6.0.0"} {
 		if err := CheckInstalledVersion(version); err != nil {
 			t.Errorf("%s: %v", version, err)
 		}
 	}
-	for _, version := range []string{"", "2.9.0.0", "3.6.0.0", "3.3", "bad"} {
+	for _, version := range []string{"", "2.9.0.0", "3.7.0.0", "3.3", "bad"} {
 		if err := CheckInstalledVersion(version); err == nil {
 			t.Errorf("%q should be rejected", version)
 		}

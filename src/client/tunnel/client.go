@@ -18,7 +18,6 @@ type Client struct {
 	ctx                    context.Context
 	listeners              map[string]net.Listener
 	virtualAddrs           map[string]string
-	virtualResolver        *virtualAddressResolver
 	virtualRedirectSession virtualRedirectSession
 	virtualRedirectMembers map[string]struct{}
 	forwards               map[string]*forwardRuntime

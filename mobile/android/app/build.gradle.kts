@@ -11,8 +11,8 @@ android {
         applicationId = "com.lsyl.tunnel.mobile"
         minSdk = (findProperty("minSdkOverride") as String?)?.toIntOrNull() ?: 29
         targetSdk = 35
-        versionCode = 12
-        versionName = "3.5.0"
+        versionCode = 13
+        versionName = "3.6.0"
     }
 
     compileOptions {

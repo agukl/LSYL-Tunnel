@@ -107,7 +107,7 @@ if defined HOSTS (
   if exist src\client\cert\server.crt (
     echo [INFO] Client trust certificate ready: src\client\cert\server.crt
   ) else (
-    echo [WARN] Missing src\client\cert\server.crt. Use /hosts "dns,ip" before building a client installer.
+    echo [WARN] Missing src\client\cert\server.crt. Use /hosts "tls-name" before building a client installer.
   )
 )
 
@@ -360,16 +360,16 @@ exit /b 0
 
 :usage
 echo Usage:
-echo   release.cmd [/hosts "dns,ip"] [/local-sign] [/skip-test] [/no-client-kit] [/bundle-inno] [/verify-only] [/keep-work]
+echo   release.cmd [/hosts "tls-name"] [/local-sign] [/skip-test] [/no-client-kit] [/bundle-inno] [/verify-only] [/keep-work]
 echo.
 echo Common:
-echo   release.cmd /hosts "vpn.example.com,203.0.113.10" /local-sign
+echo   release.cmd /hosts "vpn.example.com" /local-sign
 echo   release.cmd
 echo   release.cmd /no-client-kit
 echo   release.cmd /verify-only
 echo.
 echo Options:
-echo   /hosts        Regenerate server TLS certificate and copy server.crt into client trust input.
+echo   /hosts        TLS verification names, not virtual IPs; regenerates the certificate and client trust input.
 echo   /local-sign   Create/reuse a local self-signed code signing certificate for development signing.
 echo   /skip-test    Skip go test ./src/... for faster local iteration.
 echo   /client-kit   Keep dist\LSYL Tunnel Client for on-site client installer rebuilds. This is the default.

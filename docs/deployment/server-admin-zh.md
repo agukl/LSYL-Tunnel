@@ -16,7 +16,7 @@ build\bin\server
 
 ## 2. 生成服务端 TLS 文件
 
-正式安装包会在安装阶段自动生成自签服务端 TLS 文件。安装向导中应填写客户端实际连接的域名或 IP。
+正式安装包会在安装阶段自动生成自签服务端 TLS 文件。安装向导中只填写客户端用于 TLS 校验的名称：设置了 `tls.server_name` 时填该值，否则填 `server_addr` 中的域名或 IP；虚拟入口 IP 不必加入。
 
 开发目录或手工重新生成时，也可以使用证书脚本。
 
@@ -26,10 +26,10 @@ build\bin\server
 cmd /c deploy\windows\cert\init-server.cmd "127.0.0.1"
 ```
 
-生产环境应把公网域名或固定 IP 写入 hosts：
+生产环境使用统一 TLS 域名时，只填该域名：
 
 ```powershell
-cmd /c deploy\windows\cert\init-server.cmd "vpn.example.com,203.0.113.10"
+cmd /c deploy\windows\cert\init-server.cmd "vpn.example.com"
 ```
 
 输出：

@@ -12,6 +12,8 @@ import (
 
 	"lsyltunnel/src/client/tunnel"
 	"lsyltunnel/src/internal/configupgrade"
+
+	"gopkg.in/yaml.v3"
 )
 
 type clientConfigCompatOptions struct {
@@ -19,6 +21,7 @@ type clientConfigCompatOptions struct {
 	Apply            bool
 	Rollback         bool
 	PreserveAccount  bool
+	ArchiveSuffix    bool
 	ConfigPath       string
 	SourceConfigPath string
 	ResultFile       string
@@ -45,6 +48,7 @@ func parseClientConfigCompatArgs(args []string) (clientConfigCompatOptions, bool
 	fs.BoolVar(&opts.Apply, "apply", false, "apply config migration")
 	fs.BoolVar(&opts.Rollback, "rollback", false, "restore config migration")
 	fs.BoolVar(&opts.PreserveAccount, "preserve-account", false, "keep the installed account name")
+	fs.BoolVar(&opts.ArchiveSuffix, "archive-suffix", false, "derive the installed profile archive suffix")
 	fs.StringVar(&opts.ConfigPath, "config", "", "installed client config")
 	fs.StringVar(&opts.SourceConfigPath, "source-config", "", "previous client config backup")
 	fs.StringVar(&opts.ResultFile, "result-file", "", "write compatibility error to file")
@@ -62,12 +66,18 @@ func parseClientConfigCompatArgs(args []string) (clientConfigCompatOptions, bool
 	if opts.PreserveAccount && strings.TrimSpace(opts.SourceConfigPath) == "" {
 		return opts, true, fmt.Errorf("missing -source-config")
 	}
+	if opts.ArchiveSuffix && strings.TrimSpace(opts.ResultFile) == "" {
+		return opts, true, fmt.Errorf("missing -result-file")
+	}
 	return opts, true, nil
 }
 
 func runClientConfigCompatCheck(opts clientConfigCompatOptions) error {
 	if opts.Rollback {
 		return configupgrade.Rollback(opts.BackupFile)
+	}
+	if opts.ArchiveSuffix {
+		return os.WriteFile(opts.ResultFile, []byte(clientArchiveSuffixFromConfig(opts.ConfigPath)), 0o644)
 	}
 	if opts.PreserveAccount {
 		return tunnel.PreserveInstalledUsername(opts.SourceConfigPath, opts.ConfigPath)
@@ -86,6 +96,23 @@ func runClientConfigCompatCheck(opts clientConfigCompatOptions) error {
 		return nil
 	}
 	return configupgrade.Apply(files, opts.BackupFile)
+}
+
+func clientArchiveSuffixFromConfig(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "unknown"
+	}
+	var profile struct {
+		ServerAddr string `yaml:"server_addr"`
+	}
+	if err := yaml.Unmarshal(data, &profile); err != nil {
+		return "unknown"
+	}
+	if suffix := clientProfileFileSuffix(profile.ServerAddr); suffix != "" {
+		return suffix
+	}
+	return "unknown"
 }
 
 func clientMigrationFiles(activePath string) ([]configupgrade.File, error) {

@@ -26,20 +26,23 @@ auth:
 	}
 }
 
-func TestCheckConfigUpgradeCompatibleAcceptsCompleteV1Config(t *testing.T) {
+func TestCheckConfigUpgradeCompatibleAcceptsCompleteV2Config(t *testing.T) {
 	dir := t.TempDir()
-	path := writeTestConfig(t, dir, "server.yaml", validServerConfigV1YAML(""))
+	path := writeTestConfig(t, dir, "server.yaml", validServerConfigV2YAML())
 
 	if err := CheckConfigUpgradeCompatible(path); err != nil {
-		t.Fatalf("expected complete V1 config to be upgrade-compatible, got %v", err)
+		t.Fatalf("expected complete V2 config to be upgrade-compatible, got %v", err)
 	}
 }
 
 func TestPrepareServerConfigMigration(t *testing.T) {
 	dir := t.TempDir()
-	template := writeTestConfig(t, dir, "template.yaml", validServerConfigV1YAML(""))
+	template := writeTestConfig(t, dir, "template.yaml", validServerConfigV2YAML())
 	path := writeTestConfig(t, dir, "server.yaml", `
 config_version: 1
+compatibility:
+  min_client_version: "3.2.0"
+  max_client_version: "3.4.0"
 listen_addr: 0.0.0.0:4555
 auth:
   users:
@@ -84,7 +87,7 @@ flow_traffic_log_file: ignored
 		strings.Contains(string(file.Data), "max_concurrent_streams_per_user:") ||
 		strings.Contains(string(file.Data), "stream_rate_limit_bytes_per_sec:") ||
 		strings.Contains(string(file.Data), "max_connections_per_ip_per_window:") ||
-		strings.Contains(string(file.Data), "flow_traffic_log_file:") {
+		strings.Contains(string(file.Data), "flow_traffic_log_file:") || strings.Contains(string(file.Data), "compatibility:") {
 		t.Fatalf("new template settings were not applied: %s", file.Data)
 	}
 	if err := os.WriteFile(path, file.Data, 0o644); err != nil {
@@ -122,7 +125,7 @@ func TestSaveConfigProducesCurrentServerStructure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"requires:", "protocol_version:", "max_handshake_bytes:", "connection_rate_window_sec:", "max_tracked_failure_ips:", "runtime:"} {
+	for _, field := range []string{"requires:", "compatibility:", "max_handshake_bytes:", "connection_rate_window_sec:", "max_tracked_failure_ips:", "runtime:"} {
 		if strings.Contains(string(data), field) {
 			t.Fatalf("default field %s was saved: %s", field, data)
 		}
@@ -170,9 +173,8 @@ func TestPrepareFreshInstallConfigOmitsDefaultRuntimePaths(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	input := strings.ReplaceAll(validServerConfigV1YAML(""), ": data/", ": ../data/")
+	input := strings.ReplaceAll(validServerConfigV2YAML(), ": data/", ": ../data/")
 	input = strings.ReplaceAll(input, ": logs/", ": ../logs/")
-	input = strings.Replace(input, `min_server_version: "2.0.0"`, `min_server_version: "3.1.0"`, 1)
 	path := writeTestConfig(t, dir, "server.yaml", input)
 	if err := PrepareFreshInstallConfig(path, time.Date(2026, time.November, 1, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
@@ -181,8 +183,8 @@ func TestPrepareFreshInstallConfigOmitsDefaultRuntimePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "runtime:") || !strings.Contains(string(data), "min_server_version:") {
-		t.Fatalf("fresh install lost explicit requirement or kept default paths: %s", data)
+	if strings.Contains(string(data), "runtime:") || strings.Contains(string(data), "requires:") {
+		t.Fatalf("fresh install kept default fields: %s", data)
 	}
 	if _, err := LoadConfig(path); err != nil {
 		t.Fatalf("fresh install config cannot be loaded: %v", err)
@@ -190,20 +192,21 @@ func TestPrepareFreshInstallConfigOmitsDefaultRuntimePaths(t *testing.T) {
 }
 
 func TestServerConfigLoadAndUpgradeUseSameSchema(t *testing.T) {
-	v1 := validServerConfigV1YAML("")
+	v2 := validServerConfigV2YAML()
 	tests := []struct {
 		name    string
 		content string
 		wantErr string
 	}{
 		{name: "legacy", content: "tls:\n  cert_file: server.crt\n  key_file: server.key\nauth:\n  users: []\n", wantErr: "config_version 0 is no longer supported"},
-		{name: "current", content: v1},
-		{name: "current without optional protocol version", content: strings.Replace(v1, "  protocol_version: 3\n", "", 1)},
-		{name: "unknown current field", content: strings.Replace(v1, "  min_version: \"1.3\"", "  min_version: \"1.3\"\n  extra: true", 1), wantErr: "field extra not found"},
-		{name: "missing current structure", content: strings.Replace(v1, "auth:\n  users: []", "", 1), wantErr: "missing required field auth"},
-		{name: "wrong current layer", content: strings.Replace(v1, "auth:\n  users: []", "auth: []", 1), wantErr: "cannot unmarshal"},
+		{name: "current", content: v2},
+		{name: "retired compatibility field", content: strings.Replace(v2, "listen_addr:", "compatibility: {min_client_version: '3.0.0'}\nlisten_addr:", 1), wantErr: "field compatibility not found"},
+		{name: "old structure", content: strings.Replace(v2, "config_version: 2", "config_version: 1", 1), wantErr: "no longer supported"},
+		{name: "unknown current field", content: strings.Replace(v2, "  min_version: \"1.3\"", "  min_version: \"1.3\"\n  extra: true", 1), wantErr: "field extra not found"},
+		{name: "missing current structure", content: strings.Replace(v2, "auth:\n  users: []", "", 1), wantErr: "missing required field auth"},
+		{name: "wrong current layer", content: strings.Replace(v2, "auth:\n  users: []", "auth: []", 1), wantErr: "cannot unmarshal"},
 		{name: "future version", content: "config_version: 99\n", wantErr: "requires a newer server"},
-		{name: "multiple documents", content: v1 + "\n---\nlisten_addr: 127.0.0.1:3443\n", wantErr: "exactly one YAML document"},
+		{name: "multiple documents", content: v2 + "\n---\nlisten_addr: 127.0.0.1:3443\n", wantErr: "exactly one YAML document"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -221,7 +224,7 @@ func TestServerConfigLoadAndUpgradeUseSameSchema(t *testing.T) {
 }
 
 func TestLoadConfigRawKeepsRelativePathsAndRejectsUnknownFields(t *testing.T) {
-	path := writeTestConfig(t, t.TempDir(), "server.yaml", validServerConfigV1YAML(""))
+	path := writeTestConfig(t, t.TempDir(), "server.yaml", validServerConfigV2YAML())
 	cfg, err := LoadConfigRaw(path)
 	if err != nil {
 		t.Fatal(err)
@@ -229,14 +232,14 @@ func TestLoadConfigRawKeepsRelativePathsAndRejectsUnknownFields(t *testing.T) {
 	if filepath.IsAbs(cfg.TLS.CertFile) || filepath.IsAbs(cfg.Runtime.StateFile) {
 		t.Fatalf("raw config resolved paths: cert=%q state=%q", cfg.TLS.CertFile, cfg.Runtime.StateFile)
 	}
-	path = writeTestConfig(t, t.TempDir(), "invalid.yaml", strings.Replace(validServerConfigV1YAML(""), "  min_version: \"1.3\"", "  min_version: \"1.3\"\n  extra: true", 1))
+	path = writeTestConfig(t, t.TempDir(), "invalid.yaml", strings.Replace(validServerConfigV2YAML(), "  min_version: \"1.3\"", "  min_version: \"1.3\"\n  extra: true", 1))
 	if _, err := LoadConfigRaw(path); err == nil || !strings.Contains(err.Error(), "field extra not found") {
 		t.Fatalf("unknown field was accepted: %v", err)
 	}
 }
 
 func TestSaveConfigOmitsRetiredFields(t *testing.T) {
-	path := writeTestConfig(t, t.TempDir(), "server.yaml", validServerConfigV1YAML(""))
+	path := writeTestConfig(t, t.TempDir(), "server.yaml", validServerConfigV2YAML())
 	cfg, err := LoadConfig(path)
 	if err != nil {
 		t.Fatal(err)
@@ -274,34 +277,19 @@ tls:
 	}
 }
 
-func TestCheckConfigUpgradeCompatibleRejectsInvalidClientRange(t *testing.T) {
+func TestCheckConfigUpgradeCompatibleRejectsV2MissingRequiredStructure(t *testing.T) {
 	dir := t.TempDir()
-	current := writeTestConfig(t, dir, "server.yaml", validServerConfigV1YAML(`
-compatibility:
-  min_client_version: "2.1.0"
-  max_client_version: "2.0.0"
-  protocol_version: 3
-`))
-
-	err := CheckConfigUpgradeCompatible(current)
-	if err == nil || !strings.Contains(err.Error(), "min_client_version must be <= max_client_version") {
-		t.Fatalf("expected invalid client range error, got %v", err)
-	}
-}
-
-func TestCheckConfigUpgradeCompatibleRejectsV1MissingRequiredStructure(t *testing.T) {
-	dir := t.TempDir()
-	path := writeTestConfig(t, dir, "server.yaml", strings.Replace(validServerConfigV1YAML(""), "credential_seal:\n  keys: []\n", "", 1))
+	path := writeTestConfig(t, dir, "server.yaml", strings.Replace(validServerConfigV2YAML(), "credential_seal:\n  keys: []\n", "", 1))
 
 	err := CheckConfigUpgradeCompatible(path)
 	if err == nil || !strings.Contains(err.Error(), "missing required field credential_seal") {
-		t.Fatalf("expected missing V1 structure error, got %v", err)
+		t.Fatalf("expected missing V2 structure error, got %v", err)
 	}
 }
 
-func TestCheckConfigUpgradeCompatibleRejectsV1UnknownNestedField(t *testing.T) {
+func TestCheckConfigUpgradeCompatibleRejectsV2UnknownNestedField(t *testing.T) {
 	dir := t.TempDir()
-	path := writeTestConfig(t, dir, "server.yaml", strings.Replace(validServerConfigV1YAML(""), "  min_version: \"1.3\"", "  min_version: \"1.3\"\n  extra: true", 1))
+	path := writeTestConfig(t, dir, "server.yaml", strings.Replace(validServerConfigV2YAML(), "  min_version: \"1.3\"", "  min_version: \"1.3\"\n  extra: true", 1))
 
 	err := CheckConfigUpgradeCompatible(path)
 	if err == nil || !strings.Contains(err.Error(), "field extra not found") {
@@ -309,19 +297,19 @@ func TestCheckConfigUpgradeCompatibleRejectsV1UnknownNestedField(t *testing.T) {
 	}
 }
 
-func TestCheckConfigUpgradeCompatibleRejectsV1WrongStructure(t *testing.T) {
+func TestCheckConfigUpgradeCompatibleRejectsV2WrongStructure(t *testing.T) {
 	dir := t.TempDir()
-	path := writeTestConfig(t, dir, "server.yaml", strings.Replace(validServerConfigV1YAML(""), "auth:\n  users: []", "auth: []", 1))
+	path := writeTestConfig(t, dir, "server.yaml", strings.Replace(validServerConfigV2YAML(), "auth:\n  users: []", "auth: []", 1))
 
 	err := CheckConfigUpgradeCompatible(path)
 	if err == nil || !strings.Contains(err.Error(), "cannot unmarshal") {
-		t.Fatalf("expected wrong V1 structure error, got %v", err)
+		t.Fatalf("expected wrong V2 structure error, got %v", err)
 	}
 }
 
-func TestCheckConfigUpgradeCompatibleRejectsV1InvalidForwardAuthorization(t *testing.T) {
+func TestCheckConfigUpgradeCompatibleRejectsV2InvalidForwardAuthorization(t *testing.T) {
 	dir := t.TempDir()
-	config := validServerConfigV1YAML("")
+	config := validServerConfigV2YAML()
 	config = strings.Replace(config, "auth:\n  users: []", "auth:\n  users:\n    - username: alice\n      password_hash: plain:secret\n      disabled: false", 1)
 	config = strings.Replace(config, "forwards: []", "forwards:\n  - name: rdp\n    direction: client_to_server\n    server_target: 127.0.0.1:3389\n    allowed_users:\n      - bob", 1)
 	path := writeTestConfig(t, dir, "server.yaml", config)
@@ -333,14 +321,11 @@ func TestCheckConfigUpgradeCompatibleRejectsV1InvalidForwardAuthorization(t *tes
 }
 
 func TestCheckRequestCompatibilityRejectsLegacyClientBelowMinimum(t *testing.T) {
-	srv := &Server{cfg: Config{Compatibility: CompatibilityConfig{
-		MinClientVersion: appversion.MinCompatibleClientVersion,
-		ProtocolVersion:  appversion.ProtocolVersion,
-	}}}
+	srv := &Server{}
 
 	resp, ok := srv.checkRequestCompatibility(protocol.OpenRequest{
 		Type:            "login",
-		ClientVersion:   appversion.LegacyClientVersion,
+		ClientVersion:   "1.1.0",
 		ProtocolVersion: appversion.ProtocolVersion,
 	})
 	if ok {
@@ -352,21 +337,36 @@ func TestCheckRequestCompatibilityRejectsLegacyClientBelowMinimum(t *testing.T) 
 }
 
 func TestCheckRequestCompatibilityRejectsProtocolMismatch(t *testing.T) {
-	srv := &Server{cfg: Config{Compatibility: CompatibilityConfig{
-		MinClientVersion: appversion.MinCompatibleClientVersion,
-		ProtocolVersion:  appversion.ProtocolVersion,
-	}}}
+	srv := &Server{}
 
 	resp, ok := srv.checkRequestCompatibility(protocol.OpenRequest{
 		Type:            "login",
 		ClientVersion:   appversion.AppVersion,
-		ProtocolVersion: appversion.LegacyProtocolVersion,
+		ProtocolVersion: 1,
 	})
 	if ok {
 		t.Fatal("expected protocol mismatch to be rejected")
 	}
 	if resp.Code != "protocol_version_unsupported" {
 		t.Fatalf("Code = %q, want protocol_version_unsupported", resp.Code)
+	}
+}
+
+func TestCheckRequestCompatibilityUsesBuiltIn3XRange(t *testing.T) {
+	srv := &Server{}
+	for _, tc := range []struct {
+		version string
+		allowed bool
+	}{
+		{version: "2.9.9"},
+		{version: "3.0.0", allowed: true},
+		{version: "3.9.9", allowed: true},
+		{version: "4.0.0"},
+	} {
+		resp, ok := srv.checkRequestCompatibility(protocol.OpenRequest{ClientVersion: tc.version, ProtocolVersion: appversion.ProtocolVersion})
+		if ok != tc.allowed || (!tc.allowed && resp.Code != "client_version_unsupported") {
+			t.Fatalf("client %s: ok=%v response=%+v", tc.version, ok, resp)
+		}
 	}
 }
 
@@ -379,15 +379,11 @@ func writeTestConfig(t *testing.T, dir, name, content string) string {
 	return path
 }
 
-func validServerConfigV1YAML(override string) string {
-	config := `
-config_version: 1
+func validServerConfigV2YAML() string {
+	return `
+config_version: 2
 requires:
-  min_server_version: "2.0.0"
-compatibility:
-  min_client_version: "3.0.0"
-  max_client_version: ""
-  protocol_version: 3
+  min_server_version: "3.6.0"
 listen_addr: 0.0.0.0:3443
 monitor_addr: 127.0.0.1:19111
 tls:
@@ -418,14 +414,4 @@ runtime:
   entry_traffic_log_file: logs/entry-traffic/entry-traffic.jsonl
   recent_events: 500
 `
-	if strings.TrimSpace(override) == "" {
-		return config
-	}
-	start := strings.Index(config, "compatibility:\n")
-	end := strings.Index(config[start:], "listen_addr:")
-	if start < 0 || end < 0 {
-		return config
-	}
-	end += start
-	return config[:start] + strings.TrimSpace(override) + "\n" + config[end:]
 }

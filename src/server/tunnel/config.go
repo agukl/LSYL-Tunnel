@@ -14,12 +14,6 @@ type RequiresConfig struct {
 	MinServerVersion string `yaml:"min_server_version,omitempty"`
 }
 
-type CompatibilityConfig struct {
-	MinClientVersion string `yaml:"min_client_version"`
-	MaxClientVersion string `yaml:"max_client_version"`
-	ProtocolVersion  int    `yaml:"protocol_version,omitempty"`
-}
-
 type TLSConfig struct {
 	CertFile   string `yaml:"cert_file"`
 	KeyFile    string `yaml:"key_file"`
@@ -94,7 +88,6 @@ type Config struct {
 	ConfigPath        string               `yaml:"-"`
 	ConfigVersion     int                  `yaml:"config_version"`
 	Requires          RequiresConfig       `yaml:"requires,omitempty"`
-	Compatibility     CompatibilityConfig  `yaml:"compatibility"`
 	ListenAddr        string               `yaml:"listen_addr"`
 	IPv6TunnelEnabled bool                 `yaml:"ipv6_tunnel_enabled"`
 	MonitorAddr       string               `yaml:"monitor_addr"`

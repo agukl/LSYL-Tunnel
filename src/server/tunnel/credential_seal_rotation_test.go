@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	appversion "lsyltunnel/src/internal/version"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -160,7 +162,7 @@ func writeCredentialSealRotationConfig(t *testing.T, keys []CredentialSealKeyCon
 	}
 	configPath := filepath.Join(confDir, "server.yaml")
 	data, err := yaml.Marshal(Config{
-		ConfigVersion: 1,
+		ConfigVersion: appversion.ServerConfigVersion,
 		ListenAddr:    "127.0.0.1:0",
 		MonitorAddr:   "",
 		TLS: TLSConfig{

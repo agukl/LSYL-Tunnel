@@ -93,6 +93,40 @@ func TestClientMigrationSkipsIncompatibleActiveConfig(t *testing.T) {
 	}
 }
 
+func TestClientInstallArchiveSuffixCommand(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "quoted address", content: "server_addr: 'example.org:3443'\n", want: "example.org_3443"},
+		{name: "top-level address", content: "connection:\n  server_addr: wrong\nserver_addr: 192.0.2.10:443\n", want: "192.0.2.10_443"},
+		{name: "missing address", content: "username: alice\n", want: "unknown"},
+		{name: "invalid yaml", content: "server_addr: [\n", want: "unknown"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := filepath.Join(t.TempDir(), "client.yaml")
+			result := filepath.Join(filepath.Dir(config), "suffix.txt")
+			if err := os.WriteFile(config, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			opts, ok, err := parseClientConfigCompatArgs([]string{
+				"-config-compat-check", "-archive-suffix", "-config", config, "-result-file", result,
+			})
+			if err != nil || !ok {
+				t.Fatalf("parse archive suffix command: ok=%v err=%v", ok, err)
+			}
+			if err := runClientConfigCompatCheck(opts); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(result)
+			if err != nil || string(data) != tc.want {
+				t.Fatalf("archive suffix = %q, err = %v, want %q", data, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestClientInstallAccountCommand(t *testing.T) {
 	dir := t.TempDir()
 	oldPath := filepath.Join(dir, "old.yaml")

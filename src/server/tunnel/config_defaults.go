@@ -26,12 +26,6 @@ func ApplyDefaults(cfg *Config) {
 	if strings.TrimSpace(cfg.Requires.MinServerVersion) == "" {
 		cfg.Requires.MinServerVersion = appversion.ServerConfigRequiresServerVersion
 	}
-	if cfg.Compatibility.ProtocolVersion == 0 {
-		cfg.Compatibility.ProtocolVersion = appversion.ProtocolVersion
-	}
-	if strings.TrimSpace(cfg.Compatibility.MinClientVersion) == "" {
-		cfg.Compatibility.MinClientVersion = appversion.MinCompatibleClientVersion
-	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = DefaultListenAddr
 	}
@@ -98,9 +92,6 @@ func ApplyDefaults(cfg *Config) {
 func configForSave(cfg Config, path string) Config {
 	if cfg.Requires.MinServerVersion == appversion.ServerConfigRequiresServerVersion {
 		cfg.Requires.MinServerVersion = ""
-	}
-	if cfg.Compatibility.ProtocolVersion == appversion.ProtocolVersion {
-		cfg.Compatibility.ProtocolVersion = 0
 	}
 	if cfg.Security.MaxHandshakeBytes == defaultMaxHandshakeBytes {
 		cfg.Security.MaxHandshakeBytes = 0

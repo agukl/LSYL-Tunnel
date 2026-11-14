@@ -36,7 +36,6 @@ func ValidateConfig(cfg Config) error {
 	seenVirtualEndpoints := map[string]string{}
 	seenNames := map[string]bool{}
 	virtualEndpoints := make([]string, 0)
-	var virtualResolver *virtualAddressResolver
 	for _, fwd := range cfg.Forwards {
 		direction := strings.TrimSpace(fwd.Direction)
 		name := forwardName(fwd)
@@ -73,16 +72,7 @@ func ValidateConfig(cfg Config) error {
 			if err != nil {
 				return fmt.Errorf("forward %q: %w", fwd.Name, err)
 			}
-			if virtualResolver == nil {
-				virtualResolver, err = newVirtualAddressResolver(cfg)
-				if err != nil {
-					return fmt.Errorf("forward %q: %w", fwd.Name, err)
-				}
-			}
-			virtualAddr, err := virtualResolver.resolve(virtualHost, virtualPort)
-			if err != nil {
-				return fmt.Errorf("forward %q: %w", fwd.Name, err)
-			}
+			virtualAddr := net.JoinHostPort(virtualHost, strconv.Itoa(virtualPort))
 			if serverPort <= 0 || serverPort > 65535 {
 				return fmt.Errorf("server_addr must include a valid port before virtual forwarding is configured")
 			}

@@ -115,7 +115,7 @@ Android 不复用 Go 二进制，必须独立维护协议、前置门、Profile 
 - `client.go`：实例构造、后台任务启动和关闭；`forward_start.go`：规则启动编排、局部失败与取消授权策略。
 - `request.go` / `tls.go`：登录探测、请求封装和 TLS 材料。
 - `forward.go` / `reverse.go`：正向监听和反向连接。
-- `virtual_address.go`：虚拟地址解析、证书 SAN 策略及自动选址，不负责 TLS 服务端身份验证；`virtual_listener.go`：直接回环监听与随机桥接监听的准备；`virtual_session.go`：helper 批量启动、成员登记、失败回收和关闭。
+- `virtual_address.go`：显式虚拟 IPv4:端口校验，不读取证书；`virtual_listener.go`：直接回环监听与随机桥接监听的准备；`virtual_session.go`：helper 批量启动、成员登记、失败回收和关闭。
 - `status.go`：状态快照；`health.go`：健康检查；`forward_check.go`：规则预检与恢复。
 - `response_policy.go`：已知服务端错误码的提示与重试策略；`error_messages.go`：网络、证书和旧格式文本错误；`retry.go`：退避时间。
 - Windows 虚拟接管分别由 `virtual_redirect_windows.go` 管理会话，`virtual_helper_windows.go` 处理 helper 命令，`virtual_control_windows.go` 负责 IPC，`virtual_elevation_windows.go` 负责提权，`windivert_windows.go` 负责驱动调用与收发。均保持 `windows && !386` 构建边界。
@@ -206,7 +206,7 @@ Profile 工具位于 `src/cmd/lsyl-tunnel-profile`：`main.go` 只负责命令�
 
 `client_to_server`：客户端通过固定本地端口接收连接，服务端连接服务端侧目标。
 
-`virtual`：仅在标准 Windows 客户端增加按 `IPv4:端口` 拦截和随机回环桥接；公网 IP 要求证书 SAN 授权，RFC1918 私有 IPv4 豁免。`127.0.0.1` 复用普通监听流程，不进入驱动和提权 helper；多条非回环规则共享一次提权 helper，会话结束后撤销接管；服务端仍按 `client_to_server` 授权，不知道也不下发虚拟入口。证书选择、端口冲突及取消授权规则见[配置参考](../system/config-reference-zh.md)。
+`virtual`：仅在标准 Windows 客户端增加按显式 `IPv4:端口` 拦截和随机回环桥接；虚拟地址不依赖证书 SAN。`127.0.0.1` 复用普通监听流程，不进入驱动和提权 helper；多条非回环规则共享一次提权 helper，会话结束后撤销接管；服务端仍按 `client_to_server` 授权，不知道也不下发虚拟入口。地址格式、端口冲突及取消授权规则见[配置参考](../system/config-reference-zh.md)。
 
 `server_to_client`：服务端配置被动入口，客户端通过规则中的 `listen_addr` 选择并主动激活对应入口，同时上报本地 `server_target` 供运行记录。服务端按监听地址和登录账号校验归属；收到访问后只发送不透明流 ID，客户端再回建数据流并连接本地目标。服务端不会主动拨入客户端网络，不用客户端目标选择端口，也不会把保留端口下发或写回客户端配置。
 
