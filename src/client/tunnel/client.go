@@ -31,6 +31,10 @@ type Client struct {
 	closeOnce              sync.Once
 	active                 atomic.Int64
 	total                  atomic.Int64
+	bytesUp                atomic.Int64
+	bytesDown              atomic.Int64
+	streamAddrMu           sync.Mutex
+	activeStreamAddrs      map[int64]businessStreamConnection
 }
 
 func Run(ctx context.Context, cfg Config, logf transport.LogFunc) error {
@@ -65,7 +69,7 @@ func start(ctx context.Context, cfg Config, serverVersion string, entries []stri
 		cfg:                    cfg,
 		tlsConfig:              tlsCfg,
 		certificateGateKey:     certificateGateKey,
-		businessPool:           newBusinessEndpointPool(entries, cfg.ServerAddr, cfg.Forwards),
+		businessPool:           newBusinessEndpointPool(entries, cfg.ServerAddr),
 		ctx:                    ctx,
 		listeners:              map[string]net.Listener{},
 		virtualAddrs:           map[string]string{},

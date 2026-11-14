@@ -1,6 +1,8 @@
 ﻿package com.lsyl.tunnel.mobile.security
 
 import com.lsyl.tunnel.mobile.profile.MobileProfile
+import com.lsyl.tunnel.mobile.profile.HostPort
+import com.lsyl.tunnel.mobile.protocol.Ipv6EndpointPool
 import java.io.Closeable
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -13,21 +15,21 @@ import javax.net.ssl.SSLParameters
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.TrustManagerFactory
 
-class PinnedTlsConnector(private val certBytes: ByteArray) {
+internal class PinnedTlsConnector(private val certBytes: ByteArray) {
     private val certificate = CertificatePins.parseCertificate(certBytes)
     private val expectedPin = CertificatePins.sha256Hex(certificate)
     private val context: SSLContext = buildContext()
     private val pending = PendingCloseables<Socket>()
 
-    fun connect(profile: MobileProfile): SSLSocket {
+    fun connect(profile: MobileProfile, pool: Ipv6EndpointPool? = null): SSLSocket {
         val endpoint = profile.serverEndpoint()
         val timeout = profile.connection.timeoutMillis()
-        val raw = pending.track(Socket())
+        val raw = if (pool?.hasCandidates == true) pool.dial(timeout, ::dialRaw) else dialRaw(endpoint, timeout)
         return try {
             raw.closeOnFailure {
-                raw.connect(InetSocketAddress(endpoint.host, endpoint.port), timeout)
                 raw.soTimeout = timeout
                 CertificateGate.perform(raw, certificate)
+                // The alternate IPv6 address changes transport only, not server identity.
                 val tlsHost = profile.tls.serverName.ifBlank { endpoint.host }
                 val tls = pending.track(
                     context.socketFactory.createSocket(raw, tlsHost, endpoint.port, true) as SSLSocket
@@ -66,6 +68,19 @@ class PinnedTlsConnector(private val certBytes: ByteArray) {
 
     fun cancelPending() {
         pending.cancelAll()
+    }
+
+    private fun dialRaw(endpoint: HostPort, timeout: Int): Socket {
+        val raw = pending.track(Socket())
+        return try {
+            raw.closeOnFailure {
+                raw.connect(InetSocketAddress(endpoint.host, endpoint.port), timeout)
+                raw
+            }
+        } catch (failure: Throwable) {
+            pending.release(raw)
+            throw failure
+        }
     }
 
     private fun buildContext(): SSLContext {

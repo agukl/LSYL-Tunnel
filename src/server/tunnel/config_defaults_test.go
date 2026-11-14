@@ -25,21 +25,6 @@ func TestDefaultRuntimePathKeepsPackageLocalLayout(t *testing.T) {
 	}
 }
 
-func TestApplyDefaultsMigratesLegacyConnectionRateField(t *testing.T) {
-	cfg := Config{
-		Security: SecurityConfig{
-			MaxConnectionsPerIPPerWindow: 42,
-		},
-	}
-	ApplyDefaults(&cfg)
-	if got := cfg.Security.MaxNewConnectionsPerIPWindow; got != 42 {
-		t.Fatalf("MaxNewConnectionsPerIPWindow = %d, want 42", got)
-	}
-	if got := cfg.Security.MaxConnectionsPerIPPerWindow; got != 0 {
-		t.Fatalf("legacy MaxConnectionsPerIPPerWindow = %d, want 0", got)
-	}
-}
-
 func TestApplyDefaultsSetsEntryProtectionLimits(t *testing.T) {
 	var cfg Config
 	ApplyDefaults(&cfg)
@@ -108,9 +93,6 @@ func TestLoadConfigDefaultsTrafficLogPaths(t *testing.T) {
 	}
 	if got, want := cfg.Runtime.EntryTrafficLogFile, filepath.Join(confDir, "..", "logs", "entry-traffic", "entry-traffic.jsonl"); got != want {
 		t.Fatalf("EntryTrafficLogFile = %q, want %q", got, want)
-	}
-	if cfg.Runtime.FlowTrafficLogFile != "" {
-		t.Fatalf("deprecated FlowTrafficLogFile = %q, want empty", cfg.Runtime.FlowTrafficLogFile)
 	}
 }
 

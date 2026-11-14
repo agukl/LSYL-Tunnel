@@ -15,11 +15,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 class TunnelManager(
     private val loaded: LoadedProfile,
     protocolOverride: TunnelProtocol? = null,
-    onStatsChanged: () -> Unit = {}
+    onStatsChanged: () -> Unit = {},
+    onBusinessAddressChanged: (String?) -> Unit = {}
 ) : ManagedTunnel {
     private val profile: MobileProfile = loaded.profile
     private val protocol: TunnelProtocol = protocolOverride ?: ProtocolClient(profile, loaded.serverCertBytes)
     private val registry = RuntimeRegistry(profile.forwards, onStatsChanged)
+    private val businessAddresses = BusinessAddressTracker(onBusinessAddressChanged)
     private val executors = TunnelExecutors()
     private val lifecycle = TunnelLifecycleGate()
     private val forwards = ConcurrentHashMap<String, LocalForward>()
@@ -78,6 +80,7 @@ class TunnelManager(
 
     override fun stop() {
         val stopped = lifecycle.stopIfRunning(running) {
+            businessAddresses.clear()
             protocol.cancelPending()
             forwards.values.forEach { it.stop() }
             forwards.clear()
@@ -96,7 +99,7 @@ class TunnelManager(
     private fun startForward(forward: ForwardConfig) {
         lifecycle.runIfRunning(running) {
             val runtime = registry.runtime(forward)
-            val local = LocalForward(forward, protocol, runtime, executors.listeners, executors.connections, executors.copies)
+            val local = LocalForward(forward, protocol, runtime, executors.listeners, executors.connections, executors.copies, businessAddresses)
             forwards[forward.displayName()] = local
             local.start()
             if (!local.isRunning()) forwards.remove(forward.displayName(), local)

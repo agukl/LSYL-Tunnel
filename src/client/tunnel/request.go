@@ -46,10 +46,10 @@ func checkServerResponse(ctx context.Context, cfg Config, reqType string) (proto
 }
 
 func checkServerResponseWithTLS(ctx context.Context, cfg Config, reqType string, tlsCfg *tls.Config, certificateGateKey transport.CertificateGateKey) (protocol.OpenResponse, error) {
-	return checkServerResponseWithTLSAndDialer(ctx, cfg, reqType, tlsCfg, certificateGateKey, nil, nil)
+	return checkServerResponseWithTLSAndDialer(ctx, cfg, reqType, tlsCfg, certificateGateKey, nil)
 }
 
-func checkServerResponseWithTLSAndDialer(ctx context.Context, cfg Config, reqType string, tlsCfg *tls.Config, certificateGateKey transport.CertificateGateKey, dialer transport.ContextDialer, quality func() []protocol.EntryQuality) (protocol.OpenResponse, error) {
+func checkServerResponseWithTLSAndDialer(ctx context.Context, cfg Config, reqType string, tlsCfg *tls.Config, certificateGateKey transport.CertificateGateKey, dialer transport.ContextDialer) (protocol.OpenResponse, error) {
 	var resp protocol.OpenResponse
 	timeout := time.Duration(cfg.Connection.DialTimeoutSec) * time.Second
 	if timeout <= 0 {
@@ -73,9 +73,6 @@ func checkServerResponseWithTLSAndDialer(ctx context.Context, cfg Config, reqTyp
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 	req := newOpenRequest(cfg, reqType)
-	if reqType == "health" && quality != nil {
-		req.EntryQuality = quality()
-	}
 	if err := protocol.WriteJSON(conn, req); err != nil {
 		return resp, err
 	}

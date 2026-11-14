@@ -5,30 +5,28 @@ import "time"
 // MonitorStatus is the /status wire contract shared by the server and its GUI.
 // Fields are always emitted, including zero counters and empty collections.
 type MonitorStatus struct {
-	Service                 string                      `json:"service"`
-	ListenAddr              string                      `json:"listen_addr"`
-	UptimeSec               int64                       `json:"uptime_sec"`
-	ActiveConnections       int                         `json:"active_connections"`
-	TrackedRemoteIPs        int                         `json:"tracked_remote_ips"`
-	ConnectionsRejected     int64                       `json:"connections_rejected"`
-	ConnectionLimits        *ConnectionLimitsStatus     `json:"connection_limits"`
-	ConnectionRejections    *ConnectionRejectionsStatus `json:"connection_rejections"`
-	EntrySecurity           *EntrySecurityStatus        `json:"entry_security"`
-	FailureTracker          *FailureTrackerStatus       `json:"failure_tracker"`
-	EntryTrafficLog         *EntryTrafficLogStatus      `json:"entry_traffic_log"`
-	UserStreamLimits        *UserStreamLimitsStatus     `json:"user_stream_limits"`
-	UserStreamLimitRejected int64                       `json:"user_stream_limit_rejected"`
-	ActiveStreams           int64                       `json:"active_streams"`
-	TotalStreams            int64                       `json:"total_streams"`
-	AuthOK                  int64                       `json:"auth_ok"`
-	AuthFailed              int64                       `json:"auth_failed"`
-	PolicyRejected          int64                       `json:"policy_rejected"`
-	DialFailed              int64                       `json:"dial_failed"`
-	BytesUp                 int64                       `json:"bytes_up"`
-	BytesDown               int64                       `json:"bytes_down"`
-	BlockedIPs              []BlockedIPState            `json:"blocked_ips"`
-	RecentEvents            []RuntimeEvent              `json:"recent_events"`
-	EntryQuality            []EntryQualityClientStatus  `json:"entry_quality"`
+	Service              string                      `json:"service"`
+	ListenAddr           string                      `json:"listen_addr"`
+	IPv6TunnelListening  bool                        `json:"ipv6_tunnel_listening"`
+	UptimeSec            int64                       `json:"uptime_sec"`
+	ActiveConnections    int                         `json:"active_connections"`
+	TrackedRemoteIPs     int                         `json:"tracked_remote_ips"`
+	ConnectionsRejected  int64                       `json:"connections_rejected"`
+	ConnectionLimits     *ConnectionLimitsStatus     `json:"connection_limits"`
+	ConnectionRejections *ConnectionRejectionsStatus `json:"connection_rejections"`
+	EntrySecurity        *EntrySecurityStatus        `json:"entry_security"`
+	FailureTracker       *FailureTrackerStatus       `json:"failure_tracker"`
+	EntryTrafficLog      *EntryTrafficLogStatus      `json:"entry_traffic_log"`
+	ActiveStreams        int64                       `json:"active_streams"`
+	TotalStreams         int64                       `json:"total_streams"`
+	AuthOK               int64                       `json:"auth_ok"`
+	AuthFailed           int64                       `json:"auth_failed"`
+	PolicyRejected       int64                       `json:"policy_rejected"`
+	DialFailed           int64                       `json:"dial_failed"`
+	BytesUp              int64                       `json:"bytes_up"`
+	BytesDown            int64                       `json:"bytes_down"`
+	BlockedIPs           []BlockedIPState            `json:"blocked_ips"`
+	RecentEvents         []RuntimeEvent              `json:"recent_events"`
 }
 
 type ConnectionLimitsStatus struct {
@@ -80,23 +78,14 @@ type EntryTrafficLogStatus struct {
 	Dropped       uint64 `json:"dropped"`
 }
 
-type UserStreamLimitsStatus struct {
-	Active                         int            `json:"active"`
-	TrackedUsers                   int            `json:"tracked_users"`
-	ActiveByUser                   map[string]int `json:"active_by_user"`
-	MaxConcurrentStreamsPerUser    int            `json:"max_concurrent_streams_per_user"`
-	StreamRateLimitBytesPerSec     int            `json:"stream_rate_limit_bytes_per_sec"`
-	UserStreamLimitRejectionsTotal int64          `json:"user_stream_limit_rejections_total"`
-}
-
 func (s *Server) status() MonitorStatus {
 	connectionLimits := s.connLimiter.snapshot()
-	userStreamLimits := s.userStreams.snapshot()
 	failureStats := s.fails.stats()
 	entryTrafficStats := s.entryTrafficWriter.stats()
 	return MonitorStatus{
 		Service:             "lsyl-tunnel-server",
 		ListenAddr:          s.Addr(),
+		IPv6TunnelListening: s.ipv6TunnelListening,
 		UptimeSec:           int64(time.Since(s.started).Seconds()),
 		ActiveConnections:   connectionLimits["active"],
 		TrackedRemoteIPs:    connectionLimits["tracked_ips"],
@@ -145,25 +134,15 @@ func (s *Server) status() MonitorStatus {
 			Written:       entryTrafficStats.Written,
 			Dropped:       entryTrafficStats.Dropped,
 		},
-		UserStreamLimits: &UserStreamLimitsStatus{
-			Active:                         userStreamLimits.Active,
-			TrackedUsers:                   userStreamLimits.TrackedUsers,
-			ActiveByUser:                   userStreamLimits.ActiveByUser,
-			MaxConcurrentStreamsPerUser:    userStreamLimits.MaxPerUser,
-			StreamRateLimitBytesPerSec:     s.cfg.Security.StreamRateLimitBytesPerSec,
-			UserStreamLimitRejectionsTotal: s.userStreamLimitRejected.Load(),
-		},
-		UserStreamLimitRejected: s.userStreamLimitRejected.Load(),
-		ActiveStreams:           s.activeStreams.Load(),
-		TotalStreams:            s.totalStreams.Load(),
-		AuthOK:                  s.authOK.Load(),
-		AuthFailed:              s.authFailed.Load(),
-		PolicyRejected:          s.policyRejected.Load(),
-		DialFailed:              s.dialFailed.Load(),
-		BytesUp:                 s.bytesUp.Load(),
-		BytesDown:               s.bytesDown.Load(),
-		BlockedIPs:              s.fails.snapshotBlocked(),
-		RecentEvents:            s.recentEventSnapshot(),
-		EntryQuality:            s.entryQuality.snapshot(),
+		ActiveStreams:  s.activeStreams.Load(),
+		TotalStreams:   s.totalStreams.Load(),
+		AuthOK:         s.authOK.Load(),
+		AuthFailed:     s.authFailed.Load(),
+		PolicyRejected: s.policyRejected.Load(),
+		DialFailed:     s.dialFailed.Load(),
+		BytesUp:        s.bytesUp.Load(),
+		BytesDown:      s.bytesDown.Load(),
+		BlockedIPs:     s.fails.snapshotBlocked(),
+		RecentEvents:   s.recentEventSnapshot(),
 	}
 }

@@ -30,7 +30,6 @@ func (s *Server) newRequestContext(conn net.Conn) *requestContext {
 }
 
 func (r *requestContext) record(req protocol.OpenRequest, result, authResult string, resp protocol.OpenResponse, readErr error) {
-	req.EntryQuality = nil // Quality reports are memory-only and never enter request JSONL.
 	entry := RequestLogEntry{
 		RequestID:  r.id,
 		RemoteAddr: r.remoteAddr,
@@ -100,7 +99,6 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 	if req.Type == "health" {
-		s.entryQuality.observe(req.Username, req.ClientID, remoteIP, req.EntryQuality, s.cfg.BusinessEntries)
 		resp := serverVersionResponse(protocol.OpenResponse{OK: true, Code: "ok", Message: "server healthy"})
 		recordRequest(req, "ok", "ok", resp, nil)
 		_ = protocol.WriteJSON(conn, resp)

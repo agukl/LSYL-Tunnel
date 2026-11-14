@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -79,16 +80,14 @@ func TestBusinessLogRecordsOpenBytesWithoutLegacyFlowLog(t *testing.T) {
 			AllowedUsers: []string{"alice"},
 		}},
 		Security: SecurityConfig{
-			HandshakeTimeoutSec:         3,
-			DialTimeoutSec:              1,
-			MaxHandshakeBytes:           32768,
-			AuthFailThreshold:           3,
-			AuthFailWindowSec:           60,
-			AuthFailBlockSec:            60,
-			StreamRateLimitBytesPerSec:  1024,
-			MaxConcurrentStreamsPerUser: 4,
+			HandshakeTimeoutSec: 3,
+			DialTimeoutSec:      1,
+			MaxHandshakeBytes:   32768,
+			AuthFailThreshold:   3,
+			AuthFailWindowSec:   60,
+			AuthFailBlockSec:    60,
 		},
-		Runtime: RuntimeConfig{BusinessLogFile: businessLog, FlowTrafficLogFile: legacyFlowLog},
+		Runtime: RuntimeConfig{BusinessLogFile: businessLog},
 	}, t.Logf)
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +116,9 @@ func TestBusinessLogRecordsOpenBytesWithoutLegacyFlowLog(t *testing.T) {
 	waitForFileContains(t, path, `"bytes_up":8`, 2*time.Second)
 	waitForFileContains(t, path, `"bytes_down":8`, 2*time.Second)
 	waitForFileContains(t, path, `"bytes_total":16`, 2*time.Second)
-	waitForFileContains(t, path, `"rate_limit_bytes_per_sec":1024`, 2*time.Second)
+	if data, err := os.ReadFile(path); err != nil || strings.Contains(string(data), `"rate_limit_bytes_per_sec"`) {
+		t.Fatalf("retired stream limit unexpectedly logged: %s, %v", data, err)
+	}
 	if _, err := os.Stat(datedJSONLPath(legacyFlowLog, time.Now().Format("2006-01-02"))); !os.IsNotExist(err) {
 		t.Fatalf("legacy flow log should not be written, got %v", err)
 	}

@@ -63,13 +63,9 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Security.ConnectionRateWindowSec <= 0 {
 		cfg.Security.ConnectionRateWindowSec = defaultConnectionRateWindowSec
 	}
-	if cfg.Security.MaxNewConnectionsPerIPWindow <= 0 && cfg.Security.MaxConnectionsPerIPPerWindow > 0 {
-		cfg.Security.MaxNewConnectionsPerIPWindow = cfg.Security.MaxConnectionsPerIPPerWindow
-	}
 	if cfg.Security.MaxNewConnectionsPerIPWindow <= 0 {
 		cfg.Security.MaxNewConnectionsPerIPWindow = 120
 	}
-	cfg.Security.MaxConnectionsPerIPPerWindow = 0
 	if cfg.Security.MaxTrackedConnectionIPs <= 0 {
 		cfg.Security.MaxTrackedConnectionIPs = defaultMaxTrackedConnectionIPs
 	}
@@ -100,7 +96,6 @@ func ApplyDefaults(cfg *Config) {
 }
 
 func configForSave(cfg Config, path string) Config {
-	cfg.LogLevel = ""
 	if cfg.Requires.MinServerVersion == appversion.ServerConfigRequiresServerVersion {
 		cfg.Requires.MinServerVersion = ""
 	}
@@ -134,7 +129,6 @@ func configForSave(cfg Config, path string) Config {
 	cfg.Runtime.RequestLogFile = omitDefaultRuntimePath(base, cfg.Runtime.RequestLogFile, "logs", filepath.Join("request", "request.jsonl"))
 	cfg.Runtime.BusinessLogFile = omitDefaultRuntimePath(base, cfg.Runtime.BusinessLogFile, "logs", filepath.Join("business", "business.jsonl"))
 	cfg.Runtime.EntryTrafficLogFile = omitDefaultRuntimePath(base, cfg.Runtime.EntryTrafficLogFile, "logs", filepath.Join("entry-traffic", "entry-traffic.jsonl"))
-	cfg.Runtime.FlowTrafficLogFile = ""
 	if cfg.Runtime.RecentEvents == defaultRecentEvents {
 		cfg.Runtime.RecentEvents = 0
 	}

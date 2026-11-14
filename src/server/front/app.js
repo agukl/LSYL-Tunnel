@@ -3,7 +3,7 @@ import {
   removeEmptyRows, hasDataRows, actionButton,
 } from './modules/dom.js';
 import { api } from './modules/api.js';
-import { numberText, bytesText, rateText, timeText, remainText } from './modules/format.js';
+import { numberText, bytesText, timeText, remainText } from './modules/format.js';
 import {
   addCustomSelect, renderCustomSelect, closeAllCustomSelects, bindCustomSelectDismissal,
 } from './modules/select.js';
@@ -20,10 +20,11 @@ let activeTab = 'overview';
 let activeLogView = 'business';
 let resetPasswordRow = null;
 let pendingConfirmAction = null;
+let ipv6StatusPending = false;
 const editableSecurityIds = [
   'handshakeTimeout', 'dialTimeout', 'maxConcurrentConnections',
-  'maxConcurrentConnectionsPerIP', 'maxNewConnectionsPerIPWindow', 'maxConcurrentStreamsPerUser',
-  'streamRateLimitBytesPerSec', 'authFailWindow', 'authFailThreshold', 'authFailBlock',
+  'maxConcurrentConnectionsPerIP', 'maxNewConnectionsPerIPWindow',
+  'authFailWindow', 'authFailThreshold', 'authFailBlock', 'ipv6TunnelEnabled',
 ];
 
 function showToast(message, isError) {
@@ -139,7 +140,6 @@ function renderState(nextState, fillForms) {
   var connectionRejections = (mon && mon.connection_rejections) || {};
   setText('connectionConcurrentRejectsView', numberText((connectionRejections.global_concurrent || 0) + (connectionRejections.per_ip_concurrent || 0)));
   setText('connectionRateRejectsView', numberText(connectionRejections.per_ip_new_connection_rate || 0));
-  setText('userStreamLimitRejectedView', numberText(mon.user_stream_limit_rejected));
   setText('authOKView', numberText(mon.auth_ok));
   setText('authFailedView', numberText(mon.auth_failed));
   setText('policyRejectedView', numberText(mon.policy_rejected));
@@ -165,7 +165,6 @@ function renderState(nextState, fillForms) {
   }
   renderConfigLockBanner();
   renderActivityDetails(state.business_logs || [], state.request_logs || [], (mon && mon.blocked_ips) || [], state.permanent_blocked_ips || []);
-  renderUserConcurrency(cfg, mon || {});
 
   if (fillForms) {
     fillSecurity(cfg);
@@ -175,6 +174,7 @@ function renderState(nextState, fillForms) {
   }
 
   updateButtons();
+  if (activeTab === 'security') { refreshIPv6TunnelStatus(); }
 }
 
 function configLockMessage() {
@@ -234,68 +234,33 @@ function setConfigEditingEnabled(enabled) {
 
 function fillSecurity(cfg) {
   var sec = cfg.security || {};
+  $('ipv6TunnelEnabled').checked = !!cfg.ipv6_tunnel_enabled;
   $('handshakeTimeout').value = sec.handshake_timeout_sec || '';
   $('dialTimeout').value = sec.dial_timeout_sec || '';
   $('maxConcurrentConnections').value = sec.max_concurrent_connections || '';
   $('maxConcurrentConnectionsPerIP').value = sec.max_concurrent_connections_per_ip || '';
-  $('maxNewConnectionsPerIPWindow').value = sec.max_new_connections_per_ip_window || sec.max_connections_per_ip_per_window || '';
-  $('maxConcurrentStreamsPerUser').value = sec.max_concurrent_streams_per_user || '';
-  $('streamRateLimitBytesPerSec').value = sec.stream_rate_limit_bytes_per_sec || '';
+  $('maxNewConnectionsPerIPWindow').value = sec.max_new_connections_per_ip_window || '';
   $('authFailWindow').value = sec.auth_fail_window_sec || '';
   $('authFailThreshold').value = sec.auth_fail_threshold || '';
   $('authFailBlock').value = sec.auth_fail_block_sec || '';
 }
 
-function renderUserConcurrency(cfg, mon) {
-  cfg = cfg || {};
-  mon = mon || {};
-  var sec = cfg.security || {};
-  var limits = mon.user_stream_limits || {};
-  var maxStreams = Number(sec.max_concurrent_streams_per_user || limits.max_concurrent_streams_per_user || 0);
-  var rateLimit = Number(sec.stream_rate_limit_bytes_per_sec || limits.stream_rate_limit_bytes_per_sec || 0);
-  var activeByUser = limits.active_by_user || {};
-  var users = cfg.users || [];
-  var forwards = cfg.forwards || [];
-
-  setText('userStreamLimitView', maxStreams > 0 ? maxStreams : '不限');
-  setText('streamRateLimitView', rateLimit > 0 ? rateText(rateLimit) : '不限');
-  setText('userStreamActiveView', numberText(limits.active || mon.active_streams || 0));
-  setText('userConcurrencyRejectedView', numberText(mon.user_stream_limit_rejected || limits.user_stream_limit_rejections_total || 0));
-
-  var tbody = $('userConcurrencyTable').getElementsByTagName('tbody')[0];
-  tbody.innerHTML = '';
-  var seen = {};
-  for (var i = 0; i < users.length; i++) {
-    var user = users[i] || {};
-    var username = (user.username || '').replace(/^\s+|\s+$/g, '');
-    if (!username || seen[username]) { continue; }
-    seen[username] = true;
-    appendUserConcurrencyRow(tbody, username, !!user.disabled, boundPortsForUser(username, forwards), activeByUser[username] || 0, maxStreams, rateLimit);
-  }
-  var extras = [];
-  for (var name in activeByUser) {
-    if (Object.prototype.hasOwnProperty.call(activeByUser, name) && !seen[name]) {
-      extras.push(name);
-    }
-  }
-  extras.sort();
-  for (var j = 0; j < extras.length; j++) {
-    appendUserConcurrencyRow(tbody, extras[j], false, [], activeByUser[extras[j]] || 0, maxStreams, rateLimit);
-  }
-  if (!hasDataRows(tbody)) {
-    appendEmptyRow(tbody, 6, '暂无用户并发数据');
-  }
+function renderIPv6TunnelStatus(view) {
+  view = view || {};
+  var addresses = Array.isArray(view.addresses) ? view.addresses : [];
+  setText('ipv6TunnelAddresses', addresses.length ? addresses.join('\n') : '未检测到公网 IPv6');
+  setText('ipv6TunnelListening', !view.monitor_available ? '状态不可读' : (view.listening ? '监听中' : '未监听'));
 }
 
-function appendUserConcurrencyRow(tbody, username, disabled, ports, active, maxStreams, rateLimit) {
-  var tr = document.createElement('tr');
-  appendPlainCell(tr, username || '-');
-  appendBadgeCell(tr, disabled ? '禁用' : '启用', disabled ? 'warn' : 'ok');
-  appendPlainCell(tr, ports && ports.length ? ports.join('，') : '未绑定');
-  appendPlainCell(tr, numberText(active));
-  appendPlainCell(tr, maxStreams > 0 ? String(maxStreams) : '不限');
-  appendPlainCell(tr, rateLimit > 0 ? rateText(rateLimit) : '不限');
-  tbody.appendChild(tr);
+function refreshIPv6TunnelStatus() {
+  if (activeTab !== 'security' || document.hidden || ipv6StatusPending) { return; }
+  ipv6StatusPending = true;
+  api('GET', '/api/ipv6-tunnel', null, function (res) {
+    ipv6StatusPending = false;
+    if (activeTab === 'security' && res && Array.isArray(res.addresses)) {
+      renderIPv6TunnelStatus(res);
+    }
+  });
 }
 
 function bindSecurityFields() {
@@ -738,14 +703,13 @@ function collectConfig() {
     },
     users: collectUsers(),
     forwards: collectForwards(),
+    ipv6_tunnel_enabled: $('ipv6TunnelEnabled').checked,
     security: {
       handshake_timeout_sec: toInt($('handshakeTimeout').value),
       dial_timeout_sec: toInt($('dialTimeout').value),
       max_concurrent_connections: toInt($('maxConcurrentConnections').value),
       max_concurrent_connections_per_ip: toInt($('maxConcurrentConnectionsPerIP').value),
       max_new_connections_per_ip_window: toInt($('maxNewConnectionsPerIPWindow').value),
-      max_concurrent_streams_per_user: toInt($('maxConcurrentStreamsPerUser').value),
-      stream_rate_limit_bytes_per_sec: toInt($('streamRateLimitBytesPerSec').value),
       auth_fail_window_sec: toInt($('authFailWindow').value),
       auth_fail_threshold: toInt($('authFailThreshold').value),
       auth_fail_block_sec: toInt($('authFailBlock').value)
@@ -1103,6 +1067,7 @@ function setActiveTab(tab) {
   if (activeTab === 'analysis' && !hasLoadedAnalysis()) {
     loadAnalysis();
   }
+  if (activeTab === 'security') { refreshIPv6TunnelStatus(); }
   setLogView(activeLogView);
 }
 
@@ -1200,6 +1165,8 @@ function init() {
   initAnalysisDefaults();
   setActiveTab(activeTab);
   loadState(true);
+  window.setInterval(refreshIPv6TunnelStatus, 15000);
+  document.addEventListener('visibilitychange', refreshIPv6TunnelStatus);
 }
 
 if (document.readyState === 'loading') {

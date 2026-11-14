@@ -258,8 +258,6 @@ func (s *Server) recordBusinessLogFromEvent(event RuntimeEvent) {
 	if isFlowBusinessEvent(event) {
 		entry.BytesTotal = event.BytesUp + event.BytesDown
 		entry.AverageBytesPerSec = averageBytesPerSec(entry.BytesTotal, event.DurationMS)
-		entry.RateLimitBytesPerSec = s.cfg.Security.StreamRateLimitBytesPerSec
-		entry.MaxConcurrentStreamsUser = s.cfg.Security.MaxConcurrentStreamsPerUser
 		entry.Abnormal = event.Result != "closed"
 	}
 	s.recordBusinessLog(entry)

@@ -1,5 +1,6 @@
 var busy = false;
 var autostartBusy = false;
+var dialTimeoutBusy = false;
 var lastRunning = null;
 var lastState = null;
 var forceNextForm = false;
@@ -8,6 +9,7 @@ var lastProfilesSignature = '';
 var lastStateSignature = '';
 var refreshTimer = null;
 var refreshInFlight = false;
+var lastSpeedSample = null;
 function el(id){ return document.getElementById(id); }
 function stopEvent(evt){
   evt.stopPropagation();
@@ -121,6 +123,33 @@ function setAutostart(enabled){
     el('autostartMsg').innerText = '修改开机自启失败，请重试。';
   });
 }
+function setDialTimeout(raw){
+  if(dialTimeoutBusy) return;
+  var seconds = Number(raw);
+  var input = el('dialTimeoutSec');
+  var message = el('dialTimeoutMsg');
+  message.className = 'dial-timeout-message';
+  message.innerText = '';
+  if(!Number.isInteger(seconds) || seconds < 5 || seconds > 60){
+    message.innerText = '请输入 5–60 秒的整数。';
+    return;
+  }
+  dialTimeoutBusy = true;
+  input.disabled = true;
+  api('/api/dial-timeout', { dial_timeout_sec: seconds }, function(r){
+    dialTimeoutBusy = false;
+    input.disabled = !!(lastState && lastState.connecting);
+    if(r.state) renderState(r.state, true);
+    input.value = (lastState && lastState.config && lastState.config.dial_timeout_sec) || 5;
+    message.className = 'dial-timeout-message' + (r.ok ? ' ok' : '');
+    message.innerText = r.message || (r.ok ? '已保存，下次连接生效。' : '保存失败，请重试。');
+  }, function(){
+    dialTimeoutBusy = false;
+    input.disabled = !!(lastState && lastState.connecting);
+    input.value = (lastState && lastState.config && lastState.config.dial_timeout_sec) || 5;
+    message.innerText = '保存失败，请重试。';
+  });
+}
 function showLogoMenu(evt){
   stopEvent(evt);
   var state = lastState || {};
@@ -200,6 +229,48 @@ function setVersion(state){
   var text = clientVersion ? ('C v' + clientVersion) : '';
   if(serverVersion) text += (text ? '  ' : '') + 'S v' + serverVersion;
   el('versionBadge').innerText = text;
+}
+function formatSpeed(bytesPerSecond){
+  var units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  var value = Math.max(0, bytesPerSecond);
+  var unit = 0;
+  while(value >= 1024 && unit < units.length - 1){ value /= 1024; unit++; }
+  return (unit && value < 10 ? value.toFixed(1) : Math.round(value)) + units[unit];
+}
+function fitBusinessLive(){
+  var live = el('businessLive');
+  var address = el('businessAddr');
+  var latency = el('businessLatency');
+  var speed = el('businessSpeed');
+  address.hidden = false;
+  latency.hidden = false;
+  speed.hidden = false;
+  if(address.scrollWidth > address.clientWidth) address.hidden = true;
+  if(live.scrollWidth > live.clientWidth) latency.hidden = true;
+  if(live.scrollWidth > live.clientWidth) speed.hidden = true;
+}
+function setBusinessTelemetry(state){
+  var stats = (state && state.stats) || {};
+  var addr = state && state.running && stats.active > 0 ? (stats.business_addr || '') : '';
+  var live = el('businessLive');
+  live.hidden = !addr;
+  if(!addr){ lastSpeedSample = null; return; }
+  el('businessAddr').innerText = addr;
+  var connectMS = Number(stats.business_connect_ms) || 0;
+  el('businessLatency').innerText = connectMS > 0 ? connectMS + 'ms' : '<1ms';
+  var now = Date.now();
+  var up = Number(stats.bytes_up) || 0;
+  var down = Number(stats.bytes_down) || 0;
+  var previous = lastSpeedSample;
+  if(!previous){ el('businessSpeed').innerText = '↑-- ↓--'; }
+  else if(now - previous.at >= 500){
+    var elapsed = (now - previous.at) / 1000;
+    el('businessSpeed').innerText = elapsed > 10 || up < previous.up || down < previous.down
+      ? '↑-- ↓--'
+      : '↑' + formatSpeed((up - previous.up) / elapsed) + ' ↓' + formatSpeed((down - previous.down) / elapsed);
+  }
+  if(!previous || now - previous.at >= 500) lastSpeedSample = {at:now, up:up, down:down};
+  fitBusinessLive();
 }
 function statusClass(running, stats){
   if(!running) return 'off';
@@ -296,7 +367,7 @@ function renderState(state, force){
   lastState = state;
   var signature = '';
   try { signature = JSON.stringify(state); } catch(e) {}
-  if(!force && signature && signature === lastStateSignature) return;
+  if(!force && signature && signature === lastStateSignature){ setBusinessTelemetry(state); return; }
   lastStateSignature = signature;
   var running = !!state.running;
   var changed = lastRunning !== null && lastRunning !== running;
@@ -304,11 +375,15 @@ function renderState(state, force){
   el('app').className = running ? (reconnecting ? 'app running reconnecting' : 'app running') : 'app';
   setStatus(running, state);
   setVersion(state);
+  setBusinessTelemetry(state);
   if(changed) clearMessages();
   lastRunning = running;
   el('loginBtn').disabled = running || busy || !!state.connecting;
   el('loginBtn').innerText = state.connecting ? '正在连接...' : '连接';
   if(!autostartBusy) el('autostartCheck').checked = !!state.autostart;
+  var dialTimeout = el('dialTimeoutSec');
+  if(!dialTimeoutBusy && document.activeElement !== dialTimeout) dialTimeout.value = (state.config && state.config.dial_timeout_sec) || 5;
+  if(!dialTimeoutBusy) dialTimeout.disabled = !!state.connecting;
   el('server_addr').disabled = running || !!state.connecting;
   el('username').disabled = running || !!state.connecting;
   el('password').disabled = running || !!state.connecting;
@@ -421,6 +496,7 @@ function refreshDelay(state){
   if(state && state.connecting) return 1000;
   if(state && state.window_hidden) return 30000;
   if(state && state.running && isReconnecting(state.stats || {})) return 2500;
+  if(state && state.running && (state.stats || {}).active > 0) return 2500;
   if(state && state.running) return 5000;
   return 15000;
 }
@@ -499,4 +575,6 @@ function exportMobileProfile(evt){
   return false;
 }
 installLogoMenuDismiss();
+window.addEventListener('resize', function(){ if(lastState && lastState.running) fitBusinessLive(); });
+window.addEventListener('focus', refresh);
 refresh();

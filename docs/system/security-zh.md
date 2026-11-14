@@ -83,17 +83,6 @@ pbkdf2-sha256:<iterations>:<salt-base64>:<hash-base64>
 
 这里的“速率”只表示新建连接次数速率，不表示隧道内业务数据的带宽上限。业务流量统计在连接关闭事件里记录 `bytes_up`、`bytes_down` 和 `duration_ms`。
 
-## 账号业务流限制
-
-认证和转发授权通过后，服务端会对真正进入数据转发的业务连接执行账号维度限制：
-
-- `security.max_concurrent_streams_per_user`
-- `security.stream_rate_limit_bytes_per_sec`
-
-`max_concurrent_streams_per_user` 限制单个账号同时保持的正向 `open` 和反向 `reverse_stream` 数据通道数量。登录、健康检查、转发检查和反向控制连接不占用该额度。
-
-`stream_rate_limit_bytes_per_sec` 限制每条业务连接的上下行合计速率。连接关闭时在业务流水中按实际通过的字节数记录 `bytes_up`、`bytes_down`、`duration_ms`、总字节数和平均速率。
-
 ## 登录失败封禁
 
 服务端按来源 IP 统计认证失败：

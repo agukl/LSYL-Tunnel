@@ -22,18 +22,6 @@ type OpenRequest struct {
 	ListenAddr      string            `json:"listen_addr,omitempty"` // Client-selected reverse listener; the server validates but does not downlink it.
 	StreamID        string            `json:"stream_id,omitempty"`
 	Target          string            `json:"target"` // Authoritative for client_to_server; diagnostic metadata for reverse requests.
-	EntryQuality    []EntryQuality    `json:"entry_quality,omitempty"`
-}
-
-// EntryQuality reports recent TCP dial results for a configured business entry.
-// "bootstrap" identifies the original server_addr without publishing it.
-type EntryQuality struct {
-	Endpoint  string `json:"endpoint"`
-	Attempts  int    `json:"attempts"`
-	Successes int    `json:"successes"`
-	Failures  int    `json:"failures"`
-	AvgDialMS int    `json:"avg_dial_ms"`
-	LastError string `json:"last_error,omitempty"`
 }
 
 type OpenResponse struct {

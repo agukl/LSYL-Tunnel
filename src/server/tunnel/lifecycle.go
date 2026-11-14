@@ -108,8 +108,8 @@ func (s *Server) Close() error {
 				s.lifecycle.closeErr = err
 			}
 		}
-		for _, listener := range s.businessListeners {
-			if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) && s.lifecycle.closeErr == nil {
+		if s.ipv6TunnelListener != nil {
+			if err := s.ipv6TunnelListener.Close(); err != nil && !errors.Is(err, net.ErrClosed) && s.lifecycle.closeErr == nil {
 				s.lifecycle.closeErr = err
 			}
 		}

@@ -15,29 +15,27 @@ import (
 
 // monitorStatus is the GUI projection; collection omission differs from /status.
 type monitorStatus struct {
-	Service                 string                             `json:"service"`
-	ListenAddr              string                             `json:"listen_addr"`
-	UptimeSec               int64                              `json:"uptime_sec"`
-	ActiveConnections       int                                `json:"active_connections"`
-	ConnectionsRejected     int64                              `json:"connections_rejected"`
-	ConnectionLimits        *tunnel.ConnectionLimitsStatus     `json:"connection_limits,omitempty"`
-	ConnectionRejections    *tunnel.ConnectionRejectionsStatus `json:"connection_rejections,omitempty"`
-	ActiveStreams           int64                              `json:"active_streams"`
-	TotalStreams            int64                              `json:"total_streams"`
-	UserStreamLimits        *tunnel.UserStreamLimitsStatus     `json:"user_stream_limits,omitempty"`
-	UserStreamLimitRejected int64                              `json:"user_stream_limit_rejected"`
-	AuthOK                  int64                              `json:"auth_ok"`
-	AuthFailed              int64                              `json:"auth_failed"`
-	PolicyRejected          int64                              `json:"policy_rejected"`
-	DialFailed              int64                              `json:"dial_failed"`
-	BytesUp                 int64                              `json:"bytes_up"`
-	BytesDown               int64                              `json:"bytes_down"`
-	EntrySecurity           *tunnel.EntrySecurityStatus        `json:"entry_security,omitempty"`
-	FailureTracker          *tunnel.FailureTrackerStatus       `json:"failure_tracker,omitempty"`
-	EntryTrafficLog         *tunnel.EntryTrafficLogStatus      `json:"entry_traffic_log,omitempty"`
-	BlockedIPs              []tunnel.BlockedIPState            `json:"blocked_ips,omitempty"`
-	RecentEvents            []tunnel.RuntimeEvent              `json:"recent_events,omitempty"`
-	EntryQuality            []tunnel.EntryQualityClientStatus  `json:"entry_quality,omitempty"`
+	Service              string                             `json:"service"`
+	ListenAddr           string                             `json:"listen_addr"`
+	IPv6TunnelListening  bool                               `json:"ipv6_tunnel_listening"`
+	UptimeSec            int64                              `json:"uptime_sec"`
+	ActiveConnections    int                                `json:"active_connections"`
+	ConnectionsRejected  int64                              `json:"connections_rejected"`
+	ConnectionLimits     *tunnel.ConnectionLimitsStatus     `json:"connection_limits,omitempty"`
+	ConnectionRejections *tunnel.ConnectionRejectionsStatus `json:"connection_rejections,omitempty"`
+	ActiveStreams        int64                              `json:"active_streams"`
+	TotalStreams         int64                              `json:"total_streams"`
+	AuthOK               int64                              `json:"auth_ok"`
+	AuthFailed           int64                              `json:"auth_failed"`
+	PolicyRejected       int64                              `json:"policy_rejected"`
+	DialFailed           int64                              `json:"dial_failed"`
+	BytesUp              int64                              `json:"bytes_up"`
+	BytesDown            int64                              `json:"bytes_down"`
+	EntrySecurity        *tunnel.EntrySecurityStatus        `json:"entry_security,omitempty"`
+	FailureTracker       *tunnel.FailureTrackerStatus       `json:"failure_tracker,omitempty"`
+	EntryTrafficLog      *tunnel.EntryTrafficLogStatus      `json:"entry_traffic_log,omitempty"`
+	BlockedIPs           []tunnel.BlockedIPState            `json:"blocked_ips,omitempty"`
+	RecentEvents         []tunnel.RuntimeEvent              `json:"recent_events,omitempty"`
 }
 
 type unblockIPRequest struct {
@@ -63,29 +61,27 @@ func loadMonitorStatus(addr string) (*monitorStatus, error) {
 		return nil, err
 	}
 	return &monitorStatus{
-		Service:                 status.Service,
-		ListenAddr:              status.ListenAddr,
-		UptimeSec:               status.UptimeSec,
-		ActiveConnections:       status.ActiveConnections,
-		ConnectionsRejected:     status.ConnectionsRejected,
-		ConnectionLimits:        status.ConnectionLimits,
-		ConnectionRejections:    status.ConnectionRejections,
-		EntrySecurity:           status.EntrySecurity,
-		FailureTracker:          status.FailureTracker,
-		EntryTrafficLog:         status.EntryTrafficLog,
-		UserStreamLimits:        status.UserStreamLimits,
-		UserStreamLimitRejected: status.UserStreamLimitRejected,
-		ActiveStreams:           status.ActiveStreams,
-		TotalStreams:            status.TotalStreams,
-		AuthOK:                  status.AuthOK,
-		AuthFailed:              status.AuthFailed,
-		PolicyRejected:          status.PolicyRejected,
-		DialFailed:              status.DialFailed,
-		BytesUp:                 status.BytesUp,
-		BytesDown:               status.BytesDown,
-		BlockedIPs:              status.BlockedIPs,
-		RecentEvents:            status.RecentEvents,
-		EntryQuality:            status.EntryQuality,
+		Service:              status.Service,
+		ListenAddr:           status.ListenAddr,
+		IPv6TunnelListening:  status.IPv6TunnelListening,
+		UptimeSec:            status.UptimeSec,
+		ActiveConnections:    status.ActiveConnections,
+		ConnectionsRejected:  status.ConnectionsRejected,
+		ConnectionLimits:     status.ConnectionLimits,
+		ConnectionRejections: status.ConnectionRejections,
+		EntrySecurity:        status.EntrySecurity,
+		FailureTracker:       status.FailureTracker,
+		EntryTrafficLog:      status.EntryTrafficLog,
+		ActiveStreams:        status.ActiveStreams,
+		TotalStreams:         status.TotalStreams,
+		AuthOK:               status.AuthOK,
+		AuthFailed:           status.AuthFailed,
+		PolicyRejected:       status.PolicyRejected,
+		DialFailed:           status.DialFailed,
+		BytesUp:              status.BytesUp,
+		BytesDown:            status.BytesDown,
+		BlockedIPs:           status.BlockedIPs,
+		RecentEvents:         status.RecentEvents,
 	}, nil
 }
 

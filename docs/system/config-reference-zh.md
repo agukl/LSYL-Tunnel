@@ -18,7 +18,7 @@
 
 默认 `client.yaml`、`server.yaml` 是打包输入，不是独立的字段定义。修改一个配置项时，要同时核对字段标签、必填结构、默认值、保存输出、GUI 映射及安装兼容检查；新增可选字段也须在发布说明写明引入版本与默认行为。不能安全忽略的字段增删、改名或层级变化应升级对应 `config_version`，明确旧配置的迁移或拒绝规则。未知字段和拼写错误不能猜测改名。
 
-Windows 覆盖安装先读取已安装 EXE 的文件版本，仅允许已安装 3.x 自动迁移；2.x、版本无法识别或高于安装包的版本均停止安装。服务端以安装包内的新版 `server.yaml` 为基底，保留旧配置中的用户、转发规则、主入口监听地址和已配置的 `business_entries`；其他配置按新版模板重置。旧配置的其他字段即使已弃用、缺失或层级变化，也不阻止安装。保留字段无法解析、授权关系不合法或监听地址无效时仍会拦截，避免丢失业务配置。客户端对当前及 `conf/client.*.yaml` 归档配置尽力迁移：兼容的补齐默认字段，不兼容的保留原文件并跳过，不因旧配置结构阻止安装。新包覆盖当前客户端配置后，能读出旧 `username` 就带入，不带入旧密码或密封凭据；新包的地址、转发、证书及空 `client_id` 保持不变。新包最终配置仍须通过严格校验；安装前备份，失败时恢复原配置。已迁移的 YAML 会规范化排版，原注释不保留。
+Windows 覆盖安装先读取已安装 EXE 的文件版本，仅允许已安装 3.x 自动迁移；2.x、版本无法识别或高于安装包的版本均停止安装。服务端以安装包内的新版 `server.yaml` 为基底，保留旧配置中的用户、转发规则和主入口监听地址；旧 `business_entries`、`business_ports` 不再迁移，IPv6 隧道开关等其他配置按新版模板重置。旧配置的其他字段即使已弃用、缺失或层级变化，也不阻止安装。保留字段无法解析、授权关系不合法或监听地址无效时仍会拦截，避免丢失业务配置。客户端对当前及 `conf/client.*.yaml` 归档配置尽力迁移：兼容的补齐默认字段，不兼容的保留原文件并跳过，不因旧配置结构阻止安装。新包覆盖当前客户端配置后，能读出旧 `username` 就带入，不带入旧密码或密封凭据；新包的地址、转发、证书及空 `client_id` 保持不变。新包最终配置仍须通过严格校验；安装前备份，失败时恢复原配置。已迁移的 YAML 会规范化排版，原注释不保留。
 
 迁移入口及备份事务位于两端 `config_compat.go`、`src/internal/configupgrade` 和 Windows Inno 安装脚本。`config_version` 只用于识别结构，不证明原软件属于 3.x；手工启动程序不执行安装迁移，也不再读取无版本或旧结构配置。
 
@@ -76,25 +76,22 @@ Windows 覆盖安装先读取已安装 EXE 的文件版本，仅允许已安装 
 
 `listen_addr`：服务端隧道入口监听地址。
 
-`business_entries`：可选业务入口池，仅在服务端 YAML 配置；不改变客户端的 `server_addr`。每项包含服务端实际绑定的 `listen_addr` 和客户端应拨号的 `advertise_addr`，两者必须是同一地址族的 IP:端口，IPv6 用 `[地址]:端口`。最多 16 项，不接受域名、零端口、重复端点或全零对外地址。例如：
+`ipv6_tunnel_enabled`：服务端 GUI“服务安全”页的 IPv6 隧道开关，默认 `false`。启用时在 `listen_addr` 的同一端口增加 IPv6 监听，不配置额外 IP 或端口。例如：
 
 ```yaml
-business_entries:
-  - listen_addr: 0.0.0.0:50000
-    advertise_addr: 203.0.113.10:50000
-  - listen_addr: "[::]:50001"
-    advertise_addr: "[2001:db8::10]:50001"
+listen_addr: 0.0.0.0:3443
+ipv6_tunnel_enabled: true
 ```
 
-服务端启动时监听全部配置入口，任一端口绑定失败则启动失败。标准 Windows 客户端在原 `server_addr` 完成登录后，从响应获得本次会话的池；后续正向/虚拟业务流、反向业务流、转发检查与探活优先尝试池入口，TCP 拨号失败时回退原入口。与客户端虚拟 IP 接管端口冲突的池端点会被跳过。反向控制连接仍使用原入口；所有业务入口执行相同的证书持有前置门、TLS、账号认证、封禁和限流。证书始终按原 `server_addr` 或显式 `tls.server_name` 验证，不要求把每个池 IP 加入证书。已有业务 TCP 连接不会迁移，服务端修改池后需重启服务端并让客户端重新登录；Win7 轻量客户端和 Android 客户端暂不使用入口池，仍可走原入口。确保公布地址可从客户端到达，并单独放通相应防火墙端口。
+客户端仍通过原 `server_addr` 登录（通常是 IPv4 拨号）。服务端从本机网卡读取全球单播 IPv6，最多公布 64 个地址，均使用原拨号端口；IPv6 地址和端口只承载隧道连接，不参与转发规则或目标选择。主入口只绑定回环地址时不会额外开放 IPv6 公网监听。没有可用公网 IPv6 或 IPv6 监听失败时，业务连接仍走原入口，不影响 IPv4 主服务。启用后新增的 IPv6 地址可在客户端重新登录时获得；地址变化后也需重新登录。标准 Windows 客户端的正向/虚拟业务流、反向业务流、反向控制连接、转发检查与探活，以及 Android 的正向转发和规则检查，会优先尝试 IPv6，TCP 拨号失败时回退原拨号地址和端口；TLS 或认证失败不按 TCP 失败处理。IPv4 与 IPv6 入口执行相同的证书持有前置门、TLS、账号认证、封禁和限流，证书仍按原 `server_addr` 或显式 `tls.server_name` 验证。已有 TCP 连接不会迁移；开关保存后需重启服务端并让客户端重新登录。Win7 轻量客户端暂不使用 IPv6 候选。须在服务端 IPv6 防火墙放通原拨号端口。
 
-覆盖安装会保留旧配置中的 `business_entries`；旧配置没有入口池时使用新版安装包的配置。无效或无法解析的旧入口池会阻止安装，避免静默丢失业务入口。
+覆盖安装不迁移旧 `business_ports` 或 `business_entries`，也不再被新程序直接读取；IPv6 隧道开关按新版模板默认关闭。
 
-启用入口池的标准客户端会在现有探活请求中回报最近一分钟各端点的 TCP 拨号次数、成功/失败数、平均成功拨号耗时和归类后的最近错误；未尝试端点显示零样本。服务端认证后只在内存中保存最近 5 分钟、最多 256 个客户端的快照，并通过本机 `/status` 的 `entry_quality` 字段提供查询。该数据不写入请求流水或新增日志，也不参与封禁和全局入口选择；旧客户端不回报时该字段为空。全部入口不可达时无法上报，待连接恢复后才会更新。
+标准 Windows 和 Android 客户端在本地优先采样未测 IPv6 地址，再按近期 TCP 拨号成功率和耗时选择；拨号失败的地址短时冷却。质量数据不上报服务端，不写入监控状态或日志，也不参与封禁。服务端 GUI“服务安全”页只显示当前公网 IPv6 地址和监听状态。
 
 `monitor_addr`：本机监控 HTTP 地址，留空表示关闭。
 
-旧配置中的 `log_level` 仍可直接读取，但该字段从未控制服务端日志级别；新版配置及覆盖安装结果均不生成它，GUI 保存配置时也会移除它。
+服务端已移除无效的 `log_level` 字段。旧 3.x 配置需通过覆盖安装迁移，运行时不再直接读取该字段。
 
 `tls.cert_file`：服务端 TLS 公开身份文件，客户端会信任它来识别服务端。
 
@@ -114,7 +111,7 @@ business_entries:
 
 `security.max_handshake_bytes`：可选的认证请求最大字节数，默认 32768；服务安全页不再展示。
 
-`security.max_concurrent_connections`：服务端入口允许的最大并发 TCP 连接数，包含尚未完成前置门/TLS/认证的连接、正向数据连接、反向控制连接和反向数据连接。名额在连接实际关闭时释放；反向控制连接也占一个入口名额，但不占账号业务流名额。
+`security.max_concurrent_connections`：服务端入口允许的最大并发 TCP 连接数，包含尚未完成前置门/TLS/认证的连接、正向数据连接、反向控制连接和反向数据连接。名额在连接实际关闭时释放。
 
 `security.max_concurrent_connections_per_ip`：同一来源 IP 允许的最大并发入口连接数。
 
@@ -133,10 +130,6 @@ business_entries:
 `security.failure_tracker_cleanup_sec`：可选的失败来源清扫周期，默认 60 秒；服务安全页不再展示。过期的失败时间序列和临时封禁会从内存中移除。
 
 `security.entry_traffic_log_queue_size`：可选的入口异常日志异步队列容量，默认 2048；服务安全页不再展示。入口保护不会等待日志落盘；队列满时仅丢弃入口异常明细并在监控状态中计数，不影响入口拒绝动作。
-
-`security.max_concurrent_streams_per_user`：单个账号允许同时保持的业务连接数，`0` 表示不限制。只统计正向 `open` 和反向 `reverse_stream` 数据通道，不统计登录、健康检查和反向控制连接。
-
-`security.stream_rate_limit_bytes_per_sec`：每条业务连接的总速率上限，单位字节/秒，`0` 表示不限制。该上限按单条连接上下行合计统计。
 
 `security.auth_fail_window_sec`：登录失败统计窗口。
 
@@ -164,11 +157,11 @@ business_entries:
 
 `runtime.request_log_file`：请求认证层流水日志。源码开发配置默认位于 `runtime\logs\request\request.jsonl`；安装包内配置默认位于 `logs\request\request.jsonl`。
 
-`runtime.business_log_file`：业务控制及数据流流水日志。源码开发配置默认位于 `runtime\logs\business\business.jsonl`；安装包内配置默认位于 `logs\business\business.jsonl`。流关闭时记录字节数、时长、平均速率及限制值，流拒绝、目标不可达和反向入站超时记录为异常业务事件。
+`runtime.business_log_file`：业务控制及数据流流水日志。源码开发配置默认位于 `runtime\logs\business\business.jsonl`；安装包内配置默认位于 `logs\business\business.jsonl`。流关闭时记录字节数、时长和平均速率；流拒绝、目标不可达和反向入站超时记录为异常业务事件。旧日志中的限额字段仍可读取，新日志不再生成这些值。
 
 `runtime.entry_traffic_log_file`：入口连接层流量和异常日志。源码开发配置默认位于 `runtime\logs\entry-traffic\entry-traffic.jsonl`；安装包内配置默认位于 `logs\entry-traffic\entry-traffic.jsonl`。用于记录连接限制拒绝、永久封禁命中聚合、非 TLS、HTTP 探测、TLS/协议握手异常等入口层事件。该文件使用有界异步写入，不改变既有字段或文件类别。
 
-旧配置中的 `runtime.flow_traffic_log_file` 仍可直接读取，但运行时不再写入该文件；新配置及覆盖安装结果均不生成该字段，GUI 保存配置时会移除它。旧 `flow-traffic` 文件不会被删除。
+服务端已移除无效的 `runtime.flow_traffic_log_file` 和旧连接速率别名 `security.max_connections_per_ip_per_window`。旧 3.x 配置可通过覆盖安装迁移；旧 `flow-traffic` 文件不会被删除。
 
 `runtime.recent_events`：服务端内存中保留的最近运行事件数量，默认 500。请求、认证、连接、拒绝、目标失败等运行详情只做滑窗保留；相应流水由 request、business、entry-traffic 三类 JSONL 文件记录，服务日志不再重复写入流水，仅保留服务运行诊断。
 

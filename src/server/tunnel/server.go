@@ -19,7 +19,8 @@ type Server struct {
 	lifecycle           serverLifecycle
 	cfg                 Config
 	listener            net.Listener
-	businessListeners   []net.Listener
+	ipv6TunnelListener  net.Listener
+	ipv6TunnelListening bool
 	tlsConfig           *tls.Config
 	certificateGateKey  transport.CertificateGateKey
 	httpSrv             *http.Server
@@ -42,12 +43,9 @@ type Server struct {
 	requestSeq          atomic.Uint64
 	permanentBlockHits  *permanentBlockHitAggregator
 	connLimiter         *connectionLimiter
-	userStreams         *userStreamLimiter
-	entryQuality        *entryQualityTracker
 
 	activeStreams                   atomic.Int64
 	totalStreams                    atomic.Int64
-	userStreamLimitRejected         atomic.Int64
 	entryProtocolRejected           atomic.Int64
 	entryHTTPProbeRejected          atomic.Int64
 	entryNonTLSRejected             atomic.Int64
@@ -102,11 +100,7 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 	if err != nil {
 		return nil, err
 	}
-	businessListeners, err := listenBusinessEntries(cfg.BusinessEntries)
-	if err != nil {
-		_ = ln.Close()
-		return nil, err
-	}
+	ipv6TunnelListener, ipv6TunnelListening := listenIPv6TunnelEntry(ln, cfg.IPv6TunnelEnabled, logf)
 	tlsCfg := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   transport.TLSMinVersion(cfg.TLS.MinVersion),
@@ -123,26 +117,25 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	srv := &Server{
-		lifecycle:          serverLifecycle{ctx: runCtx, cancel: cancel},
-		cfg:                cfg,
-		listener:           ln,
-		businessListeners:  businessListeners,
-		tlsConfig:          tlsCfg,
-		certificateGateKey: certificateGateKey,
-		users:              make(map[string]UserConfig),
-		fails:              fails,
-		reverseListeners:   make(map[string]*reverseListener),
-		configuredReverse:  map[string]bool{},
-		started:            time.Now(),
-		logf:               logf,
-		events:             newRuntimeEventRing(cfg.Runtime.RecentEvents),
-		requestLog:         newJSONLLog(cfg.Runtime.RequestLogFile),
-		businessLog:        newJSONLLog(cfg.Runtime.BusinessLogFile),
-		entryTrafficLog:    newJSONLLog(cfg.Runtime.EntryTrafficLogFile),
-		permanentBlockHits: newPermanentBlockHitAggregator(defaultPermanentBlockHitLogInterval),
-		connLimiter:        newConnectionLimiter(cfg.Security),
-		userStreams:        newUserStreamLimiter(cfg.Security),
-		entryQuality:       newEntryQualityTracker(),
+		lifecycle:           serverLifecycle{ctx: runCtx, cancel: cancel},
+		cfg:                 cfg,
+		listener:            ln,
+		ipv6TunnelListener:  ipv6TunnelListener,
+		ipv6TunnelListening: ipv6TunnelListening,
+		tlsConfig:           tlsCfg,
+		certificateGateKey:  certificateGateKey,
+		users:               make(map[string]UserConfig),
+		fails:               fails,
+		reverseListeners:    make(map[string]*reverseListener),
+		configuredReverse:   map[string]bool{},
+		started:             time.Now(),
+		logf:                logf,
+		events:              newRuntimeEventRing(cfg.Runtime.RecentEvents),
+		requestLog:          newJSONLLog(cfg.Runtime.RequestLogFile),
+		businessLog:         newJSONLLog(cfg.Runtime.BusinessLogFile),
+		entryTrafficLog:     newJSONLLog(cfg.Runtime.EntryTrafficLogFile),
+		permanentBlockHits:  newPermanentBlockHitAggregator(defaultPermanentBlockHitLogInterval),
+		connLimiter:         newConnectionLimiter(cfg.Security),
 	}
 	srv.entryTrafficWriter = newAsyncEntryTrafficLog(cfg.Security.EntryTrafficLogQueueSize, srv.writeEntryTrafficLog)
 	for _, user := range cfg.Auth.Users {
@@ -157,9 +150,8 @@ func Start(ctx context.Context, cfg Config, logf transport.LogFunc) (*Server, er
 		return nil, err
 	}
 	srv.startWorker(func() { srv.acceptLoop(runCtx, ln) })
-	for _, businessListener := range businessListeners {
-		entry := businessListener
-		srv.startWorker(func() { srv.acceptLoop(runCtx, entry) })
+	if ipv6TunnelListener != nil {
+		srv.startWorker(func() { srv.acceptLoop(runCtx, ipv6TunnelListener) })
 	}
 	srv.startWorker(func() { srv.credentialSealRotationLoop(runCtx.Done()) })
 	srv.startWorker(func() { srv.permanentBlockHitLogLoop(runCtx.Done()) })

@@ -24,8 +24,12 @@
     </div>
     <button id="mobileExportMenuBtn" class="secondary menu-action" onclick="return exportMobileProfile(event)">导出移动端配置</button>
     <div id="logoMenuEmpty" class="logo-menu-empty">暂无可切换配置</div>
-    <label class="autostart-setting" for="autostartCheck"><input id="autostartCheck" type="checkbox" onchange="setAutostart(this.checked)"><span>开机自启并连接</span></label>
+    <div class="connection-settings">
+      <label class="autostart-setting" for="autostartCheck"><input id="autostartCheck" type="checkbox" onchange="setAutostart(this.checked)"><span>开机自启并连接</span></label>
+      <div class="dial-timeout-setting"><label for="dialTimeoutSec" title="登录、探活和转发建连共用；下次连接生效">拨号超时</label><input id="dialTimeoutSec" type="number" min="5" max="60" step="1" inputmode="numeric" aria-label="拨号超时，秒" onchange="setDialTimeout(this.value)"><span>秒</span></div>
+    </div>
     <div id="autostartMsg" class="autostart-message" role="alert"></div>
+    <div id="dialTimeoutMsg" class="dial-timeout-message" role="status"></div>
   </div>
 
   <div class="content">
@@ -71,7 +75,14 @@
       </div>
     </div>
   </div>
-  <div id="versionBadge" class="version-badge"></div>
+  <div class="footer-meta">
+    <div id="businessLive" class="business-live" hidden>
+      <span id="businessAddr" class="business-address"></span>
+      <span id="businessLatency" class="business-metric" title="当前业务流的建连耗时（含 TLS），不是实时 RTT"></span>
+      <span id="businessSpeed" class="business-metric" title="业务流上行和下行速率"></span>
+    </div>
+    <div id="versionBadge" class="version-badge"></div>
+  </div>
 </div>
 <script src="/app.js"></script>
 </body>

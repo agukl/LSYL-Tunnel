@@ -137,7 +137,7 @@ func TestReverseConnectionsKeepEntryLeasesUntilClosed(t *testing.T) {
 
 			stream, inbound := openLifecycleReverseStream(t, server, cert, control, reverseAddr)
 			waitForActiveConnections(t, server, 2, time.Second)
-			waitForUserStreamActive(t, server, "alice", 1, time.Second)
+			waitForActiveStreams(t, server, 1, time.Second)
 			rejected, err := net.DialTimeout("tcp", server.Addr(), time.Second)
 			if err != nil {
 				t.Fatal(err)
@@ -150,7 +150,7 @@ func TestReverseConnectionsKeepEntryLeasesUntilClosed(t *testing.T) {
 			_ = stream.Close()
 			_ = inbound.Close()
 			waitForActiveConnections(t, server, 1, time.Second)
-			waitForUserStreamActive(t, server, "alice", 0, time.Second)
+			waitForActiveStreams(t, server, 0, time.Second)
 
 			failed := dialTLSForTest(t, server.Addr(), cert)
 			defer failed.Close()
@@ -253,7 +253,7 @@ func TestServerShutdownClosesStreamsPendingConnectionsAndLogs(t *testing.T) {
 			if request.Code != "reverse_connect" {
 				t.Fatalf("unexpected pending stream request: %+v", request)
 			}
-			waitForUserStreamActive(t, server, "alice", 2, time.Second)
+			waitForActiveStreams(t, server, 2, time.Second)
 			if shutdown == "cancel" {
 				cancel()
 				waitForActiveConnections(t, server, 0, 3*time.Second)
@@ -266,9 +266,6 @@ func TestServerShutdownClosesStreamsPendingConnectionsAndLogs(t *testing.T) {
 			assertLifecycleStopped(t, server)
 			for _, conn := range []net.Conn{control, stream, inbound, forward, pending} {
 				assertLifecycleConnClosed(t, conn)
-			}
-			if got := server.userStreams.snapshot().Active; got != 0 {
-				t.Fatalf("active account streams after shutdown = %d", got)
 			}
 			if got := server.activeStreams.Load(); got != 0 {
 				t.Fatalf("active streams after shutdown = %d", got)
@@ -377,7 +374,7 @@ func startLifecycleServer(t *testing.T, ctx context.Context, configure func(*Con
 		ListenAddr: "127.0.0.1:0",
 		TLS:        TLSConfig{CertFile: cert, KeyFile: key},
 		Auth:       AuthConfig{Users: []UserConfig{{Username: "alice", PasswordHash: "plain:secret"}}},
-		Security:   SecurityConfig{HandshakeTimeoutSec: 30, DialTimeoutSec: 30, MaxConcurrentStreamsPerUser: 10},
+		Security:   SecurityConfig{HandshakeTimeoutSec: 30, DialTimeoutSec: 30},
 		Runtime: RuntimeConfig{
 			RequestLogFile:      filepath.Join(dir, "request.jsonl"),
 			BusinessLogFile:     filepath.Join(dir, "business.jsonl"),

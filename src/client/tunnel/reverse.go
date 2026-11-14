@@ -52,7 +52,7 @@ func (c *Client) maintainReverseListen(ctx context.Context, name string, fwd For
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	remote, err := transport.DialTLSWithCertificateGate(ctx, &net.Dialer{Timeout: timeout}, "tcp", c.cfg.ServerAddr, tlsCfg, c.certificateGateKey, timeout)
+	remote, err := transport.DialTLSWithCertificateGate(ctx, c.businessDialer(timeout), "tcp", c.cfg.ServerAddr, tlsCfg, c.certificateGateKey, timeout)
 	if err != nil {
 		return fmt.Errorf("connect server failed: %w", err)
 	}
@@ -128,12 +128,14 @@ func (c *Client) openReverseStream(ctx context.Context, name string, fwd Forward
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
+	dialStarted := time.Now()
 	remote, err := transport.DialTLSWithCertificateGate(ctx, c.businessDialer(timeout), "tcp", c.cfg.ServerAddr, tlsCfg, c.certificateGateKey, timeout)
 	if err != nil {
 		c.recordForwardError(name, err)
 		c.log("reverse stream %s connect server failed: %v", name, err)
 		return
 	}
+	connectMS := time.Since(dialStarted).Milliseconds()
 	defer remote.Close()
 	transport.EnableTCPKeepAlive(remote, timeout)
 	done := make(chan struct{})
@@ -184,8 +186,8 @@ func (c *Client) openReverseStream(ctx context.Context, name string, fwd Forward
 		return
 	}
 	defer target.Close()
-	streamDone := c.beginForwardStream(name)
+	streamDone := c.beginForwardStream(name, remote.RemoteAddr().String(), connectMS)
 	defer streamDone()
 	c.log("reverse stream open %s -> client target %s", name, fwd.ServerTarget)
-	transport.ProxyPair(remote, target, nil, nil)
+	transport.ProxyPair(&meteredBusinessConn{Conn: remote, up: &c.bytesUp, down: &c.bytesDown}, target, nil, nil)
 }

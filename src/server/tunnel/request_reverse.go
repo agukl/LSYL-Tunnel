@@ -1,7 +1,6 @@
 package tunnel
 
 import (
-	"errors"
 	"net"
 
 	"lsyltunnel/src/internal/protocol"
@@ -28,11 +27,7 @@ func (s *Server) handleReverseStream(conn net.Conn, req protocol.OpenRequest, us
 	recordRequest := request.record
 	if err := s.registerReverseStream(conn, req, user, requestID); err != nil {
 		code := "reverse_failed"
-		if errors.Is(err, errUserStreamLimit) {
-			code = "user_stream_limit"
-		} else {
-			s.dialFailed.Add(1)
-		}
+		s.dialFailed.Add(1)
 		resp := protocol.OpenResponse{OK: false, Code: code, Message: err.Error()}
 		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_stream", Result: "failed", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: req.ListenAddr, Code: code, Message: err.Error()})
 		recordRequest(req, "failed", "ok", resp, nil)

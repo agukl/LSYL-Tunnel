@@ -105,18 +105,27 @@ button, input { font-family:"Microsoft YaHei UI", "Segoe UI", sans-serif; }
   box-shadow:0 14px 30px rgba(19,72,82,.22);
 }
 .logo-menu.open { display:block; }
+.connection-settings {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-top:10px;
+  padding:11px 4px 1px;
+  border-top:1px solid #e4edef;
+  min-height:32px;
+}
 .autostart-setting {
   display:flex;
   align-items:center;
   gap:9px;
-  margin:10px 0 0;
-  padding:11px 4px 1px;
-  border-top:1px solid #e4edef;
-  min-height:32px;
+  margin:0;
+  padding:0;
   font-size:13px;
   font-weight:600;
   line-height:20px;
   cursor:pointer;
+  white-space:nowrap;
 }
 .autostart-setting input {
   flex:0 0 16px;
@@ -128,8 +137,25 @@ button, input { font-family:"Microsoft YaHei UI", "Segoe UI", sans-serif; }
   box-shadow:none;
 }
 .autostart-setting input:focus-visible { outline:2px solid #0b8d82; outline-offset:3px; }
+.dial-timeout-setting { display:flex; align-items:center; gap:5px; white-space:nowrap; font-size:12px; }
+.dial-timeout-setting label { margin:0; font-size:12px; font-weight:600; }
+.dial-timeout-setting input {
+  width:45px;
+  height:28px;
+  padding:0 3px;
+  border-radius:6px;
+  font-size:12px;
+  text-align:center;
+  box-shadow:none;
+  appearance:textfield;
+}
+.dial-timeout-setting input::-webkit-inner-spin-button,
+.dial-timeout-setting input::-webkit-outer-spin-button { appearance:none; margin:0; }
 .autostart-message { color:#9a3929; font-size:12px; line-height:18px; overflow-wrap:anywhere; }
 .autostart-message:not(:empty) { margin:8px 4px 0; }
+.dial-timeout-message { color:#9a3929; font-size:12px; line-height:18px; overflow-wrap:anywhere; }
+.dial-timeout-message.ok { color:#287568; }
+.dial-timeout-message:not(:empty) { margin:8px 4px 0; }
 .logo-menu-title {
   margin:0 0 8px;
   color:#57717b;
@@ -497,16 +523,49 @@ button:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:no
   background:#fffaf0;
   border-color:#f1d391;
 }
-.version-badge {
+.footer-meta {
   position:absolute;
+  left:10px;
   right:10px;
   bottom:7px;
   z-index:25;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  pointer-events:none;
+}
+.business-live {
+  display:flex;
+  min-width:0;
+  flex:0 1 auto;
+  overflow:hidden;
+  align-items:center;
+  gap:6px;
+  color:rgba(65,91,102,.62);
+  font-size:10px;
+  font-weight:600;
+  line-height:14px;
+}
+.business-live[hidden] { display:none; }
+.business-address {
+  min-width:0;
+  flex:0 1 auto;
+  overflow:hidden;
+  white-space:nowrap;
+}
+.business-address[hidden] { display:none; }
+.business-metric { flex:none; white-space:nowrap; }
+.business-metric[hidden] { display:none; }
+.version-badge {
+  margin-left:auto;
+  flex:none;
+  white-space:nowrap;
   color:rgba(65,91,102,.45);
   font-size:10px;
   font-weight:600;
   line-height:14px;
   letter-spacing:0;
-  pointer-events:none;
   text-shadow:0 1px 0 rgba(255,255,255,.75);
 }

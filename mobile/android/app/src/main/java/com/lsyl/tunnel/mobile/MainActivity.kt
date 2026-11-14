@@ -49,6 +49,7 @@ class MainActivity : Activity() {
     private lateinit var userText: TextView
     private lateinit var expiryText: TextView
     private lateinit var statusText: TextView
+    private lateinit var businessAddressText: TextView
     private lateinit var detailsText: TextView
     private lateinit var importBtn: Button
     private lateinit var connectBtn: Button
@@ -64,6 +65,10 @@ class MainActivity : Activity() {
     private var updatingEnhancedBackgroundSwitch = false
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == TunnelForegroundService.ACTION_BUSINESS_ADDRESS) {
+                updateBusinessAddress(intent.getStringExtra(TunnelForegroundService.EXTRA_BUSINESS_ADDRESS))
+                return
+            }
             val raw = intent?.getStringExtra(TunnelForegroundService.EXTRA_SNAPSHOT) ?: return
             val snapshot = try {
                 RuntimeSnapshot.fromJson(raw)
@@ -94,7 +99,9 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        val filter = IntentFilter(TunnelForegroundService.ACTION_STATUS)
+        val filter = IntentFilter(TunnelForegroundService.ACTION_STATUS).apply {
+            addAction(TunnelForegroundService.ACTION_BUSINESS_ADDRESS)
+        }
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(
                 statusReceiver,
@@ -107,6 +114,7 @@ class MainActivity : Activity() {
             registerReceiver(statusReceiver, filter, TunnelForegroundService.INTERNAL_STATUS_PERMISSION, null)
         }
         refreshProfileView()
+        updateBusinessAddress(TunnelForegroundService.currentBusinessAddress())
         refreshEnhancedBackgroundView()
         recoverTunnelServiceIfNeeded()
     }
@@ -208,6 +216,13 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
             setPadding(0, dp(8), 0, 0)
         }
+        businessAddressText = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Color.rgb(91, 116, 114))
+            setPadding(0, dp(5), 0, 0)
+            maxLines = 1
+            visibility = View.GONE
+        }
         userText = TextView(this).apply { textSize = 18f }
         expiryText = TextView(this).apply { textSize = 15f }
         listOf(statusText, userText, expiryText).forEach {
@@ -222,6 +237,7 @@ class MainActivity : Activity() {
         }
         profileCard.addView(profileTitle)
         profileCard.addView(statusText)
+        profileCard.addView(businessAddressText)
         profileCard.addView(userText)
         profileCard.addView(expiryText)
         profileCard.addView(detailsText)
@@ -355,6 +371,7 @@ class MainActivity : Activity() {
     private fun refreshProfileView() {
         val loaded = store.load()
         if (loaded == null) {
+            updateBusinessAddress(null)
             userText.text = "用户：未导入"
             expiryText.text = "有效期：-"
             updateRuntime(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "未连接"), hasProfile = false)
@@ -568,6 +585,9 @@ class MainActivity : Activity() {
         val presentation = RuntimePresenter.present(snapshot, hasProfile, runtimeStore.desiredRunning())
         statusText.text = "状态：${presentation.status}"
         statusText.setTextColor(statusColor(snapshot.phase))
+        if (snapshot.phase == TunnelPhase.DISCONNECTED || snapshot.phase == TunnelPhase.STOPPING || snapshot.phase == TunnelPhase.FAILED) {
+            updateBusinessAddress(null)
+        }
         detailsText.text = presentation.details
         detailsText.visibility = if (presentation.details.isBlank()) View.GONE else View.VISIBLE
         if (!::connectBtn.isInitialized) return
@@ -583,6 +603,20 @@ class MainActivity : Activity() {
         applyButtonStyle(editBtn, ButtonStyle.GHOST, small = true)
         applyButtonStyle(importBtn, ButtonStyle.GHOST, small = true)
         applyButtonStyle(deleteBtn, ButtonStyle.GHOST_DANGER, small = true)
+    }
+
+    private fun updateBusinessAddress(address: String?) {
+        val value = address.orEmpty()
+        businessAddressText.text = value
+        businessAddressText.visibility = if (value.isBlank()) View.GONE else View.VISIBLE
+        if (value.isBlank()) return
+        businessAddressText.post {
+            if (businessAddressText.text.toString() != value) return@post
+            val available = businessAddressText.width - businessAddressText.paddingLeft - businessAddressText.paddingRight
+            if (available > 0 && businessAddressText.paint.measureText(value) > available) {
+                businessAddressText.visibility = View.GONE
+            }
+        }
     }
 
     private fun canReplaceProfileNow(): Boolean = RuntimePresenter.present(

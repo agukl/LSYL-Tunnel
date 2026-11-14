@@ -39,7 +39,7 @@ func TestPrepareServerConfigMigration(t *testing.T) {
 	dir := t.TempDir()
 	template := writeTestConfig(t, dir, "template.yaml", validServerConfigV1YAML(""))
 	path := writeTestConfig(t, dir, "server.yaml", `
-config_version: 0
+config_version: 1
 listen_addr: 0.0.0.0:4555
 auth:
   users:
@@ -57,9 +57,13 @@ forwards:
     allowed_users: [alice]
 security:
   obsolete_setting: true
+  max_connections_per_ip_per_window: 42
+  max_concurrent_streams_per_user: 3
+  stream_rate_limit_bytes_per_sec: 1024
 runtime: []
 credential_seal: []
 log_level: info
+flow_traffic_log_file: ignored
 `)
 	file, err := PrepareConfigMigration(path, template)
 	if err != nil {
@@ -76,7 +80,11 @@ log_level: info
 		t.Fatalf("business settings were not preserved: %+v", cfg)
 	}
 	if cfg.Security.MaxNewConnectionsPerIPWindow != 120 || cfg.Runtime.RequestLogFile != "logs/request/request.jsonl" ||
-		strings.Contains(string(file.Data), "obsolete_setting:") || strings.Contains(string(file.Data), "log_level:") {
+		strings.Contains(string(file.Data), "obsolete_setting:") || strings.Contains(string(file.Data), "log_level:") ||
+		strings.Contains(string(file.Data), "max_concurrent_streams_per_user:") ||
+		strings.Contains(string(file.Data), "stream_rate_limit_bytes_per_sec:") ||
+		strings.Contains(string(file.Data), "max_connections_per_ip_per_window:") ||
+		strings.Contains(string(file.Data), "flow_traffic_log_file:") {
 		t.Fatalf("new template settings were not applied: %s", file.Data)
 	}
 	if err := os.WriteFile(path, file.Data, 0o644); err != nil {
@@ -226,21 +234,7 @@ func TestLoadConfigRawKeepsRelativePathsAndRejectsUnknownFields(t *testing.T) {
 	}
 }
 
-func TestCheckConfigUpgradeCompatibleAcceptsV1WithoutDeprecatedLogLevel(t *testing.T) {
-	path := writeTestConfig(t, t.TempDir(), "server.yaml", strings.Replace(validServerConfigV1YAML(""), "log_level: info\n", "", 1))
-	if err := CheckConfigUpgradeCompatible(path); err != nil {
-		t.Fatalf("expected V1 config without log_level to be upgrade-compatible, got %v", err)
-	}
-}
-
-func TestCheckConfigUpgradeCompatibleAcceptsV1WithoutDeprecatedFlowLog(t *testing.T) {
-	path := writeTestConfig(t, t.TempDir(), "server.yaml", strings.Replace(validServerConfigV1YAML(""), "  flow_traffic_log_file: logs/flow-traffic/flow-traffic.jsonl\n", "", 1))
-	if err := CheckConfigUpgradeCompatible(path); err != nil {
-		t.Fatalf("expected V1 config without flow_traffic_log_file to be upgrade-compatible, got %v", err)
-	}
-}
-
-func TestSaveConfigOmitsDeprecatedLogLevel(t *testing.T) {
+func TestSaveConfigOmitsRetiredFields(t *testing.T) {
 	path := writeTestConfig(t, t.TempDir(), "server.yaml", validServerConfigV1YAML(""))
 	cfg, err := LoadConfig(path)
 	if err != nil {
@@ -395,7 +389,6 @@ compatibility:
   protocol_version: 3
 listen_addr: 0.0.0.0:3443
 monitor_addr: 127.0.0.1:19111
-log_level: info
 tls:
   cert_file: ../certs/server.crt
   key_file: ../certs/server.key
@@ -411,8 +404,6 @@ security:
   max_concurrent_connections_per_ip: 128
   connection_rate_window_sec: 1
   max_new_connections_per_ip_window: 120
-  max_concurrent_streams_per_user: 0
-  stream_rate_limit_bytes_per_sec: 0
   auth_fail_window_sec: 300
   auth_fail_threshold: 8
   auth_fail_block_sec: 1800
@@ -424,7 +415,6 @@ runtime:
   request_log_file: logs/request/request.jsonl
   business_log_file: logs/business/business.jsonl
   entry_traffic_log_file: logs/entry-traffic/entry-traffic.jsonl
-  flow_traffic_log_file: logs/flow-traffic/flow-traffic.jsonl
   recent_events: 500
 `
 	if strings.TrimSpace(override) == "" {

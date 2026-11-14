@@ -35,6 +35,7 @@ class TunnelForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         TunnelServiceProcessState.markActive()
+        publishBusinessAddress(null)
         ensureChannel()
         stateStore = RuntimeStateStore(this, ::publishSnapshot)
         enhancedSettings = EnhancedBackgroundSettings(this)
@@ -43,7 +44,11 @@ class TunnelForegroundService : Service() {
         controller = TunnelRuntimeController(
             runtimeFactory = {
                 val loaded = ProfileStore(this).load() ?: throw ProfileImportException("未导入连接配置")
-                TunnelManager(loaded, onStatsChanged = ::queueRuntimeStateChange)
+                TunnelManager(
+                    loaded,
+                    onStatsChanged = ::queueRuntimeStateChange,
+                    onBusinessAddressChanged = ::publishBusinessAddress
+                )
             },
             stateSink = stateStore
         )
@@ -126,6 +131,7 @@ class TunnelForegroundService : Service() {
         runtimeChangeGate.cancel()
         executor.shutdownNow()
         controller.releaseForSystem(completePendingDisconnect)
+        publishBusinessAddress(null)
         if (foregroundActive) {
             try {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -241,6 +247,18 @@ class TunnelForegroundService : Service() {
         )
     }
 
+    private fun publishBusinessAddress(address: String?) {
+        val current = if (destroyed) null else address
+        if (businessAddress == current) return
+        businessAddress = current
+        sendBroadcast(
+            Intent(ACTION_BUSINESS_ADDRESS)
+                .setPackage(packageName)
+                .putExtra(EXTRA_BUSINESS_ADDRESS, current),
+            INTERNAL_STATUS_PERMISSION
+        )
+    }
+
     private fun ensureForeground(snapshot: RuntimeSnapshot) {
         finalNotificationVisible = false
         if (!foregroundActive) {
@@ -300,9 +318,15 @@ class TunnelForegroundService : Service() {
         const val ACTION_STOP = "com.lsyl.tunnel.mobile.STOP"
         const val ACTION_UPDATE_BACKGROUND_MODE = "com.lsyl.tunnel.mobile.UPDATE_BACKGROUND_MODE"
         const val ACTION_STATUS = "com.lsyl.tunnel.mobile.STATUS"
+        const val ACTION_BUSINESS_ADDRESS = "com.lsyl.tunnel.mobile.BUSINESS_ADDRESS"
         const val INTERNAL_STATUS_PERMISSION = "com.lsyl.tunnel.mobile.permission.INTERNAL_STATUS"
         const val EXTRA_STATUS = "status"
         const val EXTRA_SNAPSHOT = "snapshot"
+        const val EXTRA_BUSINESS_ADDRESS = "business_address"
+
+        @Volatile private var businessAddress: String? = null
+
+        fun currentBusinessAddress(): String? = businessAddress
 
         fun startIntent(context: Context): Intent =
             Intent(context, TunnelForegroundService::class.java).setAction(ACTION_START)

@@ -36,9 +36,10 @@ type apiResult struct {
 }
 
 type loginForm struct {
-	ServerAddr string `json:"server_addr"`
-	Username   string `json:"username"`
-	Password   string `json:"password"`
+	ServerAddr     string `json:"server_addr"`
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	DialTimeoutSec int    `json:"dial_timeout_sec"`
 }
 
 type profileSwitchRequest struct {

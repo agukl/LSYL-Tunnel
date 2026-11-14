@@ -19,7 +19,6 @@
         <button class="nav-item active" data-tab="overview">运行总览</button>
         <button class="nav-item" data-tab="users">用户认证</button>
         <button class="nav-item" data-tab="forwards">转发端口</button>
-        <button class="nav-item" data-tab="user-concurrency">用户并发</button>
         <button class="nav-item" data-tab="logs">流水日志</button>
         <button class="nav-item" data-tab="security">服务安全</button>
         <button class="nav-item" data-tab="blocks">封禁查看</button>
@@ -61,7 +60,6 @@
           <div class="card warn"><small>限流拒绝</small><strong id="connectionsRejectedView">0</strong></div>
           <div class="card warn"><small>并发拒绝</small><strong id="connectionConcurrentRejectsView">0</strong></div>
           <div class="card warn"><small>新连速率拒绝</small><strong id="connectionRateRejectsView">0</strong></div>
-          <div class="card warn"><small>账号并发拒绝</small><strong id="userStreamLimitRejectedView">0</strong></div>
           <div class="card"><small>认证成功</small><strong id="authOKView">0</strong></div>
           <div class="card warn"><small>认证失败</small><strong id="authFailedView">0</strong></div>
           <div class="card warn"><small>策略拒绝</small><strong id="policyRejectedView">0</strong></div>
@@ -270,46 +268,6 @@
         </div>
       </section>
 
-      <section id="user-concurrency" class="panel tab-panel">
-        <h2 class="panel-title">用户并发</h2>
-        <div class="user-concurrency-toolbar">
-          <div class="detail-grid user-concurrency-summary">
-            <div class="detail-card"><small>单账号上限</small><strong id="userStreamLimitView">不限</strong></div>
-            <div class="detail-card"><small>每连接总速率</small><strong id="streamRateLimitView">不限</strong></div>
-            <div class="detail-card"><small>活跃业务连接</small><strong id="userStreamActiveView">0</strong></div>
-            <div class="detail-card warn"><small>账号并发拒绝</small><strong id="userConcurrencyRejectedView">0</strong></div>
-          </div>
-          <div class="form-grid user-concurrency-controls">
-            <label>账号连接上限<input id="maxConcurrentStreamsPerUser" type="number"></label>
-            <label>连接速率 B/s<input id="streamRateLimitBytesPerSec" type="number"></label>
-          </div>
-        </div>
-        <div class="detail-section">
-          <div class="detail-title">
-            <h3>账号业务连接</h3>
-            <span>只统计正向 open 和反向 reverse_stream，不包含登录、健康检查和反向控制连接。</span>
-          </div>
-          <div class="table-wrap detail-table-wrap">
-            <table class="data-table detail-table" id="userConcurrencyTable">
-              <thead>
-                <tr>
-                  <th>用户名</th>
-                  <th>状态</th>
-                  <th>绑定端口</th>
-                  <th>当前业务连接</th>
-                  <th>单账号上限</th>
-                  <th>每连接总速率</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-        <div class="panel-actions">
-          <button class="btn primary" data-action="save">保存配置</button>
-        </div>
-      </section>
-
       <section id="security" class="panel tab-panel">
         <h2 class="panel-title">服务安全</h2>
         <div class="form-grid">
@@ -323,6 +281,10 @@
           <label>失败统计窗口秒<input id="authFailWindow" type="number"></label>
           <label>失败封禁阈值<input id="authFailThreshold" type="number"></label>
           <label>封禁时长秒<input id="authFailBlock" type="number"></label>
+          <div class="form-section-title">IPv6 隧道</div>
+          <label class="ipv6-tunnel-toggle"><input id="ipv6TunnelEnabled" type="checkbox">启用 IPv6 通道</label>
+          <div class="ipv6-tunnel-status"><span>当前 IPv6</span><strong id="ipv6TunnelAddresses">检测中</strong></div>
+          <div class="ipv6-tunnel-status"><span>监听状态</span><strong id="ipv6TunnelListening">读取中</strong></div>
         </div>
         <div class="panel-actions">
           <button class="btn primary" data-action="save">保存配置</button>

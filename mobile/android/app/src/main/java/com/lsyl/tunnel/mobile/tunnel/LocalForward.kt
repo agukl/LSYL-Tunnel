@@ -21,7 +21,8 @@ class LocalForward(
     private val runtime: ForwardRuntime,
     private val listenerExecutor: Executor,
     private val connectionExecutor: Executor,
-    private val copyExecutor: Executor
+    private val copyExecutor: Executor,
+    private val businessAddresses: BusinessAddressTracker? = null
 ) {
     private val running = AtomicBoolean(false)
     @Volatile private var serverSocket: ServerSocket? = null
@@ -93,8 +94,10 @@ class LocalForward(
 
     private fun handleLocal(local: Socket) {
         val streamDone = runtime.beginStream()
+        var addressDone: () -> Unit = {}
         try {
             val remote = protocol.open(forward)
+            addressDone = businessAddresses?.begin(remote.inetAddress?.hostAddress.orEmpty()) ?: {}
             runtime.clearIssue()
             SocketPipe.copyBidirectional(local, remote, copyExecutor)
         } catch (err: ProtocolException) {
@@ -109,6 +112,7 @@ class LocalForward(
             closeQuietly(local)
             runtime.reportIssue(classify(err))
         } finally {
+            addressDone()
             streamDone()
         }
     }

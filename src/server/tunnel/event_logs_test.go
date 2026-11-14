@@ -75,7 +75,6 @@ func TestStructuredLogsDoNotMirrorToServiceLog(t *testing.T) {
 func TestFlowMetricsAreIncludedInBusinessEvents(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "business.jsonl")
 	server := &Server{
-		cfg:         Config{Security: SecurityConfig{StreamRateLimitBytesPerSec: 1024, MaxConcurrentStreamsPerUser: 4}},
 		businessLog: newJSONLLog(path),
 	}
 	defer server.Close()
@@ -97,7 +96,7 @@ func TestFlowMetricsAreIncludedInBusinessEvents(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[1]), &failed); err != nil {
 		t.Fatal(err)
 	}
-	if closed.BytesTotal != 500 || closed.AverageBytesPerSec != 500 || closed.RateLimitBytesPerSec != 1024 || closed.MaxConcurrentStreamsUser != 4 || closed.Abnormal {
+	if closed.BytesTotal != 500 || closed.AverageBytesPerSec != 500 || closed.RateLimitBytesPerSec != 0 || closed.MaxConcurrentStreamsUser != 0 || closed.Abnormal {
 		t.Fatalf("closed stream metrics = %+v", closed)
 	}
 	if failed.RemoteIP != "192.0.2.10" || failed.Code != "client_stream_timeout" || !failed.Abnormal {

@@ -239,6 +239,26 @@ func TestSetForwardStateClearsRecoveredError(t *testing.T) {
 	}
 }
 
+func TestClientStatsBusinessAddrTracksActiveStreams(t *testing.T) {
+	client := &Client{forwards: map[string]*forwardRuntime{}}
+	if got := client.Stats().BusinessAddr; got != "" {
+		t.Fatalf("idle business address = %q", got)
+	}
+	firstDone := client.beginForwardStream("first", "192.0.2.1:3443", 12)
+	secondDone := client.beginForwardStream("second", "[2001:db8::1]:3443", 34)
+	if stats := client.Stats(); stats.BusinessAddr != "2001:db8::1" || stats.BusinessConnectMS != 34 {
+		t.Fatalf("latest active business connection = %+v", stats)
+	}
+	secondDone()
+	if stats := client.Stats(); stats.BusinessAddr != "192.0.2.1" || stats.BusinessConnectMS != 12 {
+		t.Fatalf("remaining active business connection = %+v", stats)
+	}
+	firstDone()
+	if got := client.Stats().BusinessAddr; got != "" {
+		t.Fatalf("closed business address = %q", got)
+	}
+}
+
 func TestFinalizeHealthStatusCancelsAfterReconnectLimit(t *testing.T) {
 	client := &Client{}
 	status := client.finalizeHealthStatus(HealthStatus{

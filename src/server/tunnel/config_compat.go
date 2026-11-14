@@ -86,18 +86,6 @@ func PrepareConfigMigration(path, templatePath string) (configupgrade.File, erro
 	if err := configyaml.DecodeStrict(forwardsData, &cfg.Forwards, "installed server forwards"); err != nil {
 		return configupgrade.File{}, err
 	}
-	if entriesNode, ok := fields["business_entries"]; ok {
-		if entriesNode.Kind != yaml.SequenceNode {
-			return configupgrade.File{}, fmt.Errorf("installed server business_entries must be a list")
-		}
-		entriesData, err := yaml.Marshal(entriesNode)
-		if err != nil {
-			return configupgrade.File{}, err
-		}
-		if err := configyaml.DecodeStrict(entriesData, &cfg.BusinessEntries, "installed server business entries"); err != nil {
-			return configupgrade.File{}, err
-		}
-	}
 	cfg.ListenAddr = listen.Value
 	ApplyDefaults(&cfg)
 	if err := ValidateConfig(cfg); err != nil {
@@ -156,11 +144,6 @@ func validateServerConfigV1Structure(data []byte) error {
 			return err
 		}
 	}
-	if _, ok := top["log_level"]; ok {
-		if err := configyaml.RequireScalar(top, "server config", "log_level"); err != nil {
-			return err
-		}
-	}
 
 	if requires, ok := top["requires"]; ok {
 		if err := configyaml.ScalarMapping(requires, "server config.requires", "min_server_version"); err != nil {
@@ -173,14 +156,9 @@ func validateServerConfigV1Structure(data []byte) error {
 	if err := configyaml.ScalarMapping(top["tls"], "server config.tls", "cert_file", "key_file", "min_version"); err != nil {
 		return err
 	}
-	if entries, ok := top["business_entries"]; ok {
-		if entries.Kind != yaml.SequenceNode {
-			return fmt.Errorf("server config.business_entries must be a list")
-		}
-		for i, entry := range entries.Content {
-			if err := configyaml.ScalarMapping(entry, fmt.Sprintf("server config.business_entries[%d]", i), "listen_addr", "advertise_addr"); err != nil {
-				return err
-			}
+	if _, ok := top["ipv6_tunnel_enabled"]; ok {
+		if err := configyaml.RequireScalar(top, "server config", "ipv6_tunnel_enabled"); err != nil {
+			return err
 		}
 	}
 	if err := validateAuthUsers(top["auth"]); err != nil {
@@ -193,7 +171,6 @@ func validateServerConfigV1Structure(data []byte) error {
 		"handshake_timeout_sec", "dial_timeout_sec",
 		"max_concurrent_connections", "max_concurrent_connections_per_ip",
 		"max_new_connections_per_ip_window",
-		"max_concurrent_streams_per_user", "stream_rate_limit_bytes_per_sec",
 		"auth_fail_window_sec", "auth_fail_threshold", "auth_fail_block_sec"); err != nil {
 		return err
 	}

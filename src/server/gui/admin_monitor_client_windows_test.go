@@ -10,24 +10,21 @@ import (
 	"strings"
 	"testing"
 
-	"lsyltunnel/src/internal/protocol"
 	"lsyltunnel/src/server/tunnel"
 )
 
 func TestMonitorGUIProjectionPreservesJSON(t *testing.T) {
 	wire := tunnel.MonitorStatus{
-		Service: "lsyl-tunnel-server", ListenAddr: "127.0.0.1:3443", UptimeSec: 42,
+		Service: "lsyl-tunnel-server", ListenAddr: "127.0.0.1:3443", IPv6TunnelListening: true, UptimeSec: 42,
 		ActiveConnections: 2, TrackedRemoteIPs: 1, ConnectionsRejected: 3,
-		ConnectionLimits:        &tunnel.ConnectionLimitsStatus{Active: 2, MaxConcurrentConnections: 100},
-		ConnectionRejections:    &tunnel.ConnectionRejectionsStatus{Total: 3},
-		EntrySecurity:           &tunnel.EntrySecurityStatus{HTTPProbeRejected: 4},
-		FailureTracker:          &tunnel.FailureTrackerStatus{EvictedIPs: 9007199254740993},
-		EntryTrafficLog:         &tunnel.EntryTrafficLogStatus{Written: 5},
-		UserStreamLimits:        &tunnel.UserStreamLimitsStatus{Active: 6, ActiveByUser: map[string]int{"alice": 6}},
-		UserStreamLimitRejected: 7, ActiveStreams: 8, TotalStreams: 9,
+		ConnectionLimits:     &tunnel.ConnectionLimitsStatus{Active: 2, MaxConcurrentConnections: 100},
+		ConnectionRejections: &tunnel.ConnectionRejectionsStatus{Total: 3},
+		EntrySecurity:        &tunnel.EntrySecurityStatus{HTTPProbeRejected: 4},
+		FailureTracker:       &tunnel.FailureTrackerStatus{EvictedIPs: 9007199254740993},
+		EntryTrafficLog:      &tunnel.EntryTrafficLogStatus{Written: 5},
+		ActiveStreams:        8, TotalStreams: 9,
 		AuthOK: 10, AuthFailed: 11, PolicyRejected: 12, DialFailed: 13, BytesUp: 14, BytesDown: 15,
 		BlockedIPs: []tunnel.BlockedIPState{}, RecentEvents: []tunnel.RuntimeEvent{},
-		EntryQuality: []tunnel.EntryQualityClientStatus{{Username: "alice", ClientID: "workstation", Entries: []protocol.EntryQuality{{Endpoint: "bootstrap", Attempts: 1, Successes: 1}}}},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/status" {
@@ -72,7 +69,7 @@ func TestMonitorGUIFallbackOmitsUnavailableSections(t *testing.T) {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"tracked_remote_ips", "connection_limits", "connection_rejections", "entry_security", "failure_tracker", "entry_traffic_log", "user_stream_limits", "blocked_ips", "recent_events"} {
+	for _, key := range []string{"tracked_remote_ips", "connection_limits", "connection_rejections", "entry_security", "failure_tracker", "entry_traffic_log", "blocked_ips", "recent_events"} {
 		if _, ok := fields[key]; ok {
 			t.Errorf("fallback unexpectedly emitted %s", key)
 		}

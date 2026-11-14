@@ -11,6 +11,7 @@ import (
 
 func (a *App) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/state", a.handleAdminState)
+	mux.HandleFunc("/api/ipv6-tunnel", a.handleAdminIPv6Tunnel)
 	mux.HandleFunc("/api/config", a.handleAdminConfig)
 	mux.HandleFunc("/api/password/hash", a.handleAdminPasswordHash)
 	mux.HandleFunc("/api/service/restart", a.handleAdminServiceRestart)

@@ -2,20 +2,18 @@ package tunnel
 
 import (
 	"context"
-	"errors"
 	"net"
 	"net/netip"
+	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
-	"lsyltunnel/src/internal/protocol"
 	"lsyltunnel/src/internal/transport"
 )
 
 const (
-	maxBusinessEntries       = 16
+	maxBusinessEntries       = 64
 	maxBusinessDialAttempts  = 2
 	businessEntryRetryDelay  = 30 * time.Second
 	businessEntryDialTimeout = 1200 * time.Millisecond
@@ -34,44 +32,37 @@ type businessEndpointPool struct {
 type endpointDialQuality struct {
 	attempts    int
 	successes   int
-	failed      int
 	totalDialMS int64
-	lastError   string
 }
 
-func newBusinessEndpointPool(entries []string, bootstrap string, forwards []ForwardConfig) *businessEndpointPool {
+func newBusinessEndpointPool(entries []string, bootstrap string) *businessEndpointPool {
 	pool := &businessEndpointPool{
-		failedTo: make(map[string]time.Time), quality: make(map[string]endpointDialQuality), qualityStarted: time.Now(),
+		failedTo: make(map[string]time.Time), quality: make(map[string]endpointDialQuality),
+		qualityStarted: time.Now(),
 	}
 	seen := make(map[string]bool)
-	redirectPorts := make(map[uint16]bool)
-	for _, forward := range forwards {
-		if forward.Direction != DirectionVirtual {
-			continue
-		}
-		host, port, err := parseVirtualListenAddr(forward.ListenAddr)
-		if err == nil && host != "127.0.0.1" {
-			redirectPorts[uint16(port)] = true
-		}
-	}
 	for _, value := range entries {
 		if len(pool.entries) >= maxBusinessEntries {
 			break
 		}
-		addr, err := netip.ParseAddrPort(strings.TrimSpace(value))
-		if err != nil || addr.Port() == 0 || addr.Addr().IsUnspecified() || addr.Addr().IsMulticast() {
+		entry := strings.TrimSpace(value)
+		addr, err := netip.ParseAddrPort(entry)
+		if err != nil || addr.Port() == 0 || !businessIPv6Address(addr.Addr()) {
 			continue
 		}
-		entry := addr.String()
-		if entry == bootstrap || seen[entry] || redirectPorts[addr.Port()] {
+		entry = addr.String()
+		if entry == bootstrap || seen[entry] {
 			continue
 		}
 		seen[entry] = true
 		pool.entries = append(pool.entries, entry)
 		pool.quality[entry] = endpointDialQuality{}
 	}
-	pool.quality["bootstrap"] = endpointDialQuality{}
 	return pool
+}
+
+func businessIPv6Address(addr netip.Addr) bool {
+	return addr.Is6() && addr.IsGlobalUnicast() && !addr.IsPrivate() && !addr.Is4In6() && addr.Zone() == ""
 }
 
 func (p *businessEndpointPool) recordDial(endpoint string, elapsed time.Duration, err error) {
@@ -86,36 +77,8 @@ func (p *businessEndpointPool) recordDial(endpoint string, elapsed time.Duration
 	if err == nil {
 		quality.successes++
 		quality.totalDialMS += elapsed.Milliseconds()
-	} else {
-		quality.failed++
-		quality.lastError = dialErrorKind(err)
 	}
 	p.quality[endpoint] = quality
-}
-
-func (p *businessEndpointPool) qualitySnapshot() []protocol.EntryQuality {
-	if p == nil || len(p.entries) == 0 {
-		return nil
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.rollQualityWindow(time.Now())
-	result := make([]protocol.EntryQuality, 0, len(p.entries)+1)
-	for _, endpoint := range append([]string{"bootstrap"}, p.entries...) {
-		quality := p.quality[endpoint]
-		average := 0
-		if quality.successes > 0 {
-			average = int(quality.totalDialMS / int64(quality.successes))
-			if average > 60000 {
-				average = 60000
-			}
-		}
-		result = append(result, protocol.EntryQuality{
-			Endpoint: endpoint, Attempts: quality.attempts, Successes: quality.successes,
-			Failures: quality.failed, AvgDialMS: average, LastError: quality.lastError,
-		})
-	}
-	return result
 }
 
 func (p *businessEndpointPool) rollQualityWindow(now time.Time) {
@@ -126,20 +89,6 @@ func (p *businessEndpointPool) rollQualityWindow(now time.Time) {
 		p.quality[endpoint] = endpointDialQuality{}
 	}
 	p.qualityStarted = now
-}
-
-func dialErrorKind(err error) string {
-	var networkError net.Error
-	switch {
-	case errors.As(err, &networkError) && networkError.Timeout():
-		return "timeout"
-	case errors.Is(err, syscall.ECONNREFUSED):
-		return "refused"
-	case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH):
-		return "unreachable"
-	default:
-		return "other"
-	}
 }
 
 func (c *Client) businessDialer(timeout time.Duration) transport.ContextDialer {
@@ -156,15 +105,10 @@ type businessPoolDialer struct {
 
 func (d *businessPoolDialer) DialContext(ctx context.Context, network, bootstrap string) (net.Conn, error) {
 	pool := d.pool
-	pool.mu.Lock()
-	start := int(pool.next % uint64(len(pool.entries)))
-	pool.next++
-	entries := append([]string(nil), pool.entries...)
-	pool.mu.Unlock()
+	entries := pool.orderedEntries()
 
 	attempts := 0
-	for i := range entries {
-		entry := entries[(start+i)%len(entries)]
+	for _, entry := range entries {
 		pool.mu.Lock()
 		cooling := time.Now().Before(pool.failedTo[entry])
 		pool.mu.Unlock()
@@ -177,7 +121,7 @@ func (d *businessPoolDialer) DialContext(ctx context.Context, network, bootstrap
 			entryTimeout = businessEntryDialTimeout
 		}
 		started := time.Now()
-		conn, err := (&net.Dialer{Timeout: entryTimeout}).DialContext(ctx, network, entry)
+		conn, err := (&net.Dialer{Timeout: entryTimeout}).DialContext(ctx, "tcp6", entry)
 		if ctx.Err() == nil {
 			pool.recordDial(entry, time.Since(started), err)
 		}
@@ -194,10 +138,35 @@ func (d *businessPoolDialer) DialContext(ctx context.Context, network, bootstrap
 			break
 		}
 	}
-	started := time.Now()
-	conn, err := (&net.Dialer{Timeout: d.timeout}).DialContext(ctx, network, bootstrap)
-	if ctx.Err() == nil {
-		pool.recordDial("bootstrap", time.Since(started), err)
+	return (&net.Dialer{Timeout: d.timeout}).DialContext(ctx, network, bootstrap)
+}
+
+func (p *businessEndpointPool) orderedEntries() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rollQualityWindow(time.Now())
+	start := int(p.next % uint64(len(p.entries)))
+	p.next++
+	entries := make([]string, len(p.entries))
+	quality := make(map[string]endpointDialQuality, len(entries))
+	for i := range entries {
+		entries[i] = p.entries[(start+i)%len(entries)]
+		quality[entries[i]] = p.quality[entries[i]]
 	}
-	return conn, err
+	sort.SliceStable(entries, func(i, j int) bool {
+		left, right := quality[entries[i]], quality[entries[j]]
+		if left.attempts == 0 || right.attempts == 0 {
+			return left.attempts == 0 && right.attempts > 0
+		}
+		leftSuccess := left.successes * right.attempts
+		rightSuccess := right.successes * left.attempts
+		if leftSuccess != rightSuccess {
+			return leftSuccess > rightSuccess
+		}
+		if left.successes > 0 && right.successes > 0 {
+			return left.totalDialMS/int64(left.successes) < right.totalDialMS/int64(right.successes)
+		}
+		return false
+	})
+	return entries
 }

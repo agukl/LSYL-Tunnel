@@ -34,14 +34,11 @@ type SecurityConfig struct {
 	MaxConcurrentConnectionsPerIP int `yaml:"max_concurrent_connections_per_ip" json:"max_concurrent_connections_per_ip"`
 	ConnectionRateWindowSec       int `yaml:"connection_rate_window_sec,omitempty" json:"connection_rate_window_sec"`
 	MaxNewConnectionsPerIPWindow  int `yaml:"max_new_connections_per_ip_window" json:"max_new_connections_per_ip_window"`
-	MaxConnectionsPerIPPerWindow  int `yaml:"max_connections_per_ip_per_window,omitempty" json:"max_connections_per_ip_per_window,omitempty"`
 	MaxTrackedConnectionIPs       int `yaml:"max_tracked_connection_ips,omitempty" json:"max_tracked_connection_ips"`
 	ConnectionLimiterCleanupSec   int `yaml:"connection_limiter_cleanup_sec,omitempty" json:"connection_limiter_cleanup_sec"`
 	MaxTrackedFailureIPs          int `yaml:"max_tracked_failure_ips,omitempty" json:"max_tracked_failure_ips"`
 	FailureTrackerCleanupSec      int `yaml:"failure_tracker_cleanup_sec,omitempty" json:"failure_tracker_cleanup_sec"`
 	EntryTrafficLogQueueSize      int `yaml:"entry_traffic_log_queue_size,omitempty" json:"entry_traffic_log_queue_size"`
-	MaxConcurrentStreamsPerUser   int `yaml:"max_concurrent_streams_per_user" json:"max_concurrent_streams_per_user"`
-	StreamRateLimitBytesPerSec    int `yaml:"stream_rate_limit_bytes_per_sec" json:"stream_rate_limit_bytes_per_sec"`
 	AuthFailWindowSec             int `yaml:"auth_fail_window_sec" json:"auth_fail_window_sec"`
 	AuthFailThreshold             int `yaml:"auth_fail_threshold" json:"auth_fail_threshold"`
 	AuthFailBlockSec              int `yaml:"auth_fail_block_sec" json:"auth_fail_block_sec"`
@@ -65,9 +62,7 @@ type RuntimeConfig struct {
 	RequestLogFile      string `yaml:"request_log_file,omitempty"`
 	BusinessLogFile     string `yaml:"business_log_file,omitempty"`
 	EntryTrafficLogFile string `yaml:"entry_traffic_log_file,omitempty"`
-	// FlowTrafficLogFile is accepted from older configs; flow events now use BusinessLogFile.
-	FlowTrafficLogFile string `yaml:"flow_traffic_log_file,omitempty"`
-	RecentEvents       int    `yaml:"recent_events,omitempty"`
+	RecentEvents        int    `yaml:"recent_events,omitempty"`
 }
 
 type ForwardConfig struct {
@@ -77,11 +72,6 @@ type ForwardConfig struct {
 	ListenAddr   string   `yaml:"listen_addr,omitempty"`
 	ServerTarget string   `yaml:"server_target"`
 	AllowedUsers []string `yaml:"allowed_users,omitempty"`
-}
-
-type BusinessEntryConfig struct {
-	ListenAddr    string `yaml:"listen_addr"`
-	AdvertiseAddr string `yaml:"advertise_addr"`
 }
 
 const (
@@ -101,21 +91,19 @@ type AuthConfig struct {
 }
 
 type Config struct {
-	ConfigPath      string                `yaml:"-"`
-	ConfigVersion   int                   `yaml:"config_version"`
-	Requires        RequiresConfig        `yaml:"requires,omitempty"`
-	Compatibility   CompatibilityConfig   `yaml:"compatibility"`
-	ListenAddr      string                `yaml:"listen_addr"`
-	BusinessEntries []BusinessEntryConfig `yaml:"business_entries,omitempty"`
-	MonitorAddr     string                `yaml:"monitor_addr"`
-	// LogLevel is accepted from older configs but has no runtime effect.
-	LogLevel       string               `yaml:"log_level,omitempty"`
-	TLS            TLSConfig            `yaml:"tls"`
-	Auth           AuthConfig           `yaml:"auth"`
-	Forwards       []ForwardConfig      `yaml:"forwards"`
-	Security       SecurityConfig       `yaml:"security"`
-	CredentialSeal CredentialSealConfig `yaml:"credential_seal"`
-	Runtime        RuntimeConfig        `yaml:"runtime,omitempty"`
+	ConfigPath        string               `yaml:"-"`
+	ConfigVersion     int                  `yaml:"config_version"`
+	Requires          RequiresConfig       `yaml:"requires,omitempty"`
+	Compatibility     CompatibilityConfig  `yaml:"compatibility"`
+	ListenAddr        string               `yaml:"listen_addr"`
+	IPv6TunnelEnabled bool                 `yaml:"ipv6_tunnel_enabled"`
+	MonitorAddr       string               `yaml:"monitor_addr"`
+	TLS               TLSConfig            `yaml:"tls"`
+	Auth              AuthConfig           `yaml:"auth"`
+	Forwards          []ForwardConfig      `yaml:"forwards"`
+	Security          SecurityConfig       `yaml:"security"`
+	CredentialSeal    CredentialSealConfig `yaml:"credential_seal"`
+	Runtime           RuntimeConfig        `yaml:"runtime,omitempty"`
 }
 
 func LoadConfig(path string) (Config, error) {

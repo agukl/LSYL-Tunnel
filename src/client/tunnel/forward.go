@@ -118,12 +118,14 @@ func (c *Client) handleLocal(local net.Conn, name string, fwd ForwardConfig) {
 		return
 	}
 	timeout := time.Duration(c.cfg.Connection.DialTimeoutSec) * time.Second
+	dialStarted := time.Now()
 	remote, err := transport.DialTLSWithCertificateGate(c.ctx, c.businessDialer(timeout), "tcp", c.cfg.ServerAddr, tlsCfg, c.certificateGateKey, timeout)
 	if err != nil {
 		c.recordForwardError(name, err)
 		c.log("connect server failed: %v", err)
 		return
 	}
+	connectMS := time.Since(dialStarted).Milliseconds()
 	defer remote.Close()
 	req := newOpenRequest(c.cfg, "open")
 	req.ForwardName = name
@@ -152,8 +154,8 @@ func (c *Client) handleLocal(local net.Conn, name string, fwd ForwardConfig) {
 		return
 	}
 	c.setForwardState(name, ForwardListening, "本地端口监听中")
-	streamDone := c.beginForwardStream(name)
+	streamDone := c.beginForwardStream(name, remote.RemoteAddr().String(), connectMS)
 	defer streamDone()
 	c.log("stream open %s -> %s", name, fwd.ServerTarget)
-	transport.ProxyPair(remote, local, nil, nil)
+	transport.ProxyPair(&meteredBusinessConn{Conn: remote, up: &c.bytesUp, down: &c.bytesDown}, local, nil, nil)
 }

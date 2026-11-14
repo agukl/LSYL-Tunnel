@@ -181,7 +181,7 @@ func TestCertificateGateRejectsTLSFirstClient(t *testing.T) {
 	waitForCounter(t, func() int64 { return server.entryProtocolRejected.Load() }, 1, time.Second)
 }
 
-func TestServerLimitsConcurrentStreamsPerUser(t *testing.T) {
+func TestServerAllowsConcurrentStreamsForSameUser(t *testing.T) {
 	certFile, keyFile := writeTestCertificate(t)
 	echoLn := startEchoServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -201,13 +201,12 @@ func TestServerLimitsConcurrentStreamsPerUser(t *testing.T) {
 			AllowedUsers: []string{"alice"},
 		}},
 		Security: SecurityConfig{
-			HandshakeTimeoutSec:         3,
-			DialTimeoutSec:              3,
-			MaxHandshakeBytes:           32768,
-			MaxConcurrentStreamsPerUser: 1,
-			AuthFailThreshold:           3,
-			AuthFailWindowSec:           60,
-			AuthFailBlockSec:            60,
+			HandshakeTimeoutSec: 3,
+			DialTimeoutSec:      3,
+			MaxHandshakeBytes:   32768,
+			AuthFailThreshold:   3,
+			AuthFailWindowSec:   60,
+			AuthFailBlockSec:    60,
 		},
 	}, t.Logf)
 	if err != nil {
@@ -220,15 +219,14 @@ func TestServerLimitsConcurrentStreamsPerUser(t *testing.T) {
 	if !resp.OK {
 		t.Fatalf("first open failed: %+v", resp)
 	}
-	waitForUserStreamActive(t, server, "alice", 1, time.Second)
+	waitForActiveStreams(t, server, 1, time.Second)
 
-	second := openTargetForTest(t, server.Addr(), certFile, "alice", "secret", "echo", echoLn.Addr().String())
-	if second.OK || second.Code != "user_stream_limit" {
-		t.Fatalf("second open response = %+v, want user_stream_limit", second)
+	second, response := openTargetConnForTest(t, server.Addr(), certFile, "alice", "secret", "echo", echoLn.Addr().String())
+	defer second.Close()
+	if !response.OK {
+		t.Fatalf("second open response = %+v, want success", response)
 	}
-	if got := server.userStreamLimitRejected.Load(); got != 1 {
-		t.Fatalf("userStreamLimitRejected = %d, want 1", got)
-	}
+	waitForActiveStreams(t, server, 2, time.Second)
 }
 
 func TestAccountTunnelReverseForwarding(t *testing.T) {
@@ -1164,17 +1162,16 @@ func waitForClientForwardState(t *testing.T, client *tunnel.Client, name, want s
 	t.Fatalf("timed out waiting for client forward %s to become %s; stats: %+v", name, want, client.Stats())
 }
 
-func waitForUserStreamActive(t *testing.T, server *Server, username string, want int, timeout time.Duration) {
+func waitForActiveStreams(t *testing.T, server *Server, want int64, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		got := server.userStreams.snapshot().ActiveByUser[username]
-		if got == want {
+		if server.activeStreams.Load() == want {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for user stream count %s=%d; snapshot: %+v", username, want, server.userStreams.snapshot())
+	t.Fatalf("timed out waiting for active streams = %d; got %d", want, server.activeStreams.Load())
 }
 
 func waitForTCPDialFails(t *testing.T, addr string, timeout time.Duration) {

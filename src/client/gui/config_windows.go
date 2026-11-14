@@ -20,7 +20,7 @@ func (a *App) currentLoginForm() loginForm {
 		log.Print("读取配置失败: " + err.Error())
 		cfg = defaultClientConfig(a.configPath)
 	}
-	return loginForm{ServerAddr: cfg.ServerAddr, Username: cfg.Username, Password: ""}
+	return loginForm{ServerAddr: cfg.ServerAddr, Username: cfg.Username, Password: "", DialTimeoutSec: cfg.Connection.DialTimeoutSec}
 }
 
 func (a *App) prepareLoginConfig(form loginForm) (tunnel.Config, error) {

@@ -13,14 +13,19 @@ private const val PROTOCOL_VERSION = 3
 data class OpenResponse(
     val ok: Boolean,
     val code: String,
-    val message: String
+    val message: String,
+    val businessEntries: List<String> = emptyList()
 ) {
     companion object {
-        fun fromJson(json: JSONObject): OpenResponse = OpenResponse(
-            ok = json.optBoolean("ok", false),
-            code = json.optString("code", ""),
-            message = json.optString("message", "")
-        )
+        fun fromJson(json: JSONObject): OpenResponse {
+            val entries = json.optJSONArray("business_entries")
+            return OpenResponse(
+                ok = json.optBoolean("ok", false),
+                code = json.optString("code", ""),
+                message = json.optString("message", ""),
+                businessEntries = if (entries == null) emptyList() else List(entries.length()) { entries.optString(it) }
+            )
+        }
     }
 }
 
@@ -33,13 +38,27 @@ class ProtocolClient(
     certBytes: ByteArray
 ) : TunnelProtocol {
     private val connector = PinnedTlsConnector(certBytes)
+    @Volatile private var pool: Ipv6EndpointPool? = null
+    @Volatile private var loggedIn = false
 
-    override fun health(): OpenResponse = requestAndClose("health", null)
+    override fun health(): OpenResponse {
+        if (!loggedIn) synchronized(this) {
+            if (!loggedIn) {
+                val login = requestAndClose("login", null, null)
+                pool = Ipv6EndpointPool(login.businessEntries, profile.serverEndpoint())
+                    .takeIf { it.hasCandidates }
+                loggedIn = true
+                return login
+            }
+        }
+        return requestAndClose("health", null, pool)
+    }
 
-    override fun forwardCheck(forward: ForwardConfig): OpenResponse = requestAndClose("forward_check", forward)
+    override fun forwardCheck(forward: ForwardConfig): OpenResponse = requestAndClose("forward_check", forward, pool)
 
     override fun open(forward: ForwardConfig): SSLSocket {
-        val socket = connector.connect(profile)
+        val activePool = pool
+        val socket = connector.connect(profile, activePool)
         try {
             LsylProtocol.writeJson(socket.outputStream, requestJson("open", forward))
             val response = OpenResponse.fromJson(LsylProtocol.readJson(socket.inputStream))
@@ -61,8 +80,8 @@ class ProtocolClient(
         connector.cancelPending()
     }
 
-    private fun requestAndClose(type: String, forward: ForwardConfig?): OpenResponse {
-        val socket = connector.connect(profile)
+    private fun requestAndClose(type: String, forward: ForwardConfig?, activePool: Ipv6EndpointPool?): OpenResponse {
+        val socket = connector.connect(profile, activePool)
         try {
             socket.use {
                 LsylProtocol.writeJson(socket.outputStream, requestJson(type, forward))

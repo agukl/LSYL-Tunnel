@@ -120,24 +120,15 @@ func (s *Server) registerReverseStream(conn net.Conn, req protocol.OpenRequest, 
 	if inbound == nil {
 		return fmt.Errorf("reverse stream has expired")
 	}
-	releaseUserStream, ok := s.userStreams.acquire(req.Username)
-	if !ok {
-		s.userStreamLimitRejected.Add(1)
-		_ = inbound.Close()
-		s.closeReverseListenerIfIdle(rl)
-		return errUserStreamLimit
-	}
 	s.closeReverseListenerIfIdle(rl)
 	transport.EnableTCPKeepAlive(conn, reverseControlHeartbeatInterval)
 	_ = conn.SetDeadline(time.Time{})
 	resp := serverVersionResponse(protocol.OpenResponse{OK: true, Code: "ok", Message: "connected"})
 	if err := protocol.WriteJSON(conn, resp); err != nil {
-		releaseUserStream()
 		_ = inbound.Close()
 		return err
 	}
 	if !s.startWorker(func() {
-		defer releaseUserStream()
 		defer inbound.Close()
 		defer conn.Close()
 		s.totalStreams.Add(1)
@@ -145,11 +136,10 @@ func (s *Server) registerReverseStream(conn net.Conn, req protocol.OpenRequest, 
 		defer s.activeStreams.Add(-1)
 		started := time.Now()
 		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_stream", Result: "connected", Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: listenAddr, Code: "ok"})
-		inboundToClient, clientToInbound := transport.ProxyPairWithOptions(inbound, conn, &s.bytesUp, &s.bytesDown, s.proxyOptions())
+		inboundToClient, clientToInbound := transport.ProxyPair(inbound, conn, &s.bytesUp, &s.bytesDown)
 		durationMS := time.Since(started).Milliseconds()
 		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "reverse_stream", Result: "closed", RemoteIP: remoteHost(conn.RemoteAddr()), Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, ListenAddr: listenAddr, Code: "closed", DurationMS: durationMS, BytesUp: inboundToClient, BytesDown: clientToInbound})
 	}) {
-		releaseUserStream()
 		_ = inbound.Close()
 		return net.ErrClosed
 	}

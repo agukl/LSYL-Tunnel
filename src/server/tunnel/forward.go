@@ -1,19 +1,12 @@
 package tunnel
 
 import (
-	"errors"
 	"net"
 	"time"
 
 	"lsyltunnel/src/internal/protocol"
 	"lsyltunnel/src/internal/transport"
 )
-
-var errUserStreamLimit = errors.New("too many concurrent streams for account")
-
-func (s *Server) proxyOptions() transport.ProxyOptions {
-	return transport.ProxyOptions{RateLimitBytesPerSec: s.cfg.Security.StreamRateLimitBytesPerSec}
-}
 
 func (s *Server) handleOpen(conn net.Conn, req protocol.OpenRequest, user UserConfig, request *requestContext) {
 	requestID, remoteIP := request.id, request.remoteIP
@@ -26,16 +19,6 @@ func (s *Server) handleOpen(conn net.Conn, req protocol.OpenRequest, user UserCo
 		_ = protocol.WriteJSON(conn, resp)
 		return
 	}
-	releaseUserStream, ok := s.userStreams.acquire(req.Username)
-	if !ok {
-		s.userStreamLimitRejected.Add(1)
-		resp := protocol.OpenResponse{OK: false, Code: "user_stream_limit", Message: errUserStreamLimit.Error()}
-		s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "open", Result: "denied", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, Code: "user_stream_limit", Message: resp.Message})
-		recordRequest(req, "denied", "ok", resp, nil)
-		_ = protocol.WriteJSON(conn, resp)
-		return
-	}
-	defer releaseUserStream()
 	dialer := net.Dialer{Timeout: time.Duration(s.cfg.Security.DialTimeoutSec) * time.Second}
 	targetConn, err := dialer.DialContext(s.runContext(), "tcp", req.Target)
 	if err != nil {
@@ -61,7 +44,7 @@ func (s *Server) handleOpen(conn net.Conn, req protocol.OpenRequest, user UserCo
 	defer s.activeStreams.Add(-1)
 	started := time.Now()
 	s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "open", Result: "connected", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, Code: "ok"})
-	targetToClient, clientToTarget := transport.ProxyPairWithOptions(targetConn, conn, &s.bytesUp, &s.bytesDown, s.proxyOptions())
+	targetToClient, clientToTarget := transport.ProxyPair(targetConn, conn, &s.bytesUp, &s.bytesDown)
 	durationMS := time.Since(started).Milliseconds()
 	s.recordEvent(RuntimeEvent{RequestID: requestID, Kind: "open", Result: "closed", RemoteIP: remoteIP, Username: req.Username, ClientID: req.ClientID, ForwardName: req.ForwardName, Direction: req.Direction, Target: req.Target, Code: "closed", DurationMS: durationMS, BytesUp: clientToTarget, BytesDown: targetToClient})
 }

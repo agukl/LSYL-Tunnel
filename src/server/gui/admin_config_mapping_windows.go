@@ -11,13 +11,14 @@ import (
 )
 
 type adminConfig struct {
-	ListenAddr     string                `json:"listen_addr"`
-	MonitorAddr    string                `json:"monitor_addr"`
-	TLS            adminTLS              `json:"tls"`
-	Users          []adminUser           `json:"users"`
-	Forwards       []adminForward        `json:"forwards"`
-	Security       tunnel.SecurityConfig `json:"security"`
-	CredentialSeal adminCredential       `json:"credential_seal"`
+	ListenAddr        string                `json:"listen_addr"`
+	MonitorAddr       string                `json:"monitor_addr"`
+	TLS               adminTLS              `json:"tls"`
+	Users             []adminUser           `json:"users"`
+	Forwards          []adminForward        `json:"forwards"`
+	IPv6TunnelEnabled bool                  `json:"ipv6_tunnel_enabled"`
+	Security          tunnel.SecurityConfig `json:"security"`
+	CredentialSeal    adminCredential       `json:"credential_seal"`
 }
 
 type adminTLS struct {
@@ -71,10 +72,11 @@ func adminConfigFromTunnel(cfg tunnel.Config) adminConfig {
 			KeyFile:    cfg.TLS.KeyFile,
 			MinVersion: cfg.TLS.MinVersion,
 		},
-		Users:          users,
-		Forwards:       forwards,
-		Security:       cfg.Security,
-		CredentialSeal: activeCredential(cfg.CredentialSeal),
+		Users:             users,
+		Forwards:          forwards,
+		IPv6TunnelEnabled: cfg.IPv6TunnelEnabled,
+		Security:          cfg.Security,
+		CredentialSeal:    activeCredential(cfg.CredentialSeal),
 	}
 }
 
@@ -111,14 +113,13 @@ func adminConfigToTunnel(form adminConfig, existing tunnel.Config) (tunnel.Confi
 		fwd.AllowedUsers = cleanAllowedUsers(append(item.AllowedUsers, item.Owner))
 		cfg.Forwards = append(cfg.Forwards, fwd)
 	}
+	cfg.IPv6TunnelEnabled = form.IPv6TunnelEnabled
 	cfg.Security = existing.Security
 	cfg.Security.HandshakeTimeoutSec = form.Security.HandshakeTimeoutSec
 	cfg.Security.DialTimeoutSec = form.Security.DialTimeoutSec
 	cfg.Security.MaxConcurrentConnections = form.Security.MaxConcurrentConnections
 	cfg.Security.MaxConcurrentConnectionsPerIP = form.Security.MaxConcurrentConnectionsPerIP
 	cfg.Security.MaxNewConnectionsPerIPWindow = form.Security.MaxNewConnectionsPerIPWindow
-	cfg.Security.MaxConcurrentStreamsPerUser = form.Security.MaxConcurrentStreamsPerUser
-	cfg.Security.StreamRateLimitBytesPerSec = form.Security.StreamRateLimitBytesPerSec
 	cfg.Security.AuthFailWindowSec = form.Security.AuthFailWindowSec
 	cfg.Security.AuthFailThreshold = form.Security.AuthFailThreshold
 	cfg.Security.AuthFailBlockSec = form.Security.AuthFailBlockSec

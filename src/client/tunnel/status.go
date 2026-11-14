@@ -59,11 +59,20 @@ type ForwardStatus struct {
 }
 
 type ClientStats struct {
-	Health        HealthStatus    `json:"health"`
-	ServerVersion string          `json:"server_version,omitempty"`
-	Active        int64           `json:"active"`
-	Total         int64           `json:"total"`
-	Items         []ForwardStatus `json:"items"`
+	Health            HealthStatus    `json:"health"`
+	ServerVersion     string          `json:"server_version,omitempty"`
+	BusinessAddr      string          `json:"business_addr,omitempty"`
+	BusinessConnectMS int64           `json:"business_connect_ms,omitempty"`
+	BytesUp           int64           `json:"bytes_up"`
+	BytesDown         int64           `json:"bytes_down"`
+	Active            int64           `json:"active"`
+	Total             int64           `json:"total"`
+	Items             []ForwardStatus `json:"items"`
+}
+
+type businessStreamConnection struct {
+	addr      string
+	connectMS int64
 }
 
 type forwardRuntime struct {
@@ -102,12 +111,25 @@ func (c *Client) Stats() ClientStats {
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].Name < items[j].Name
 	})
+	c.streamAddrMu.Lock()
+	var latestID int64
+	var businessConn businessStreamConnection
+	for id, conn := range c.activeStreamAddrs {
+		if id > latestID {
+			latestID, businessConn = id, conn
+		}
+	}
+	c.streamAddrMu.Unlock()
 	return ClientStats{
-		Health:        health,
-		ServerVersion: serverVersion,
-		Active:        c.active.Load(),
-		Total:         c.total.Load(),
-		Items:         items,
+		Health:            health,
+		ServerVersion:     serverVersion,
+		BusinessAddr:      businessConn.addr,
+		BusinessConnectMS: businessConn.connectMS,
+		BytesUp:           c.bytesUp.Load(),
+		BytesDown:         c.bytesDown.Load(),
+		Active:            c.active.Load(),
+		Total:             c.total.Load(),
+		Items:             items,
 	}
 }
 
@@ -214,7 +236,10 @@ func (c *Client) recordForwardError(name string, err error) {
 	fwd.mu.Unlock()
 }
 
-func (c *Client) beginForwardStream(name string) func() {
+func (c *Client) beginForwardStream(name, remoteAddr string, connectMS int64) func() {
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		remoteAddr = host
+	}
 	now := time.Now().Format(time.RFC3339)
 	fwd := c.forward(name)
 	if fwd != nil {
@@ -225,9 +250,18 @@ func (c *Client) beginForwardStream(name string) func() {
 		fwd.lastError = ""
 		fwd.mu.Unlock()
 	}
-	c.total.Add(1)
+	id := c.total.Add(1)
+	c.streamAddrMu.Lock()
+	if c.activeStreamAddrs == nil {
+		c.activeStreamAddrs = make(map[int64]businessStreamConnection)
+	}
+	c.activeStreamAddrs[id] = businessStreamConnection{addr: remoteAddr, connectMS: connectMS}
+	c.streamAddrMu.Unlock()
 	c.active.Add(1)
 	return func() {
+		c.streamAddrMu.Lock()
+		delete(c.activeStreamAddrs, id)
+		c.streamAddrMu.Unlock()
 		closedAt := time.Now().Format(time.RFC3339)
 		if fwd != nil {
 			fwd.active.Add(-1)
