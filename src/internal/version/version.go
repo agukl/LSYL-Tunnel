@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	AppVersion          = "3.4.0"
+	AppVersion          = "3.5.0"
 	LegacyClientVersion = "1.1.0"
 
 	// Config versions identify YAML structure independently of the product version.

@@ -80,3 +80,24 @@ func TestEmbeddedModulesAreServedAsJavaScript(t *testing.T) {
 		}
 	}
 }
+
+func TestFramelessWindowDragRegions(t *testing.T) {
+	data, err := FS.ReadFile("styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(data)
+	for _, rule := range []string{
+		`\.brand\s*\{[^}]*--wails-draggable:\s*drag`,
+		`\.status-strip\s*\{[^}]*--wails-draggable:\s*drag`,
+		`\.status-actions\s*\{[^}]*--wails-draggable:\s*no-drag`,
+		`\.window-controls\s*\{[^}]*--wails-draggable:\s*no-drag`,
+	} {
+		if !regexp.MustCompile(rule).MatchString(css) {
+			t.Errorf("missing Wails drag region rule: %s", rule)
+		}
+	}
+	if strings.Contains(css, "app-region:") {
+		t.Fatal("Electron drag property does not enable Wails window dragging")
+	}
+}

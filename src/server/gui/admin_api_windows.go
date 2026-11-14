@@ -462,8 +462,6 @@ func friendlyError(err error) string {
 		return "monitor_addr 必须填写为 127.0.0.1:端口"
 	case strings.Contains(lower, "access is denied") || strings.Contains(text, "拒绝访问"):
 		return "没有权限执行该操作，请以管理员身份运行管理台或检查目录权限"
-	case strings.Contains(lower, "global access grants"):
-		return "全局访问授权已废弃，请在“转发端口”页面按用户配置放通端口"
 	case strings.Contains(lower, "duplicate auth user"):
 		return "用户名重复，请保留唯一用户"
 	case strings.Contains(lower, "password_hash is required"):

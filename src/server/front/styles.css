@@ -36,7 +36,7 @@ button { cursor: pointer; }
   min-height: 0;
 }
 
-.brand { display: flex; align-items: center; margin-bottom: 20px; app-region: drag; }
+.brand { display: flex; align-items: center; margin-bottom: 20px; --wails-draggable: drag; }
 .brand-mark {
   width: 44px; height: 44px; margin-right: 14px; border-radius: 8px;
   text-align: center; line-height: 44px;
@@ -143,6 +143,7 @@ p { margin: 0; color: #6d8490; line-height: 1.75; }
 .hidden { display: none; }
 
 .status-strip {
+  --wails-draggable: drag;
   margin: 0 0 14px;
   border-radius: 0;
   background: #fff;
@@ -152,11 +153,10 @@ p { margin: 0; color: #6d8490; line-height: 1.75; }
   display: flex;
   align-items: center;
 }
-.status-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-left: 14px; }
+.status-actions { --wails-draggable: no-drag; display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-left: 14px; }
 .status-strip .status-refresh { flex: 0 0 auto; min-height: var(--control-height); }
-.window-controls { display: flex; flex: 0 0 auto; align-self: stretch; margin-left: 14px; }
+.window-controls { --wails-draggable: no-drag; display: flex; flex: 0 0 auto; align-self: stretch; margin-left: 14px; }
 .window-controls button {
-  app-region: no-drag;
   width: 42px;
   min-height: 36px;
   border: 0;
@@ -201,7 +201,6 @@ p { margin: 0; color: #6d8490; line-height: 1.75; }
 .status-pill.stopped { color: #a05b00; background: #fff7e6; }
 .status-pill.stopped span { background: #f0a928; box-shadow: 0 0 0 7px rgba(240,169,40,.16); }
 .status-text {
-  app-region: drag;
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;

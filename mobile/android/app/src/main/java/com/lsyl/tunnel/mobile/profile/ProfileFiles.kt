@@ -11,11 +11,12 @@ import java.nio.file.StandardCopyOption
 internal class ProfileFiles(private val dir: File) {
     private val profileFile = File(dir, PROFILE_JSON_FILE)
     private val certFile = File(dir, SERVER_CERT_FILE)
+    private val aliasFile = File(dir, ALIAS_FILE)
 
     fun save(imported: ImportedProfile) {
         ensureDirectory()
-        atomicWrite(certFile, imported.serverCertBytes)
-        atomicWrite(profileFile, imported.rawProfileJson.toString(2).toByteArray(Charsets.UTF_8))
+        atomicWriteProfileFile(certFile, imported.serverCertBytes)
+        atomicWriteProfileFile(profileFile, imported.rawProfileJson.toString(2).toByteArray(Charsets.UTF_8))
     }
 
     fun load(): LoadedProfile? {
@@ -35,39 +36,26 @@ internal class ProfileFiles(private val dir: File) {
         json.put("forwards", JSONArray().also { array ->
             forwards.forEach { array.put(it.toJson()) }
         })
-        atomicWrite(profileFile, json.toString(2).toByteArray(Charsets.UTF_8))
+        atomicWriteProfileFile(profileFile, json.toString(2).toByteArray(Charsets.UTF_8))
     }
+
+    fun saveAlias(alias: String) {
+        val value = alias.trim().replace(Regex("\\s+"), " ")
+        if (value.length > 40) throw ProfileImportException("配置别名不能超过 40 个字符")
+        ensureDirectory()
+        atomicWriteProfileFile(aliasFile, value.toByteArray(Charsets.UTF_8))
+    }
+
+    fun readAlias(): String = if (aliasFile.isFile) aliasFile.readText(Charsets.UTF_8).trim() else ""
 
     fun delete() {
         File(dir, "$PROFILE_JSON_FILE.tmp").delete()
         File(dir, "$SERVER_CERT_FILE.tmp").delete()
+        File(dir, "$ALIAS_FILE.tmp").delete()
+        aliasFile.delete()
         certFile.delete()
         profileFile.delete()
         dir.delete()
-    }
-
-    private fun atomicWrite(target: File, bytes: ByteArray) {
-        ensureDirectory()
-        val temporary = File(dir, "${target.name}.tmp")
-        try {
-            FileOutputStream(temporary).use { output ->
-                output.write(bytes)
-                output.flush()
-                output.fd.sync()
-            }
-            try {
-                Files.move(
-                    temporary.toPath(),
-                    target.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            }
-        } finally {
-            temporary.delete()
-        }
     }
 
     private fun ensureDirectory() {
@@ -78,5 +66,29 @@ internal class ProfileFiles(private val dir: File) {
     private companion object {
         const val PROFILE_JSON_FILE = "profile.json"
         const val SERVER_CERT_FILE = "server.crt"
+        const val ALIAS_FILE = "alias.txt"
+    }
+}
+
+internal fun atomicWriteProfileFile(target: File, bytes: ByteArray) {
+    val temporary = File(target.parentFile, "${target.name}.tmp")
+    try {
+        FileOutputStream(temporary).use { output ->
+            output.write(bytes)
+            output.flush()
+            output.fd.sync()
+        }
+        try {
+            Files.move(
+                temporary.toPath(),
+                target.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    } finally {
+        temporary.delete()
     }
 }

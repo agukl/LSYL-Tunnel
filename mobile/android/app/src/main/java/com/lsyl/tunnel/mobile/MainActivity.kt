@@ -16,7 +16,9 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.InputFilter
 import android.text.InputType
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
@@ -34,6 +36,7 @@ import com.lsyl.tunnel.mobile.profile.ForwardTextConfig
 import com.lsyl.tunnel.mobile.profile.ImportedProfile
 import com.lsyl.tunnel.mobile.profile.ProfileImporter
 import com.lsyl.tunnel.mobile.profile.ProfileStore
+import com.lsyl.tunnel.mobile.profile.StoredProfile
 import com.lsyl.tunnel.mobile.service.EnhancedBackgroundPresenter
 import com.lsyl.tunnel.mobile.service.EnhancedBackgroundSettings
 import com.lsyl.tunnel.mobile.service.RuntimePresenter
@@ -47,6 +50,7 @@ import java.time.format.DateTimeFormatter
 
 class MainActivity : Activity() {
     private lateinit var userText: TextView
+    private lateinit var profileTitle: TextView
     private lateinit var expiryText: TextView
     private lateinit var statusText: TextView
     private lateinit var businessAddressText: TextView
@@ -55,14 +59,15 @@ class MainActivity : Activity() {
     private lateinit var connectBtn: Button
     private lateinit var stopBtn: Button
     private lateinit var refreshBtn: ImageButton
-    private lateinit var editBtn: Button
-    private lateinit var deleteBtn: Button
+    private lateinit var profileBtn: ImageButton
+    private lateinit var editBtn: ImageButton
     private lateinit var enhancedBackgroundSwitch: Switch
     private lateinit var enhancedBackgroundDetail: TextView
     private lateinit var store: ProfileStore
     private lateinit var runtimeStore: RuntimeStateStore
     private lateinit var enhancedBackgroundSettings: EnhancedBackgroundSettings
     private var updatingEnhancedBackgroundSwitch = false
+    private var profileCount = 0
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == TunnelForegroundService.ACTION_BUSINESS_ADDRESS) {
@@ -179,20 +184,19 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(48)
         }
+        profileBtn = topIconButton(R.drawable.ic_profiles, "切换配置") { showProfileList() }
+        editBtn = topIconButton(R.drawable.ic_edit, "编辑转发") { editForwards() }
         val title = TextView(this).apply {
             text = "LSYL Tunnel"
-            textSize = 30f
+            textSize = 23f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.rgb(7, 62, 59))
+            isSingleLine = true
+            ellipsize = TextUtils.TruncateAt.END
         }
-        refreshBtn = ImageButton(this).apply {
-            setImageResource(R.drawable.ic_refresh)
-            contentDescription = "刷新连接状态"
-            tooltipText = "刷新连接状态"
-            scaleType = ImageView.ScaleType.CENTER
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            setOnClickListener { refreshTunnel() }
-        }
+        refreshBtn = topIconButton(R.drawable.ic_refresh, "刷新连接状态") { refreshTunnel() }
+        titleRow.addView(profileBtn, LinearLayout.LayoutParams(dp(42), dp(42)))
+        titleRow.addView(editBtn, LinearLayout.LayoutParams(dp(42), dp(42)).apply { rightMargin = dp(8) })
         titleRow.addView(
             title,
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -205,7 +209,7 @@ class MainActivity : Activity() {
             background = rounded(Color.WHITE, 24)
             elevation = dp(1).toFloat()
         }
-        val profileTitle = TextView(this).apply {
+        profileTitle = TextView(this).apply {
             text = "当前配置"
             textSize = 17f
             typeface = Typeface.DEFAULT_BOLD
@@ -284,23 +288,10 @@ class MainActivity : Activity() {
         stopBtn = actionButton("断开连接", ButtonStyle.WARNING).apply {
             setOnClickListener { stopTunnel() }
         }
-        editBtn = smallActionButton("编辑转发", ButtonStyle.GHOST).apply {
-            setOnClickListener { editForwards() }
-        }
-
-        val configRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
         importBtn = smallActionButton("导入配置", ButtonStyle.GHOST).apply {
+            minHeight = dp(44)
             setOnClickListener { openProfilePicker() }
         }
-        deleteBtn = smallActionButton("删除配置", ButtonStyle.GHOST_DANGER).apply {
-            setOnClickListener { deleteProfile() }
-        }
-        configRow.addView(importBtn, weightedButtonParams(weight = 2f, endMargin = dp(4)))
-        configRow.addView(editBtn, weightedButtonParams(weight = 1f, startMargin = dp(4), endMargin = dp(4)))
-        configRow.addView(deleteBtn, weightedButtonParams(weight = 1f, startMargin = dp(4)))
 
         root.addView(titleRow)
         addWithTop(root, profileCard, dp(24))
@@ -309,7 +300,7 @@ class MainActivity : Activity() {
         addWithTop(root, connectBtn, dp(12))
         addWithTop(root, stopBtn, dp(12))
         root.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        addWithTop(root, configRow, dp(24))
+        addWithTop(root, importBtn, dp(24))
 
         scroll.addView(root, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(scroll)
@@ -369,6 +360,9 @@ class MainActivity : Activity() {
     }
 
     private fun refreshProfileView() {
+        val profiles = store.listProfiles()
+        profileCount = profiles.size
+        profileTitle.text = profiles.firstOrNull { it.active }?.alias ?: "未导入配置"
         val loaded = store.load()
         if (loaded == null) {
             updateBusinessAddress(null)
@@ -411,24 +405,44 @@ class MainActivity : Activity() {
 
     private fun showImportConfirm(imported: ImportedProfile) {
         val profile = imported.profile
-        val message = "用户：${profile.username}\n有效期至：${formatExpiry(profile.savedCredential.expiresAt)}\n\n此配置由管理员生成，导入后可直接连接。"
-        AlertDialog.Builder(this)
+        val aliasInput = EditText(this).apply {
+            hint = "别名（可选）"
+            isSingleLine = true
+            filters = arrayOf(InputFilter.LengthFilter(40))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(4), dp(20), 0)
+            addView(aliasInput)
+        }
+        val dialog = AlertDialog.Builder(this)
             .setTitle("导入连接配置")
-            .setMessage(message)
+            .setMessage("${profile.serverAddr}\n用户：${profile.username}\n有效期至：${formatExpiry(profile.savedCredential.expiresAt)}")
+            .setView(content)
             .setNegativeButton("取消", null)
-            .setPositiveButton("导入") { _, _ ->
+            .setPositiveButton("导入", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 if (!canReplaceProfileNow()) {
                     showError("请先断开连接，再导入配置")
-                    return@setPositiveButton
+                    return@setOnClickListener
                 }
-                store.save(imported)
-                runtimeStore.setDesiredRunning(false)
-                runtimeStore.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "已导入"))
-                TunnelForegroundService.clearStatusNotification(this)
-                refreshProfileView()
-                Toast.makeText(this, "配置已导入", Toast.LENGTH_SHORT).show()
+                try {
+                    store.save(imported, aliasInput.text.toString())
+                    runtimeStore.setDesiredRunning(false)
+                    runtimeStore.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "已导入"))
+                    TunnelForegroundService.clearStatusNotification(this)
+                    dialog.dismiss()
+                    refreshProfileView()
+                    Toast.makeText(this, "配置已导入并选用", Toast.LENGTH_SHORT).show()
+                } catch (err: Exception) {
+                    showError(err.message ?: "导入失败")
+                }
             }
-            .show()
+        }
+        dialog.show()
     }
 
     private fun startTunnel() {
@@ -489,28 +503,114 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
     }
 
-    private fun deleteProfile() {
+    private fun showProfileList() {
+        if (!canReplaceProfileNow()) {
+            showError("请先断开连接，再切换配置")
+            return
+        }
+        val profiles = store.listProfiles()
+        if (profiles.isEmpty()) return
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(4), dp(16), dp(4))
+        }
+        lateinit var dialog: AlertDialog
+        profiles.forEach { profile ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(64)
+            }
+            val labels = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(8), dp(8), dp(8), dp(8))
+                isClickable = true
+                isFocusable = true
+                contentDescription = if (profile.active) "当前配置：${profile.alias}" else "选择配置：${profile.alias}"
+                setOnClickListener {
+                    if (!canReplaceProfileNow()) {
+                        showError("请先断开连接，再切换配置")
+                        return@setOnClickListener
+                    }
+                    if (!profile.available) {
+                        showError("配置不可用，请删除后重新导入")
+                        return@setOnClickListener
+                    }
+                    if (!profile.active) {
+                        try {
+                            store.selectProfile(profile.id)
+                            runtimeStore.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "已切换配置"))
+                            refreshProfileView()
+                        } catch (err: Exception) {
+                            showError(err.message ?: "切换配置失败")
+                            return@setOnClickListener
+                        }
+                    }
+                    dialog.dismiss()
+                }
+            }
+            labels.addView(TextView(this).apply {
+                text = (if (profile.active) "✓  " else "") + profile.alias
+                textSize = 16f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.rgb(20, 68, 64))
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            })
+            labels.addView(TextView(this).apply {
+                text = if (profile.available) "${profile.serverAddr} · ${profile.username}" else "配置不可用"
+                textSize = 12f
+                setTextColor(Color.rgb(91, 116, 114))
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            })
+            row.addView(labels, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+            row.addView(topIconButton(R.drawable.ic_delete, "删除 ${profile.alias}") {
+                dialog.dismiss()
+                confirmDeleteProfile(profile)
+            }, LinearLayout.LayoutParams(dp(42), dp(42)))
+            list.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(64)))
+            list.addView(View(this).apply { setBackgroundColor(Color.rgb(226, 237, 235)) },
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)))
+        }
+        val scroll = ScrollView(this).apply { addView(list) }
+        dialog = AlertDialog.Builder(this)
+            .setTitle("切换配置")
+            .setView(scroll)
+            .setNegativeButton("关闭", null)
+            .create()
+        dialog.show()
+    }
+
+    private fun confirmDeleteProfile(profile: StoredProfile) {
         AlertDialog.Builder(this)
             .setTitle("删除配置")
-            .setMessage("确定删除当前配置吗？")
+            .setMessage("确定删除“${profile.alias}”吗？")
             .setNegativeButton("取消", null)
-            .setPositiveButton("继续") { _, _ -> confirmDeleteProfile() }
+            .setPositiveButton("继续") { _, _ -> confirmDeleteProfileAgain(profile) }
             .show()
     }
 
-    private fun confirmDeleteProfile() {
+    private fun confirmDeleteProfileAgain(profile: StoredProfile) {
         AlertDialog.Builder(this)
             .setTitle("再次确认删除")
             .setMessage("删除后无法恢复，需要重新导入管理员下发的配置。")
             .setNegativeButton("取消", null)
             .setPositiveButton("确认删除") { _, _ ->
-                runtimeStore.setDesiredRunning(false)
-                startService(TunnelForegroundService.stopIntent(this))
-                store.delete()
-                runtimeStore.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "未连接"))
-                TunnelForegroundService.clearStatusNotification(this)
-                refreshProfileView()
-                Toast.makeText(this, "配置已删除", Toast.LENGTH_SHORT).show()
+                if (!canReplaceProfileNow()) {
+                    showError("请先断开连接，再删除配置")
+                    return@setPositiveButton
+                }
+                try {
+                    store.deleteProfile(profile.id)
+                    runtimeStore.publish(RuntimeSnapshot(TunnelPhase.DISCONNECTED, "未连接"))
+                    TunnelForegroundService.clearStatusNotification(this)
+                    refreshProfileView()
+                    Toast.makeText(this, "配置已删除", Toast.LENGTH_SHORT).show()
+                } catch (err: Exception) {
+                    showError(err.message ?: "删除配置失败")
+                }
             }
             .show()
     }
@@ -594,15 +694,15 @@ class MainActivity : Activity() {
         connectBtn.isEnabled = presentation.canConnect
         stopBtn.isEnabled = presentation.canDisconnect && snapshot.phase != TunnelPhase.STOPPING
         refreshBtn.isEnabled = presentation.canRefresh
+        profileBtn.isEnabled = profileCount > 0 && presentation.canReplaceProfile
         editBtn.isEnabled = presentation.canEditConfig
         importBtn.isEnabled = presentation.canReplaceProfile
-        deleteBtn.isEnabled = hasProfile && presentation.canReplaceProfile
         applyButtonStyle(connectBtn, ButtonStyle.PRIMARY)
         applyButtonStyle(stopBtn, ButtonStyle.WARNING)
-        applyRefreshButtonStyle()
-        applyButtonStyle(editBtn, ButtonStyle.GHOST, small = true)
+        applyTopIconStyle(profileBtn)
+        applyTopIconStyle(editBtn)
+        applyTopIconStyle(refreshBtn)
         applyButtonStyle(importBtn, ButtonStyle.GHOST, small = true)
-        applyButtonStyle(deleteBtn, ButtonStyle.GHOST_DANGER, small = true)
     }
 
     private fun updateBusinessAddress(address: String?) {
@@ -682,32 +782,40 @@ class MainActivity : Activity() {
         applyButtonStyle(this, style, small = true)
     }
 
+    private fun topIconButton(icon: Int, description: String, action: () -> Unit): ImageButton = ImageButton(this).apply {
+        setImageResource(icon)
+        contentDescription = description
+        tooltipText = description
+        scaleType = ImageView.ScaleType.CENTER
+        setPadding(dp(10), dp(10), dp(10), dp(10))
+        setOnClickListener { action() }
+        applyTopIconStyle(this)
+    }
+
     private fun applyButtonStyle(button: Button, style: ButtonStyle, small: Boolean = false) {
         val enabled = button.isEnabled
         val bg = when {
             !enabled -> Color.rgb(222, 234, 232)
             style == ButtonStyle.PRIMARY -> Color.rgb(0, 137, 126)
             style == ButtonStyle.WARNING -> Color.rgb(255, 248, 232)
-            style == ButtonStyle.GHOST_DANGER -> Color.rgb(255, 243, 242)
             else -> Color.rgb(235, 247, 245)
         }
         val fg = when {
             !enabled -> Color.rgb(130, 153, 150)
             style == ButtonStyle.PRIMARY -> Color.WHITE
             style == ButtonStyle.WARNING -> Color.rgb(136, 88, 0)
-            style == ButtonStyle.GHOST_DANGER -> Color.rgb(174, 55, 50)
             else -> Color.rgb(13, 104, 97)
         }
         button.setTextColor(fg)
         button.background = rounded(bg, if (small) 14 else 20)
     }
 
-    private fun applyRefreshButtonStyle() {
-        val enabled = refreshBtn.isEnabled
-        refreshBtn.setColorFilter(
+    private fun applyTopIconStyle(button: ImageButton) {
+        val enabled = button.isEnabled
+        button.setColorFilter(
             if (enabled) Color.rgb(13, 104, 97) else Color.rgb(130, 153, 150)
         )
-        refreshBtn.background = GradientDrawable().apply {
+        button.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(if (enabled) Color.rgb(235, 247, 245) else Color.rgb(222, 234, 232))
         }
@@ -718,16 +826,6 @@ class MainActivity : Activity() {
             topMargin = top
         })
     }
-
-    private fun weightedButtonParams(
-        weight: Float,
-        startMargin: Int = 0,
-        endMargin: Int = 0
-    ): LinearLayout.LayoutParams =
-        LinearLayout.LayoutParams(0, dp(40), weight).apply {
-            leftMargin = startMargin
-            rightMargin = endMargin
-        }
 
     private fun rounded(color: Int, radiusDp: Int): GradientDrawable =
         GradientDrawable().apply {
@@ -750,8 +848,7 @@ class MainActivity : Activity() {
     private enum class ButtonStyle {
         PRIMARY,
         WARNING,
-        GHOST,
-        GHOST_DANGER
+        GHOST
     }
 
     companion object {
